@@ -2,10 +2,9 @@
   "name": "kd-race-frontend",
   "version": "1.0.0",
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "start": "react-app-rewired start",
+    "build": "react-app-rewired build",
+    "test": "react-app-rewired test"
   },
   "dependencies": {
     "pixi.js": "^6.5.6",
@@ -14,7 +13,9 @@
     "react-scripts": "5.0.0",
     "socket.io-client": "^4.5.0"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "react-app-rewired": "^2.2.1"
+  },
   "proxy": "http://localhost:4000",
   "browserslist": {
     "production": [

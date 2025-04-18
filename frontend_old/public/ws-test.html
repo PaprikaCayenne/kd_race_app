@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>WebSocket Race Test v2</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body>
+  <h1>WebSocket Listener</h1>
+  <pre id="log"></pre>
+
+  <script>
+    const log = (msg) => {
+      const pre = document.getElementById("log");
+      pre.textContent += msg + "\n";
+    };
+
+    // ✅ Updated to match the server's IP and port
+    const socket = io("http://192.168.50.212:4000/race");
+
+    socket.on("connect", () => {
+      log("✅ Connected to /race namespace");
+
+      // Manually trigger a race
+      socket.emit("startRace", {
+        raceId: 4, // Update this number if needed
+        horses: [
+          { id: 1, name: "Lease Lightning", color: "Crimson" },
+          { id: 7, name: "Escalation Rider", color: "Gray" },
+          { id: 11, name: "Sublease Stampede", color: "Navy" },
+          { id: 4, name: "Cap Rate Crusher", color: "Black" }
+        ]
+      });
+    });
+
+    socket.on("race:init", (data) => log("🏁 race:init → " + JSON.stringify(data)));
+    socket.on("race:tick", (data) => log("🏇 race:tick → " + JSON.stringify(data)));
+    socket.on("race:finish", (data) => log("🏆 race:finish → " + JSON.stringify(data)));
+  </script>
+</body>
+</html>

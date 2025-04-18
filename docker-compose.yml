@@ -2,60 +2,60 @@ services:
   # 🐴 Node.js API service for the race backend
   kd_api:
     build:
-      context: ./api                            # Build from the ./api folder using its Dockerfile
+      context: ./api                            # Build using Dockerfile in ./api
       args:
-        NODE_ENV: development                   # Pass NODE_ENV as a build argument
+        NODE_ENV: development                   # Pass environment mode to Docker build
     container_name: kd_api
-    working_dir: /usr/src/app
-    command: sh -c "npx prisma generate && npm run dev"  # Ensure Prisma client is generated on container start
+    working_dir: /usr/src/app                   # Set working directory inside container
+    command: sh -c "npx prisma generate && npm run dev"  # Generate Prisma client and run dev server
     volumes:
-      - ./api:/usr/src/app                      # Bind-mount the entire ./api directory for live code + schema access
-      - kd_api_node_modules:/usr/src/app/node_modules  # Keep node_modules isolated from host system
+      - ./api:/usr/src/app                      # Mount API source code (live code + Prisma schema)
+      - kd_api_node_modules:/usr/src/app/node_modules  # Separate node_modules to avoid host conflicts
     environment:
       - NODE_ENV=development
-      - DATABASE_URL=postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby
-      - API_ADMIN_PASS=${API_ADMIN_PASS}
+      - DATABASE_URL=postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby  # Connect to external Postgres
+      - API_ADMIN_PASS=${API_ADMIN_PASS}        # Secret to authorize /api/admin/start
     ports:
-      - "4000:4000"
-    restart: unless-stopped
+      - "4000:4000"                             # Expose backend port for API and WebSocket
+    restart: unless-stopped                     # Auto-restart unless manually stopped
     networks:
-      - kd_net
+      - kd_net                                  # Join the shared internal app network
 
-  # 🧱 Frontend builder container (run manually or with --profile build)
+  # 🧱 Frontend builder (manual or --profile build)
   kd_frontend_builder:
-    image: node:20
+    image: node:20                               # Use official Node image for builds
     container_name: kd_frontend_builder
     working_dir: /usr/src/app
     volumes:
-      - ./frontend:/usr/src/app                 # Mount the React frontend source
-      - /websites/kd_race_app:/output           # Output directory for built files
-    command: bash -c "npm install && npm run build && cp -r build/* /output"
-    restart: on-failure
+      - ./frontend:/usr/src/app                  # Mount React frontend source code
+      - /websites/kd_race_app:/output            # Output location for build artifacts
+    command: bash -c "npm install && npm run build && cp -r build/* /output"  # Build + copy to shared volume
+    restart: on-failure                          # Restart build container only if it fails
     networks:
       - kd_net
 
-  # 🌐 Nginx server to host frontend and proxy backend/API
+  # 🌐 Nginx web server to serve frontend and reverse proxy to backend
   kd_nginx:
     build:
-      context: ./nginx
+      context: ./nginx                          # Use Dockerfile in ./nginx
     container_name: kd_nginx
     depends_on:
-      - kd_api
+      - kd_api                                  # Wait for backend to be available
     ports:
-      - "8086:80"                                # Public port to access the app
+      - "8086:80"                               # Expose Nginx at http://localhost:8086
     volumes:
-      - /websites/kd_race_app:/usr/share/nginx/html:ro  # Serve the built frontend
-      - ./nginx/kd.conf:/etc/nginx/conf.d/default.conf:ro  # Proxy /api and /race (ws) to backend
+      - /websites/kd_race_app:/usr/share/nginx/html:ro  # Serve built React app from /output
+      - ./nginx/kd.conf:/etc/nginx/conf.d/default.conf:ro  # Custom config for proxying API + WebSocket
     restart: unless-stopped
     networks:
       - kd_net
 
-# 🔌 Docker internal network
+# 🔌 Shared internal Docker network for container-to-container communication
 networks:
   kd_net:
-    name: kd_net
+    name: kd_net                                # Explicit name for clarity and reuse
     driver: bridge
 
-# 📦 Volumes for isolated development
+# 📦 Named volumes to isolate node_modules and avoid permission issues
 volumes:
-  kd_api_node_modules:
+  kd_api_node_modules:                          # Used for backend node_modules only
