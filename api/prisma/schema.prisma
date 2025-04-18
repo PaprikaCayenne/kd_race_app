@@ -9,9 +9,13 @@ datasource db {
 
 model User {
   id            Int             @id @default(autoincrement())
-  name          String
-  created_at    DateTime        @default(now())
+  firstName     String
+  lastName      String
+  nickname      String?
+  createdAt     DateTime        @default(now())
   registrations Registration[]
+
+  @@map("users") // ✅ maps to existing `users` table
 }
 
 model Horse {
@@ -20,6 +24,8 @@ model Horse {
   color         String
   registrations Registration[]
   results       Result[]
+
+  @@map("horses") // ✅ maps to existing `horses` table
 }
 
 model Registration {
@@ -29,6 +35,8 @@ model Registration {
   horse      Horse    @relation(fields: [horse_id], references: [id])
   horse_id   Int
   created_at DateTime @default(now())
+
+  @@map("registrations") // ✅ maps to existing `registrations` table
 }
 
 model Race {
@@ -36,6 +44,8 @@ model Race {
   started_at DateTime?
   ended_at   DateTime?
   results    Result[]
+
+  @@map("races") // ✅ maps to existing `races` table
 }
 
 model Result {
@@ -46,4 +56,6 @@ model Result {
   horse_id  Int
   position  Int
   time_ms   Int
+
+  @@map("results") // ✅ maps to existing `results` table
 }

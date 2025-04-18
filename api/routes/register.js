@@ -1,37 +1,41 @@
 import express from "express";
-import { pool } from "../db.js";
+import { PrismaClient } from "@prisma/client";
 
+const prisma = new PrismaClient();
 const router = express.Router();
 
 router.post("/", async (req, res) => {
-  const { name, horseId, deviceId } = req.body;
-  if (!name || !horseId || !deviceId) {
-    return res.status(400).json({ error: "Name, horseId, and deviceId are required" });
+  const { firstName, lastName, nickname, horseId, deviceId } = req.body;
+
+  // Validate required fields
+  if (!firstName || !lastName || !horseId || !deviceId) {
+    return res.status(400).json({ error: "firstName, lastName, horseId, and deviceId are required" });
   }
 
   try {
-    const client = await pool.connect();
+    let user = await prisma.user.findUnique({
+      where: { device_id: deviceId },
+    });
 
-    let result = await client.query("SELECT id FROM users WHERE device_id = $1", [deviceId]);
-    let userId;
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+          nickname: nickname || null,
+          device_id: deviceId,
+        },
+      });
 
-    if (result.rows.length > 0) {
-      userId = result.rows[0].id;
-    } else {
-      result = await client.query(
-        "INSERT INTO users (name, device_id) VALUES ($1, $2) RETURNING id",
-        [name, deviceId]
-      );
-      userId = result.rows[0].id;
-
-      await client.query(
-        "INSERT INTO registrations (user_id, horse_id) VALUES ($1, $2)",
-        [userId, horseId]
-      );
+      await prisma.registration.create({
+        data: {
+          user_id: user.id,
+          horse_id: horseId,
+        },
+      });
     }
 
-    client.release();
-    res.json({ userId });
+    res.json({ userId: user.id });
   } catch (err) {
     console.error("Registration error:", err);
     res.status(500).json({ error: "Internal server error" });
