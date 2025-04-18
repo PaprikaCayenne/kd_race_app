@@ -4,24 +4,39 @@ FROM node:20
 # Set working directory
 WORKDIR /usr/src/app
 
-# Copy only package files first (for caching)
+# Copy package files first for caching
 COPY package*.json ./
 
-# Install all deps (prod/dev depends on build arg)
+# Set environment
 ARG NODE_ENV=production
 ENV NODE_ENV=$NODE_ENV
 
+# Install Prisma + client before app deps
+RUN npm install prisma --save-dev @prisma/client
+
+# Install app dependencies conditionally
 RUN if [ "$NODE_ENV" = "development" ]; then \
       npm install; \
     else \
       npm install --omit=dev; \
     fi
 
-# Copy app source
-COPY . .
+# Copy full prisma folder
+COPY prisma ./prisma
 
-# Expose port
+# Copy the rest of the backend app
+COPY db.js ./
+COPY index.js ./
+COPY nodemon.json ./
+COPY routes ./routes
+COPY sockets ./sockets
+COPY src ./src
+
+# Generate Prisma client
+RUN ./node_modules/.bin/prisma generate --schema=./prisma/schema.prisma
+
+# Expose API port
 EXPOSE 4000
 
-# Default command: overridden by Compose
+# Start server
 CMD ["node", "index.js"]

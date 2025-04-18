@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            Int             @id @default(autoincrement())
+  name          String
+  created_at    DateTime        @default(now())
+  registrations Registration[]
+}
+
+model Horse {
+  id            Int             @id @default(autoincrement())
+  name          String
+  color         String
+  registrations Registration[]
+  results       Result[]
+}
+
+model Registration {
+  id         Int      @id @default(autoincrement())
+  user       User     @relation(fields: [user_id], references: [id])
+  user_id    Int
+  horse      Horse    @relation(fields: [horse_id], references: [id])
+  horse_id   Int
+  created_at DateTime @default(now())
+}
+
+model Race {
+  id         Int     @id @default(autoincrement())
+  started_at DateTime?
+  ended_at   DateTime?
+  results    Result[]
+}
+
+model Result {
+  id        Int    @id @default(autoincrement())
+  race      Race   @relation(fields: [race_id], references: [id])
+  race_id   Int
+  horse     Horse  @relation(fields: [horse_id], references: [id])
+  horse_id  Int
+  position  Int
+  time_ms   Int
+}
