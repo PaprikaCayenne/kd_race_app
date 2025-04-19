@@ -21,24 +21,20 @@ services:
     networks:
       - kd_net                                  # Join the shared internal app network
 
-  # 🎨 Frontend (Vite + React 18 + TailwindCSS + PixiJS)
-  kd_frontend:
-    build:
-      context: ./frontend                       # Build using Dockerfile in ./frontend
-    container_name: kd_frontend
-    working_dir: /app
+  # 🧱 Frontend builder (manual or --profile build)
+  kd_frontend_builder:
+    image: node:20                               # Use official Node image for builds
+    container_name: kd_frontend_builder
+    working_dir: /usr/src/app
     volumes:
-      - ./frontend:/app                         # Mount Vite frontend source code
-    command: npm run dev                        # Start Vite dev server with hot reload
-    ports:
-      - "5173:5173"                             # Expose frontend at http://localhost:5173 (or 192.168.50.212:5173 for LAN)
-    depends_on:
-      - kd_api                                  # Wait for backend to be ready (if needed)
-    restart: unless-stopped
+      - ./frontend:/usr/src/app                  # Mount React frontend source code
+      - /websites/kd_race_app:/output            # Output location for build artifacts
+    command: bash -c "npm install && npm run build && cp -r build/* /output"  # Build + copy to shared volume
+    restart: on-failure                          # Restart build container only if it fails
     networks:
       - kd_net
 
-  # 🌐 Nginx web server to serve production frontend and proxy API/WebSocket
+  # 🌐 Nginx web server to serve frontend and reverse proxy to backend
   kd_nginx:
     build:
       context: ./nginx                          # Use Dockerfile in ./nginx
@@ -46,9 +42,9 @@ services:
     depends_on:
       - kd_api                                  # Wait for backend to be available
     ports:
-      - "8086:80"                               # Expose Nginx at http://localhost:8086 (production static site)
+      - "8086:80"                               # Expose Nginx at http://localhost:8086
     volumes:
-      - /websites/kd_race_app:/usr/share/nginx/html:ro  # Serve production React app from /output
+      - /websites/kd_race_app:/usr/share/nginx/html:ro  # Serve built React app from /output
       - ./nginx/kd.conf:/etc/nginx/conf.d/default.conf:ro  # Custom config for proxying API + WebSocket
     restart: unless-stopped
     networks:
