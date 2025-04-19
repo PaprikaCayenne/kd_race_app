@@ -21,6 +21,11 @@ export const prisma = new PrismaClient();
 // Health check
 app.get("/api/health", (_req, res) => res.send("OK\n"));
 
+// Root route: Add this to handle requests to the root '/'
+app.get('/', (req, res) => {
+  res.send('Welcome to the KD Race API!');
+});
+
 // Debug: list all users
 app.get("/api/users", async (_req, res) => {
   const users = await prisma.user.findMany();

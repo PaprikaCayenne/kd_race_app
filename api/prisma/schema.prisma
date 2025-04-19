@@ -9,11 +9,11 @@ datasource db {
 
 model User {
   id            Int             @id @default(autoincrement())
-  firstName     String
-  lastName      String
-  nickname      String?
-  createdAt     DateTime        @default(now())
-  registrations Registration[]
+  first_name    String          @map("first_name")  // Match the column in the database
+  last_name     String          @map("last_name")    // Match the column in the database
+  nickname      String?         @map("nickname")
+  created_at    DateTime        @default(now())  @map("created_at")  // Match the column in the database
+  registrations Registration[]  @map("registrations")
 
   @@map("users") // ✅ maps to existing `users` table
 }
@@ -22,8 +22,8 @@ model Horse {
   id            Int             @id @default(autoincrement())
   name          String
   color         String
-  registrations Registration[]
-  results       Result[]
+  registrations Registration[]  @map("registrations")
+  results       Result[]        @map("results")
 
   @@map("horses") // ✅ maps to existing `horses` table
 }
@@ -34,16 +34,16 @@ model Registration {
   user_id    Int
   horse      Horse    @relation(fields: [horse_id], references: [id])
   horse_id   Int
-  created_at DateTime @default(now())
+  created_at DateTime @default(now()) @map("created_at")  // Match the column in the database
 
   @@map("registrations") // ✅ maps to existing `registrations` table
 }
 
 model Race {
   id         Int     @id @default(autoincrement())
-  started_at DateTime?
-  ended_at   DateTime?
-  results    Result[]
+  started_at DateTime? @map("started_at")  // Match the column in the database
+  ended_at   DateTime? @map("ended_at")    // Match the column in the database
+  results    Result[]  @map("results")
 
   @@map("races") // ✅ maps to existing `races` table
 }
