@@ -1,21 +1,30 @@
-# frontend/Dockerfile
-
-# Use lightweight Node.js image
-FROM node:18-alpine
-
-# Set working directory inside the container
+# Stage 1: Build the Vite app
+FROM node:18-alpine AS builder
 WORKDIR /app
 
-# Copy dependency manifests and install them
+# Create media-apps user/group to match host (UID/GID 1000)
+RUN addgroup -g 1000 media-apps && adduser -D -G media-apps -u 1000 media-apps
+
+# Install deps
 COPY package.json package-lock.json* ./
 RUN npm install
 
-# Copy the rest of the frontend source code
+# Copy source and build
 COPY . .
+RUN npm run build
 
-# Optionally switch to non-root user for security (commented out for volume compatibility)
-# USER node
+# Set ownership on build output so root doesn't own it later
+RUN chown -R media-apps:media-apps /app
 
-# Start the Vite development server
-CMD ["npm", "run", "dev"]
+# Stage 2: Serve with nginx
+FROM nginx:alpine
 
+# Create the same user here if needed
+RUN addgroup -g 1000 media-apps && adduser -D -G media-apps -u 1000 media-apps
+
+# Copy built files with correct ownership
+COPY --from=builder /app/dist /usr/share/nginx/html
+RUN chown -R media-apps:media-apps /usr/share/nginx/html
+
+# (Optional) run as media-apps instead of root:
+# USER media-apps

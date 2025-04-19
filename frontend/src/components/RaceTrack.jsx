@@ -1,87 +1,117 @@
 import React, { useEffect, useRef, useState } from 'react';
-import * as PIXI from 'pixi.js';
+import { Application, Graphics, VERSION } from 'pixi.js';
 import io from 'socket.io-client';
+
+console.log('[Pixi] Version:', VERSION);
 
 const RaceTrack = () => {
   const canvasRef = useRef(null);
   const [horses, setHorses] = useState([]);
   const [raceStarted, setRaceStarted] = useState(false);
 
+  const appRef = useRef(null);
+  const horseSpritesRef = useRef(new Map());
+
+  // 🎧 WebSocket Connection
   useEffect(() => {
-    const socket = io('http://192.168.50.212:4000'); // Update to your backend WebSocket URL
-    
+    console.log('[WS] Connecting...');
+    const socket = io('wss://kd.paprikacayenne.com/api/race', {
+      transports: ['websocket'],
+    });
+
     socket.on('race:init', (data) => {
-      setHorses(data.horses); // Initialize horses
+      console.log('[WS] race:init', data);
+      const initializedHorses = data.horses.map((h, index) => ({
+        ...h,
+        position: 50 + index * 30,
+      }));
+      setHorses(initializedHorses);
       setRaceStarted(true);
     });
 
     socket.on('race:tick', (data) => {
-      setHorses(prevHorses =>
-        prevHorses.map(horse => horse.id === data.horseId 
-          ? { ...horse, position: data.position } 
-          : horse
+      setHorses((prev) =>
+        prev.map((h) =>
+          h.id === data.horseId ? { ...h, position: 50 + data.pct * 9 } : h
         )
       );
     });
 
     socket.on('race:finish', (leaderboard) => {
-      console.log('Race finished!', leaderboard);
+      console.log('[WS] race:finish 🏍️', leaderboard);
+      setRaceStarted(false);
     });
 
-    return () => {
-      socket.disconnect();
-    };
+    return () => socket.disconnect();
   }, []);
 
+  // 🎨 Initialize PixiJS App
   useEffect(() => {
-    if (canvasRef.current) {
-      const app = new PIXI.Application({
+    if (!canvasRef.current || appRef.current) return;
+
+    const initPixi = async () => {
+      console.log('[Pixi] Creating app...');
+      const app = await Application.init({
         view: canvasRef.current,
-        width: 800,
-        height: 600,
-        backgroundColor: 0x1099bb
+        width: 1000,
+        height: 300,
+        background: '#d0f0e0',
+        antialias: true,
       });
 
-      // Add race track (you can customize this later)
-      const track = new PIXI.Graphics();
-      track.beginFill(0xFFFFFF);
-      track.drawRect(50, 100, 700, 20); // Track dimensions
-      track.endFill();
-      app.stage.addChild(track);  // Add the track to the PixiJS stage
+      appRef.current = app;
 
-      // Ensure we have horses before adding them to the stage
-      if (horses.length > 0) {
-        horses.forEach((horse) => {
-          const horseSprite = new PIXI.Graphics();
-          horseSprite.beginFill(horse.color || 0xFF0000); // Default to red if no color
-          horseSprite.drawRect(0, 0, 30, 10); // Horse size
-          horseSprite.endFill();
-          horseSprite.position.set(horse.position || 50, 100); // Default start position
-          app.stage.addChild(horseSprite); // Add horse to stage
-        });
-      }
+      const track = new Graphics();
+      track.rect(50, 40, 900, 220).fill(0xffffff);
+      app.stage.addChild(track);
 
-      // Start animation loop
-      app.ticker.add(() => {
-        if (raceStarted) {
-          horses.forEach((horse, index) => {
-            const horseSprite = app.stage.children[index + 1]; // Offset by 1 since track is the first child
-            if (horseSprite) {
-              horseSprite.x += 1; // Move horses forward on the track
-            }
+      if (app.ticker) {
+        app.ticker.add(() => {
+          horses.forEach((horse) => {
+            const sprite = horseSpritesRef.current.get(horse.id);
+            if (sprite) sprite.x = horse.position;
           });
-        }
-      });
-    }
+        });
+      } else {
+        console.warn('[Pixi] app.ticker is undefined');
+      }
+    };
+
+    initPixi();
 
     return () => {
-      // Cleanup PixiJS on unmount
+      if (appRef.current) {
+        appRef.current.destroy(true, { children: true });
+        appRef.current = null;
+        horseSpritesRef.current.clear();
+      }
     };
-  }, [horses, raceStarted]);
+  }, [horses]);
+
+  // 🐎 Render Horses
+  useEffect(() => {
+    const app = appRef.current;
+    if (!app || horses.length === 0) return;
+
+    horses.forEach((horse, index) => {
+      if (!horseSpritesRef.current.has(horse.id)) {
+        const color = parseInt((horse.color || '#ff0000').replace('#', ''), 16);
+        const sprite = new Graphics();
+        sprite.rect(0, 0, 40, 20).fill(color);
+        sprite.x = horse.position || 50;
+        sprite.y = 60 + index * 40;
+
+        horseSpritesRef.current.set(horse.id, sprite);
+        app.stage.addChild(sprite);
+
+        console.log(`[Pixi] Added horse ${horse.name} at (${sprite.x}, ${sprite.y})`);
+      }
+    });
+  }, [horses]);
 
   return (
-    <div>
-      <h2 className="text-xl font-bold">Race Track</h2>
+    <div className="p-4">
+      <h2 className="text-xl font-bold mb-2">Race Track</h2>
       <canvas ref={canvasRef} />
     </div>
   );
