@@ -17,6 +17,7 @@ services:
       - API_ADMIN_PASS=${API_ADMIN_PASS}        # Secret to authorize /api/admin/start
     ports:
       - "4000:4000"                             # Expose backend port for API and WebSocket
+      - "5555:5555"  # ✅ Expose Prisma Studio to host
     restart: unless-stopped                     # Auto-restart unless manually stopped
     networks:
       - kd_net                                  # Join the shared internal app network

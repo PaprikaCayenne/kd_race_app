@@ -2,19 +2,19 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  // Clear existing data
+  // 🧹 Clear existing data in the correct order (respecting FK constraints)
   await prisma.result.deleteMany();
   await prisma.race.deleteMany();
   await prisma.registration.deleteMany();
   await prisma.user.deleteMany();
   await prisma.horse.deleteMany();
 
-  // Seed horses (create individually so we can capture IDs)
+  // 🐎 Seed a few horses and store references to use their IDs later
   const redHorse = await prisma.horse.create({ data: { name: 'Leaseloon Lightning', color: 'red' } });
   const blueHorse = await prisma.horse.create({ data: { name: 'Commission Crusher', color: 'blue' } });
   const greenHorse = await prisma.horse.create({ data: { name: 'Slack Galloper', color: 'green' } });
 
-  // Create other horses if you want to expand the pool
+  // 🐴 Add more horses using createMany (IDs not needed here)
   await prisma.horse.createMany({
     data: [
       { name: 'Elevator Pitcher', color: 'yellow' },
@@ -25,7 +25,7 @@ async function main() {
     ]
   });
 
-  // Seed users (capture IDs)
+  // 🙋‍♂️ Create test users with unique deviceIds
   const colin = await prisma.user.create({
     data: { firstName: 'Colin', lastName: 'DiBiase', nickname: 'CD', deviceId: 'device_cd' }
   });
@@ -36,7 +36,7 @@ async function main() {
     data: { firstName: 'Riley', lastName: 'Spacefinder', nickname: 'RS', deviceId: 'device_rs' }
   });
 
-  // Registrations (use captured IDs)
+  // 📝 Register each user with a horse using camelCase field names
   await prisma.registration.createMany({
     data: [
       { userId: colin.id, horseId: redHorse.id },
@@ -45,7 +45,7 @@ async function main() {
     ]
   });
 
-  // Simulate a race
+  // 🏁 Create a simulated race event
   const race = await prisma.race.create({
     data: {
       startedAt: new Date(),
@@ -53,6 +53,7 @@ async function main() {
     }
   });
 
+  // 🥇 Record race results for the top 3 finishers
   await prisma.result.createMany({
     data: [
       { raceId: race.id, horseId: redHorse.id, position: 1, timeMs: 10234 },
