@@ -2,27 +2,26 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 
-// ✅ Modular Pixi imports (v8 style)
+// ✅ Modular PixiJS v7.4.3 imports
 import { Application } from '@pixi/app';
 import { Graphics } from '@pixi/graphics';
 import { TickerPlugin } from '@pixi/ticker';
 import { Renderer } from '@pixi/core';
-import { VERSION } from '@pixi/constants';
-import '@pixi/display'; // required for `stage.addChild`
+import '@pixi/display';
 
 import io from 'socket.io-client';
 
-// 🐛 Toggle debug logs
+// 🐛 Toggle debug logging
 const DEBUG = true;
 const debugLog = (...args) => DEBUG && console.log(...args);
 
-debugLog('[KD] RaceTrack Loaded – v0.4.1');
-debugLog('[Pixi] Version:', VERSION);
-debugLog('[WS] Connecting...');
+// 🏁 Initial console output
+debugLog('[KD] RaceTrack Loaded – v0.4.6');
+debugLog('[Pixi] PixiJS v7 modular setup active');
+debugLog('[WS] Connecting to /race namespace...');
+debugLog('[Pixi] No plugin registration needed in v7');
 
-// 📦 Register plugins
-Application.registerPlugin(TickerPlugin);
-Application.registerPlugin(Renderer);
+let socket;
 
 const RaceTrack = () => {
   const canvasRef = useRef(null);
@@ -32,22 +31,25 @@ const RaceTrack = () => {
   const appRef = useRef(null);
   const horseSpritesRef = useRef(new Map());
 
-  // 🌐 WebSocket connection to race namespace
+  // 🌐 Setup WebSocket connection once
   useEffect(() => {
-    const socket = io('/race', { path: '/api/socket.io' });
+    socket = io('/race', {
+      path: '/api/socket.io',
+      transports: ['websocket'],
+    });
 
     socket.on('race:init', (data) => {
-      debugLog('[WS] race:init', data);
-      const initializedHorses = data.horses.map((h, index) => ({
+      debugLog('[WS] race:init received:', data);
+      const initializedHorses = data.horses.map((h, i) => ({
         ...h,
-        position: 50 + index * 30,
+        position: 50 + i * 30,
       }));
       setHorses(initializedHorses);
       setRaceStarted(true);
     });
 
     socket.on('race:tick', (data) => {
-      debugLog('[WS] race:tick', data);
+      debugLog('[WS] race:tick update:', data);
       setHorses((prev) =>
         prev.map((h) =>
           h.id === data.horseId ? { ...h, position: 50 + data.pct * 9 } : h
@@ -60,17 +62,21 @@ const RaceTrack = () => {
       setRaceStarted(false);
     });
 
-    return () => socket.disconnect();
+    return () => {
+      debugLog('[WS] Disconnecting from race namespace...');
+      socket.disconnect();
+    };
   }, []);
 
-  // 🎮 Initialize PixiJS app
+  // 🎮 Initialize PixiJS app once
   useEffect(() => {
-    if (!canvasRef.current || appRef.current) return;
-
-    debugLog('[Pixi] Canvas ref ready?', !!canvasRef.current);
-    debugLog('[Pixi] Creating Application...');
+    if (!canvasRef.current || appRef.current) {
+      debugLog('[Pixi] Skipping app init: already initialized or no canvas');
+      return;
+    }
 
     try {
+      debugLog('[Pixi] Creating new Application...');
       const app = new Application({
         view: canvasRef.current,
         width: 1000,
@@ -80,64 +86,98 @@ const RaceTrack = () => {
       });
 
       appRef.current = app;
-      debugLog('[Pixi] Application created:', app);
+      debugLog('[Pixi] App created:', app);
 
+      // 🛣️ Draw track once
       const track = new Graphics();
-      track.rect(50, 40, 900, 220).fill(0xffffff);
+      track.beginFill(0xffffff);
+      track.drawRect(50, 40, 900, 220);
+      track.endFill();
       app.stage.addChild(track);
-      debugLog('[Pixi] Track drawn');
+      debugLog('[Pixi] Track rendered');
 
-      let frame = 0;
+      // ⏱️ Ticker to update horse positions
       app.ticker.add(() => {
         horses.forEach((horse) => {
           const sprite = horseSpritesRef.current.get(horse.id);
           if (sprite) sprite.x = horse.position;
         });
-
-        if (++frame % 20 === 0) {
-          debugLog(`[Pixi] Ticker frame ${frame}`);
-        }
       });
     } catch (err) {
-      console.error('[Pixi] Failed to create Application:', err);
+      console.error('[Pixi] ❌ App init failed:', err);
     }
 
     return () => {
+      debugLog('[Pixi] Destroying application...');
       if (appRef.current) {
-        debugLog('[Pixi] Destroying app...');
         appRef.current.destroy(true, { children: true });
         appRef.current = null;
       }
       horseSpritesRef.current.clear();
     };
-  }, [horses]);
+  }, []); // ❗ Run only once
 
-  // 🐎 Add horses when race starts
+  // 🐎 Draw horses only when new ones arrive
   useEffect(() => {
     const app = appRef.current;
-    if (!app || horses.length === 0) return;
+    if (!app || horses.length === 0) {
+      debugLog('[Pixi] Waiting for app and horses...');
+      return;
+    }
 
     horses.forEach((horse, index) => {
       if (!horseSpritesRef.current.has(horse.id)) {
-        const color = parseInt((horse.color || '#ff0000').replace('#', ''), 16);
-        const sprite = new Graphics();
-        sprite.rect(0, 0, 40, 20).fill(color);
-        sprite.x = horse.position || 50;
-        sprite.y = 60 + index * 40;
+        try {
+          const color = parseInt((horse.color || '#ff0000').replace('#', ''), 16);
+          const sprite = new Graphics();
+          sprite.beginFill(color);
+          sprite.drawRect(0, 0, 40, 20);
+          sprite.endFill();
+          sprite.x = horse.position || 50;
+          sprite.y = 60 + index * 40;
 
-        horseSpritesRef.current.set(horse.id, sprite);
-        app.stage.addChild(sprite);
-        debugLog(`[Pixi] Added horse – ID: ${horse.id}, Color: ${horse.color}`);
+          horseSpritesRef.current.set(horse.id, sprite);
+          app.stage.addChild(sprite);
+          debugLog(`[Pixi] Horse sprite added – ID: ${horse.id}, Color: ${horse.color}`);
+        } catch (err) {
+          console.error(`[Pixi] ❌ Failed to draw horse ${horse.id}:`, err);
+        }
       }
     });
 
-    debugLog(`[Pixi] Total horses on track: ${horseSpritesRef.current.size}`);
+    debugLog(`[Pixi] ${horseSpritesRef.current.size} horse sprites now on track`);
   }, [horses]);
+
+  // 🧪 Start test race manually
+  const startTestRace = () => {
+    if (!socket) {
+      debugLog('[Test] Socket not initialized');
+      return;
+    }
+
+    debugLog('[Test] Starting test race...');
+    socket.emit('startRace', {
+      raceId: Date.now(),
+      horses: [
+        { id: 1, color: '#ff0000' },
+        { id: 2, color: '#00ff00' },
+        { id: 3, color: '#0000ff' },
+      ],
+    });
+  };
 
   return (
     <div className="p-4">
       <h2 className="text-xl font-bold mb-2">Race Track</h2>
       <canvas ref={canvasRef} />
+      <div className="mt-4">
+        <button
+          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          onClick={startTestRace}
+        >
+          Start Test Race
+        </button>
+      </div>
     </div>
   );
 };
