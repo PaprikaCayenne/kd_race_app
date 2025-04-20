@@ -1,11 +1,13 @@
+// routes/horses.js
+
 import express from "express";
-import { PrismaClient } from "@prisma/client";
+import { getPrisma } from "../lib/prisma.js";
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 // GET /api/horses → List all horses
 router.get("/", async (_req, res) => {
+  const prisma = getPrisma();
   try {
     const horses = await prisma.horse.findMany({
       orderBy: { id: "asc" }, // Optional: keep it consistent

@@ -1,41 +1,37 @@
-# -------------------------------
 # KD_API: Node.js backend for races
-# -------------------------------
-
-# Use official Node.js 20 image
 FROM node:20
 
-# Set working directory inside container
+# 📁 Set working directory
 WORKDIR /usr/src/app
 
-# Copy only package files first for caching
+# 📦 Copy only package files first (to optimize layer caching)
 COPY package*.json ./
 
-# Set environment
+# 🌍 Set environment variable
 ARG NODE_ENV=production
 ENV NODE_ENV=$NODE_ENV
 
-# Install Prisma CLI + client
-RUN npm install prisma --save-dev @prisma/client
+# ✅ Install Prisma CLI and client in separate steps
+# This prevents the @prisma/engines module not found error
+RUN npm install --save-dev prisma
+RUN npm install @prisma/client
 
-# Install app dependencies
+# 📦 Install other dependencies
 RUN if [ "$NODE_ENV" = "development" ]; then \
       npm install; \
     else \
       npm install --omit=dev; \
     fi
 
-# Copy Prisma schema separately for cache efficiency
+# 🧬 Copy schema before generating the Prisma client
 COPY prisma ./prisma
-
-# Generate Prisma client
 RUN npx prisma generate --schema=./prisma/schema.prisma
 
-# Copy rest of app files
+# 📂 Copy the rest of your application last
 COPY . .
 
-# Expose API port
+# 🚪 Expose port for API + WebSockets
 EXPOSE 4000
 
-# Start app
+# ▶️ Start the server
 CMD ["node", "index.js"]

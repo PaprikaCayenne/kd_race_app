@@ -3,20 +3,22 @@ services:
   kd_api:
     build:
       context: ./api                               # Build from the ./api directory
+      dockerfile: Dockerfile                       # Use custom Dockerfile with Prisma fix
       args:
-        NODE_ENV: development                      # Build-time environment variable
+        NODE_ENV: development                      # Pass env to Dockerfile for conditional install
     container_name: kd_api
-    working_dir: /usr/src/app                      # App root directory inside the container
-    command: sh -c "npm run dev"                   # Run dev mode (nodemon)
+    working_dir: /usr/src/app                      # Match WORKDIR in Dockerfile
+    command: npm run dev                           # ✅ Simplified: Prisma client is already generated in Dockerfile
     volumes:
-      - ./api:/usr/src/app                         # Mount local source code (but not node_modules)
+      - ./api:/usr/src/app:cached
+      - /usr/src/app/node_modules          # ✅ Mount an empty internal path to preserve built node_modules
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby
       - API_ADMIN_PASS=${API_ADMIN_PASS}
     ports:
       - "4000:4000"                                # REST + WebSocket
-      - "5555:5555"                                # Optional: Prisma Studio
+      - "5555:5555"                                # Prisma Studio (optional)
     restart: unless-stopped
     networks:
       - kd_net
