@@ -1,43 +1,45 @@
 import express from "express";
 import dotenv from "dotenv";
-import http from "http";
+import { createServer } from "http";
 import { Server } from "socket.io";
-
+import { setupRaceNamespace } from "./sockets/race.js";
 import horsesRoute from "./routes/horses.js";
 import registerRoute from "./routes/register.js";
 import { createAdminRoute } from "./routes/admin.js";
-import resultsRoute from "./routes/results.js";
-import { setupRaceNamespace } from "./sockets/race.js";
-import pkg from "@prisma/client"; // ✅ Fix CommonJS import
-const { PrismaClient } = pkg;
+import { execSync } from "child_process";
 
+// 🌱 Load environment variables
 dotenv.config();
 
+// 🧬 Ensure prisma client is generated in dev mode
+if (process.env.NODE_ENV !== "production") {
+  try {
+    console.log("🛠️ Running prisma generate...");
+    execSync("npx prisma generate", { stdio: "inherit" });
+  } catch (err) {
+    console.error("❌ Failed to generate Prisma client:", err);
+  }
+}
+
 const app = express();
-app.use(express.json());
-
-export const prisma = new PrismaClient();
-
-app.get("/api/health", (_req, res) => res.send("OK\n"));
-
-app.get("/api/users", async (_req, res) => {
-  const users = await prisma.user.findMany();
-  res.json(users);
-});
-
-const server = http.createServer(app);
+const server = createServer(app);
 const io = new Server(server, {
   cors: { origin: "*" },
 });
 
-setupRaceNamespace(io);
+// 🌐 Middlewares
+app.use(express.json());
 
+// 🧩 API Routes
 app.use("/api/horses", horsesRoute);
 app.use("/api/register", registerRoute);
 app.use("/api/admin", createAdminRoute(io));
-app.use("/api/race", resultsRoute);
 
+// 🏇 WebSocket setup
+setupRaceNamespace(io);
+
+// 🚀 Start server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`API + WebSocket running on port ${PORT}`);
+  console.log(`🔥 KD API running on http://localhost:${PORT}`);
 });

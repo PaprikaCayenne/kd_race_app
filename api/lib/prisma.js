@@ -1,10 +1,11 @@
 // lib/prisma.js
 
-let prisma = null;
+import { PrismaClient } from "@prisma/client";
+
+let prisma;
 
 export function getPrisma() {
   if (!prisma) {
-    const { PrismaClient } = require('@prisma/client');
     prisma = new PrismaClient();
   }
   return prisma;

@@ -1,31 +1,31 @@
-# Stage 1: Build
+# Dockerfile for kd_api (Node.js + Prisma)
 FROM node:20 AS builder
 
 WORKDIR /usr/src/app
 
-# Copy package files and install dependencies
+# Install deps (no prisma runs yet)
 COPY package*.json ./
 RUN npm install
 
-# Copy Prisma schema and generate client
-COPY prisma ./prisma/
-RUN npx prisma generate
+# Copy schema and generate Prisma client
+COPY prisma ./prisma
+RUN npx prisma generate --schema=./prisma/schema.prisma
 
-# Copy the rest of your application code
+# Copy rest of source
 COPY . .
 
-# Stage 2: Production
+# --- Production Image ---
 FROM node:20
-
 WORKDIR /usr/src/app
 
-# Copy node_modules and Prisma client from builder
+# Copy built deps and files
 COPY --from=builder /usr/src/app/node_modules ./node_modules
 COPY --from=builder /usr/src/app/prisma ./prisma
-COPY --from=builder /usr/src/app/dist ./dist
+COPY --from=builder /usr/src/app/*.js ./
+COPY --from=builder /usr/src/app/routes ./routes
+COPY --from=builder /usr/src/app/lib ./lib
+COPY --from=builder /usr/src/app/sockets ./sockets
 
-# Copy generated Prisma client
-COPY --from=builder /usr/src/app/node_modules/.prisma ./node_modules/.prisma
+EXPOSE 4000
 
-# Start the application
-CMD ["node", "dist/index.js"]
+CMD ["node", "index.js"]
