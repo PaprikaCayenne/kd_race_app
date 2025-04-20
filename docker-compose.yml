@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # 🐴 Node.js API service – handles race logic, user registration, and DB access
   kd_api:
