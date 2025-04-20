@@ -11,7 +11,8 @@ services:
     command: npm run dev                           # ✅ Simplified: Prisma client is already generated in Dockerfile
     volumes:
       - ./api:/usr/src/app:cached
-      - /usr/src/app/node_modules          # ✅ Mount an empty internal path to preserve built node_modules
+      - /usr/src/app/node_modules                # this is NOT enough
+      - /usr/src/app/node_modules/@prisma       # mount an empty dir so host doesn't override it
     environment:
       - NODE_ENV=development
       - DATABASE_URL=postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby
