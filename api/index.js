@@ -1,3 +1,5 @@
+// File: api/index.js
+
 import express from "express";
 import dotenv from "dotenv";
 import { createServer } from "http";
@@ -25,7 +27,13 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: { origin: "*" },
-  path: "/api/socket.io", // ← This is what your frontend expects
+  path: "/socket.io", // 👈 Final WebSocket path
+});
+
+// 🛡️ Prevent Express from handling upgrade requests
+app.use((req, res, next) => {
+  if (req.url.startsWith("/socket.io")) return next();
+  next();
 });
 
 // 🌐 Middlewares
