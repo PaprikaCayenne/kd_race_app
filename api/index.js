@@ -5,7 +5,7 @@ import { Server } from "socket.io";
 
 import horsesRoute from "./routes/horses.js";
 import registerRoute from "./routes/register.js";
-import createAdminRoute from "./routes/admin.js"; // 🔄 renamed import
+import { createAdminRoute } from "./routes/admin.js"; // ✅ fixed named import
 import resultsRoute from "./routes/results.js";
 import { setupRaceNamespace } from "./sockets/race.js";
 import { PrismaClient } from "@prisma/client";

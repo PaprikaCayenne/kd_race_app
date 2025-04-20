@@ -2,13 +2,15 @@ import seedrandom from "seedrandom";
 import { pool } from "../db.js";
 
 export function setupRaceNamespace(io) {
-  io.of("/race").on("connection", (socket) => {
+  io.on("connection", (socket) => {
+    console.log("✅ Socket.IO client connected");
+
     socket.on("startRace", async ({ raceId, horses }) => {
       const leaderboard = [];
       const positions = {};
       const rng = seedrandom(String(raceId));
 
-      io.of("/race").emit("race:init", { raceId, horses });
+      io.emit("race:init", { raceId, horses });
 
       for (const horse of horses) {
         positions[horse.id] = 0;
@@ -23,7 +25,7 @@ export function setupRaceNamespace(io) {
           positions[horse.id] += delta;
           if (positions[horse.id] < 1000) allFinished = false;
 
-          io.of("/race").emit("race:tick", {
+          io.emit("race:tick", {
             raceId,
             horseId: horse.id,
             pct: Math.min(positions[horse.id] / 10, 100),
@@ -41,7 +43,7 @@ export function setupRaceNamespace(io) {
               timeMs: 3000 + i * 250,
             }));
 
-          io.of("/race").emit("race:finish", {
+          io.emit("race:finish", {
             raceId,
             leaderboard: sorted,
           });

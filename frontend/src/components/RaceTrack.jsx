@@ -1,8 +1,12 @@
+// File: frontend/src/components/RaceTrack.jsx
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics, VERSION } from 'pixi.js';
 import io from 'socket.io-client';
 
+console.log('[KD] RaceTrack Loaded – v0.3.5');
 console.log('[Pixi] Version:', VERSION);
+console.log('[WS] Connecting...');
 
 const RaceTrack = () => {
   const canvasRef = useRef(null);
@@ -12,11 +16,10 @@ const RaceTrack = () => {
   const appRef = useRef(null);
   const horseSpritesRef = useRef(new Map());
 
-  // 🎧 WebSocket Connection
+  // 🌐 Connect to WebSocket
   useEffect(() => {
-    console.log('[WS] Connecting...');
-    const socket = io('wss://kd.paprikacayenne.com/api/race', {
-      transports: ['websocket'],
+    const socket = io('/', {
+      path: '/api/socket.io',
     });
 
     socket.on('race:init', (data) => {
@@ -30,65 +33,61 @@ const RaceTrack = () => {
     });
 
     socket.on('race:tick', (data) => {
-      setHorses((prev) =>
-        prev.map((h) =>
+      setHorses(prev =>
+        prev.map(h =>
           h.id === data.horseId ? { ...h, position: 50 + data.pct * 9 } : h
         )
       );
     });
 
     socket.on('race:finish', (leaderboard) => {
-      console.log('[WS] race:finish 🏍️', leaderboard);
+      console.log('🏁 Race complete!', leaderboard);
       setRaceStarted(false);
     });
 
     return () => socket.disconnect();
   }, []);
 
-  // 🎨 Initialize PixiJS App
+  // 🎮 Create PixiJS app once
   useEffect(() => {
     if (!canvasRef.current || appRef.current) return;
 
-    const initPixi = async () => {
-      console.log('[Pixi] Creating app...');
-      const app = await Application.init({
-        view: canvasRef.current,
-        width: 1000,
-        height: 300,
-        background: '#d0f0e0',
-        antialias: true,
-      });
-
+    console.log('[Pixi] Creating app...');
+    Application.init({
+      view: canvasRef.current,
+      width: 1000,
+      height: 300,
+      backgroundColor: 0xd0f0e0,
+      antialias: true,
+    }).then((app) => {
       appRef.current = app;
 
+      // Draw track
       const track = new Graphics();
       track.rect(50, 40, 900, 220).fill(0xffffff);
       app.stage.addChild(track);
 
-      if (app.ticker) {
-        app.ticker.add(() => {
-          horses.forEach((horse) => {
-            const sprite = horseSpritesRef.current.get(horse.id);
-            if (sprite) sprite.x = horse.position;
-          });
+      // Animate horses
+      app.ticker.add(() => {
+        horses.forEach((horse) => {
+          const sprite = horseSpritesRef.current.get(horse.id);
+          if (sprite) {
+            sprite.x = horse.position;
+          }
         });
-      } else {
-        console.warn('[Pixi] app.ticker is undefined');
-      }
-    };
-
-    initPixi();
+      });
+    });
 
     return () => {
       if (appRef.current) {
         appRef.current.destroy(true, { children: true });
         appRef.current = null;
-        horseSpritesRef.current.clear();
       }
+      horseSpritesRef.current.clear();
     };
   }, [horses]);
 
-  // 🐎 Render Horses
+  // 🐎 Add horse rectangles
   useEffect(() => {
     const app = appRef.current;
     if (!app || horses.length === 0) return;
@@ -96,6 +95,7 @@ const RaceTrack = () => {
     horses.forEach((horse, index) => {
       if (!horseSpritesRef.current.has(horse.id)) {
         const color = parseInt((horse.color || '#ff0000').replace('#', ''), 16);
+
         const sprite = new Graphics();
         sprite.rect(0, 0, 40, 20).fill(color);
         sprite.x = horse.position || 50;
@@ -103,8 +103,6 @@ const RaceTrack = () => {
 
         horseSpritesRef.current.set(horse.id, sprite);
         app.stage.addChild(sprite);
-
-        console.log(`[Pixi] Added horse ${horse.name} at (${sprite.x}, ${sprite.y})`);
       }
     });
   }, [horses]);

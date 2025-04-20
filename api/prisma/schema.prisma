@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "./node_modules/@prisma/client"
 }
 
 datasource db {
@@ -42,11 +43,11 @@ model Race {
 }
 
 model Result {
-  id        Int    @id @default(autoincrement())
-  race      Race   @relation(fields: [raceId], references: [id])
+  id        Int     @id @default(autoincrement())
+  race      Race    @relation(fields: [raceId], references: [id])
   raceId    Int
-  horse     Horse  @relation(fields: [horseId], references: [id])
+  horse     Horse   @relation(fields: [horseId], references: [id])
   horseId   Int
   position  Int
-  timeMs    Int
+  timeMs    BigInt  // ✅ changed from Int
 }

@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "Result" ALTER COLUMN "timeMs" SET DATA TYPE BIGINT;
