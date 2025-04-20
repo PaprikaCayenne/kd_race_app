@@ -1,15 +1,18 @@
-import express from "express";
-import { PrismaClient } from "@prisma/client";
+// routes/register.js
 
-const prisma = new PrismaClient();
+import express from "express";
+import { getPrisma } from "../lib/prisma.js";
+
+const prisma = getPrisma();
 const router = express.Router();
 
 router.post("/", async (req, res) => {
   const { firstName, lastName, nickname, horseId, deviceId } = req.body;
 
-  // Validate required fields
   if (!firstName || !lastName || !horseId || !deviceId) {
-    return res.status(400).json({ error: "firstName, lastName, horseId, and deviceId are required" });
+    return res.status(400).json({
+      error: "firstName, lastName, horseId, and deviceId are required",
+    });
   }
 
   try {

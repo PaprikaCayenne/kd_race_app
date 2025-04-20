@@ -10,7 +10,7 @@ router.get("/", async (_req, res) => {
   const prisma = getPrisma();
   try {
     const horses = await prisma.horse.findMany({
-      orderBy: { id: "asc" }, // Optional: keep it consistent
+      orderBy: { id: "asc" },
     });
     res.json(horses);
   } catch (error) {

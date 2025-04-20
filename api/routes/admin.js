@@ -1,9 +1,11 @@
+// routes/admin.js
+
 import express from "express";
-import { prisma } from "../index.js";
+import { getPrisma } from "../lib/prisma.js";
 import seedrandom from "seedrandom";
 
-// ✅ Exported as named
 export function createAdminRoute(io) {
+  const prisma = getPrisma();
   const router = express.Router();
 
   router.post("/start", async (req, res) => {
@@ -13,13 +15,12 @@ export function createAdminRoute(io) {
     }
 
     try {
-      // Find all unraced horses
       const racedHorseIds = await prisma.result.findMany({
-        distinct: ['horseId'],
+        distinct: ["horseId"],
         select: { horseId: true },
       });
 
-      const racedIds = racedHorseIds.map(r => r.horseId);
+      const racedIds = racedHorseIds.map((r) => r.horseId);
       const unraced = await prisma.horse.findMany({
         where: { id: { notIn: racedIds } },
       });
@@ -34,7 +35,7 @@ export function createAdminRoute(io) {
 
       io.of("/race").emit("race:init", {
         raceId: race.id,
-        horses: selected.map(h => ({
+        horses: selected.map((h) => ({
           id: h.id,
           name: h.name,
           color: h.color,
