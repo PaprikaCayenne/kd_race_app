@@ -34,7 +34,7 @@ const RaceTrack = () => {
 
   // 🌐 WebSocket connection to race namespace
   useEffect(() => {
-    const socket = io('/race', { path: '/socket.io' });
+    const socket = io('/race', { path: '/api/socket.io' });
 
     socket.on('race:init', (data) => {
       debugLog('[WS] race:init', data);

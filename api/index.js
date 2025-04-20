@@ -25,6 +25,7 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: { origin: "*" },
+  path: "/api/socket.io", // ← This is what your frontend expects
 });
 
 // 🌐 Middlewares
