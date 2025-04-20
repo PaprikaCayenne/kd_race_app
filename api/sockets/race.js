@@ -2,36 +2,49 @@ import seedrandom from "seedrandom";
 import { pool } from "../db.js";
 
 export function setupRaceNamespace(io) {
-  io.on("connection", (socket) => {
-    console.log("✅ Socket.IO client connected");
+  // 🎯 Use the '/race' namespace, which matches the frontend
+  const raceNamespace = io.of("/race");
 
+  raceNamespace.on("connection", (socket) => {
+    console.log("✅ [WS] Client connected to /race");
+
+    // 📦 Incoming race start from admin
     socket.on("startRace", async ({ raceId, horses }) => {
+      console.log(`🏁 Starting race ${raceId} with ${horses.length} horses`);
+
       const leaderboard = [];
       const positions = {};
       const rng = seedrandom(String(raceId));
 
-      io.emit("race:init", { raceId, horses });
+      // 🎬 Send init event to all clients
+      raceNamespace.emit("race:init", { raceId, horses });
 
+      // 🐎 Initialize all horse positions
       for (const horse of horses) {
         positions[horse.id] = 0;
       }
 
+      // ⏱️ Start race ticker at 30 fps
       const interval = setInterval(async () => {
         let allFinished = true;
 
         for (const horse of horses) {
           if (positions[horse.id] >= 1000) continue;
-          const delta = 8 + Math.floor(rng() * 5); // 8–12
+
+          const delta = 8 + Math.floor(rng() * 5); // Each tick: +8 to +12 units
           positions[horse.id] += delta;
+
           if (positions[horse.id] < 1000) allFinished = false;
 
-          io.emit("race:tick", {
+          // 🔁 Send updated position
+          raceNamespace.emit("race:tick", {
             raceId,
             horseId: horse.id,
             pct: Math.min(positions[horse.id] / 10, 100),
           });
         }
 
+        // 🏁 When all horses are done
         if (allFinished) {
           clearInterval(interval);
 
@@ -43,22 +56,27 @@ export function setupRaceNamespace(io) {
               timeMs: 3000 + i * 250,
             }));
 
-          io.emit("race:finish", {
+          // 🏆 Send final standings
+          raceNamespace.emit("race:finish", {
             raceId,
             leaderboard: sorted,
           });
 
+          // 🗃️ Save top 3 results to DB
           const client = await pool.connect();
-          for (let i = 0; i < 3 && i < sorted.length; i++) {
-            const { horseId, position, timeMs } = sorted[i];
-            await client.query(
-              "INSERT INTO results (race_id, horse_id, position, time_ms) VALUES ($1, $2, $3, $4)",
-              [raceId, horseId, position, timeMs]
-            );
+          try {
+            for (let i = 0; i < 3 && i < sorted.length; i++) {
+              const { horseId, position, timeMs } = sorted[i];
+              await client.query(
+                "INSERT INTO results (race_id, horse_id, position, time_ms) VALUES ($1, $2, $3, $4)",
+                [raceId, horseId, position, timeMs]
+              );
+            }
+          } finally {
+            client.release();
           }
-          client.release();
         }
-      }, 1000 / 30);
+      }, 1000 / 30); // 30 ticks per second
     });
   });
 }
