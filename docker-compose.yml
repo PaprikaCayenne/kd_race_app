@@ -1,65 +1,85 @@
+# 🚀 Docker Compose configuration for KD Race App
+# Services: API backend, frontend builder (via pnpm), and Nginx reverse proxy
+
 services:
-  # 🐴 Node.js API service – handles race logic, user registration, and DB access
+  # 🐴 API service – Node.js + Express + Prisma backend
   kd_api:
     build:
-      context: ./api                               # Build from the ./api directory
-      dockerfile: Dockerfile                       # Use custom Dockerfile with Prisma fix
+      context: ./api                    # 📂 Path to API source folder
+      dockerfile: Dockerfile           # 🛠 Custom Dockerfile for Node.js/Prisma
       args:
-        NODE_ENV: development                      # Pass env to Dockerfile for conditional install
+        NODE_ENV: production           # 🔧 Passed to build stage
+
     container_name: kd_api
-    working_dir: /usr/src/app                      # Match WORKDIR in Dockerfile
-    command: npm run dev                           # ✅ Simplified: Prisma client is already generated in Dockerfile
-    volumes:
-      - ./api:/usr/src/app:cached
-      - /usr/src/app/node_modules                # this is NOT enough
-      - /usr/src/app/node_modules/@prisma       # mount an empty dir so host doesn't override it
+    working_dir: /usr/src/app          # 📁 Must match Dockerfile WORKDIR
+    user: "node"                       # 👤 Run as non-root user for safety
+
+    # Optional: Mount code during local dev
+    # volumes:
+    #   - ./api:/usr/src/app:cached
+
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
       - DATABASE_URL=postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby
-      - API_ADMIN_PASS=${API_ADMIN_PASS}
+      - API_ADMIN_PASS=${API_ADMIN_PASS}  # 🔐 Used to protect admin-only routes
+
     ports:
-      - "4000:4000"                                # REST + WebSocket
-      - "5555:5555"                                # Prisma Studio (optional)
+      - "4000:4000"                    # 🌍 REST + WebSocket
+      - "5555:5555"                    # 🔍 Optional: Prisma Studio
+
     restart: unless-stopped
     networks:
       - kd_net
 
-  # ⚙️ Frontend builder – compiles Vite app and copies static files to /output
+  # ⚙️ Frontend builder – builds Vite app using pnpm and outputs to Nginx volume
   kd_frontend_builder:
-    image: node:20                                 # Official Node image
+    image: node:20
     container_name: kd_frontend_builder
     working_dir: /usr/src/app
+    user: "root"                       # Needed to chown output folder
+
     volumes:
-      - ./frontend:/usr/src/app                    # Mount frontend source code
-      - /websites/kd_race_app:/output              # Output dir for compiled static files
-      - node_modules_build_cache:/usr/src/app/node_modules  # Prevent host permission issues
-    command: bash -c "npm install && npm run build && cp -r dist/* /output"
+      - ./frontend:/usr/src/app         # 🧱 Mount Vite + React project
+      - /websites/kd_race_app:/output   # 📤 Target folder served by Nginx
+
+    command: >
+      bash -c "
+        corepack enable &&                                              # 🧩 Enable Node's built-in package manager support
+        corepack prepare pnpm@8.15.4 --activate &&                      # ⏬ Install and activate specified pnpm version
+        rm -rf node_modules dist .vite .vite-temp package-lock.json && # 🧹 Full cleanup of old build artifacts
+        pnpm install --no-frozen-lockfile &&                            # ✅ Install dependencies without requiring a lockfile
+        pnpm run build &&                                               # 🛠 Build production frontend with Vite
+        cp -r dist/* /output &&                                         # 🚚 Move built files to shared output mount
+        chown -R 1007:1003 /output                                      # 🔐 Ensure correct permissions for Nginx
+      "
+
     restart: on-failure
     networks:
       - kd_net
 
-  # 🌐 Nginx – serves frontend and proxies API/WebSocket traffic
+  # 🌐 Nginx – serves frontend and proxies backend API/WebSocket traffic
   kd_nginx:
     build:
-      context: ./nginx
+      context: ./nginx               # 📁 Contains Dockerfile and kd.conf
+      dockerfile: Dockerfile
+
     container_name: kd_nginx
     depends_on:
-      - kd_api                                     # Ensure API is up before starting Nginx
+      - kd_api                      # ⏱ Ensure API is up before proxying requests
+
     ports:
-      - "8086:80"                                  # Public app access via Cloudflare/NPM
+      - "8086:80"                   # 🌐 Host HTTP port (Cloudflare handles HTTPS)
+
     volumes:
-      - /websites/kd_race_app:/usr/share/nginx/html:ro  # Serve built frontend
-      - ./nginx/kd.conf:/etc/nginx/conf.d/default.conf:ro  # Custom proxy config
+      - /websites/kd_race_app:/usr/share/nginx/html:ro     # 📦 Static files from builder
+      - ./nginx/kd.conf:/etc/nginx/conf.d/default.conf:ro  # ⚙️ Custom routing and proxy config
+
     restart: unless-stopped
     networks:
       - kd_net
 
-# 🔌 Shared internal network for containers
+# 🔌 Shared bridge network for internal communication
 networks:
   kd_net:
     name: kd_net
     driver: bridge
-
-# 📦 Only used for frontend node_modules cache (not API)
-volumes:
-  node_modules_build_cache:

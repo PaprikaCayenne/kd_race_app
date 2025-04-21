@@ -1,31 +1,56 @@
+// File: prisma/seed.ts
+// Version: v0.6.4 – Fix casing, BigInt raceId, and JLL horse fun
+
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  // 🧹 Clear existing data in the correct order (respecting FK constraints)
+  console.log('🧹 Clearing old data...');
+
+  // Respect FK constraints: clear in the correct order
   await prisma.result.deleteMany();
   await prisma.race.deleteMany();
   await prisma.registration.deleteMany();
   await prisma.user.deleteMany();
   await prisma.horse.deleteMany();
 
-  // 🐎 Seed a few horses and store references to use their IDs later
-  const redHorse = await prisma.horse.create({ data: { name: 'Leaseloon Lightning', color: 'red' } });
-  const blueHorse = await prisma.horse.create({ data: { name: 'Commission Crusher', color: 'blue' } });
-  const greenHorse = await prisma.horse.create({ data: { name: 'Slack Galloper', color: 'green' } });
+  console.log('🐎 Seeding branded horses...');
 
-  // 🐴 Add more horses using createMany (IDs not needed here)
+  const redHorse = await prisma.horse.create({
+    data: { name: 'Leaseloon Lightning', color: 'red' }
+  });
+  const blueHorse = await prisma.horse.create({
+    data: { name: 'Commission Crusher', color: 'blue' }
+  });
+  const greenHorse = await prisma.horse.create({
+    data: { name: 'Slack Galloper', color: 'green' }
+  });
+
   await prisma.horse.createMany({
     data: [
       { name: 'Elevator Pitcher', color: 'yellow' },
       { name: 'Tour Sheet Trotter', color: 'purple' },
       { name: 'Amenity Stampeder', color: 'orange' },
       { name: 'Broker Blitz', color: 'pink' },
-      { name: 'Hot Desk Rocket', color: 'gray' }
+      { name: 'Hot Desk Rocket', color: 'gray' },
+      { name: 'Sublease Sprinter', color: 'teal' },
+      { name: 'Cap Rate Comet', color: 'navy' },
+      { name: 'Buildout Bandit', color: 'lime' },
+      { name: 'SpaceIQ Speedster', color: 'cyan' },
+      { name: 'CoreNet Cruiser', color: 'maroon' },
+      { name: 'Amenity Arms Racer', color: 'olive' },
+      { name: 'Lease-Up Lightning', color: 'beige' },
+      { name: 'JLL Jockey Jet', color: 'white' },
+      { name: 'Stack Plan Slammer', color: 'indigo' },
+      { name: 'Fitwel Flyer', color: 'aqua' },
+      { name: 'Wayfinding Wonder', color: 'tan' },
+      { name: 'Occupier Outlaw', color: 'charcoal' },
+      { name: 'PropTech Prancer', color: 'silver' }
     ]
   });
 
-  // 🙋‍♂️ Create test users with unique deviceIds
+  console.log('🙋‍♂️ Creating test users...');
+
   const colin = await prisma.user.create({
     data: { firstName: 'Colin', lastName: 'DiBiase', nickname: 'CD', deviceId: 'device_cd' }
   });
@@ -36,7 +61,8 @@ async function main() {
     data: { firstName: 'Riley', lastName: 'Spacefinder', nickname: 'RS', deviceId: 'device_rs' }
   });
 
-  // 📝 Register each user with a horse using camelCase field names
+  console.log('📝 Registering users to horses...');
+
   await prisma.registration.createMany({
     data: [
       { userId: colin.id, horseId: redHorse.id },
@@ -45,7 +71,8 @@ async function main() {
     ]
   });
 
-  // 🏁 Create a simulated race event
+  console.log('🏁 Creating race and storing results...');
+
   const race = await prisma.race.create({
     data: {
       startedAt: new Date(),
@@ -53,12 +80,26 @@ async function main() {
     }
   });
 
-  // 🥇 Record race results for the top 3 finishers
   await prisma.result.createMany({
     data: [
-      { raceId: race.id, horseId: redHorse.id, position: 1, timeMs: 10234 },
-      { raceId: race.id, horseId: blueHorse.id, position: 2, timeMs: 10500 },
-      { raceId: race.id, horseId: greenHorse.id, position: 3, timeMs: 11012 }
+      {
+        raceId: BigInt(race.id), // 🧠 Cast raceId for BigInt safety
+        horseId: redHorse.id,
+        position: 1,
+        timeMs: 10234
+      },
+      {
+        raceId: BigInt(race.id),
+        horseId: blueHorse.id,
+        position: 2,
+        timeMs: 10500
+      },
+      {
+        raceId: BigInt(race.id),
+        horseId: greenHorse.id,
+        position: 3,
+        timeMs: 11012
+      }
     ]
   });
 

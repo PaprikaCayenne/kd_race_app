@@ -8,6 +8,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// 👤 User model
 model User {
   id            Int             @id @default(autoincrement())
   firstName     String
@@ -16,16 +17,22 @@ model User {
   deviceId      String          @unique
   createdAt     DateTime        @default(now())
   registrations Registration[]
+
+  @@map("users")
 }
 
+// 🐎 Horse model
 model Horse {
   id            Int             @id @default(autoincrement())
   name          String
   color         String
   registrations Registration[]
   results       Result[]
+
+  @@map("horses")
 }
 
+// 📝 Registration ties users to horses
 model Registration {
   id         Int      @id @default(autoincrement())
   user       User     @relation(fields: [userId], references: [id])
@@ -33,21 +40,30 @@ model Registration {
   horse      Horse    @relation(fields: [horseId], references: [id])
   horseId    Int
   createdAt  DateTime @default(now())
+
+  @@map("registrations")
 }
 
+// 🏁 Race model — ID must support high timestamp values
 model Race {
-  id         Int     @id @default(autoincrement())
+  id         BigInt   @id @default(autoincrement()) @db.BigInt
   startedAt  DateTime?
   endedAt    DateTime?
   results    Result[]
+
+  @@map("races")
 }
 
+// 🥇 Result model — foreign key to Race uses BigInt
 model Result {
-  id        Int     @id @default(autoincrement())
-  race      Race    @relation(fields: [raceId], references: [id])
-  raceId    Int
-  horse     Horse   @relation(fields: [horseId], references: [id])
-  horseId   Int
-  position  Int
-  timeMs    BigInt  // ✅ changed from Int
+  id       Int     @id @default(autoincrement())
+  raceId   BigInt  @db.BigInt
+  horseId  Int
+  position Int
+  timeMs   Int
+
+  horse    Horse   @relation(fields: [horseId], references: [id])
+  race     Race    @relation(fields: [raceId], references: [id])
+
+  @@map("results")
 }

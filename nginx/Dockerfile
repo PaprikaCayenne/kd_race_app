@@ -1,22 +1,31 @@
-# Use official Nginx base image (Alpine = small footprint)
+# 🌐 Dockerfile for kd_nginx – serves frontend and proxies API/WebSocket traffic
+# Version: v1.0.0 – Uses custom nginx.conf to avoid pid write errors
+
+# 🐳 Base image: official Nginx on Alpine (small, fast, reliable)
 FROM nginx:alpine
 
-# Set working directory for clarity (optional)
+# 📁 Default directory where Nginx will serve static files
 WORKDIR /usr/share/nginx/html
 
-# Create and fix permissions for temp directories (good practice)
-RUN mkdir -p /var/cache/nginx/client_temp && \
-    chown -R nginx:nginx /var/cache/nginx && \
+# 🛠️ Create required temp directories for buffering (safe even if unused)
+RUN mkdir -p \
+      /var/cache/nginx/client_temp \
+      /var/cache/nginx/proxy_temp \
+      /var/cache/nginx/fastcgi_temp \
+      /var/cache/nginx/uwsgi_temp \
+      /var/cache/nginx/scgi_temp && \
     chmod -R 755 /var/cache/nginx
 
-# Copy custom Nginx site config
+# ⚙️ Use custom base config that omits 'user' and 'pid' directives
+COPY ./nginx.conf /etc/nginx/nginx.conf
+
+# ⚙️ Use your existing proxy config with upstream + fallback
 COPY ./kd.conf /etc/nginx/conf.d/default.conf
 
-# Optionally copy built frontend (dist) if bundling in image
-# COPY ./frontend/dist/ . 
-
-# Expose port for reverse proxy
+# 🌐 Expose port 80 for HTTP traffic
 EXPOSE 80
 
-# Keep Nginx running in foreground
+# ✅ No need to switch user manually – base config omits the 'user' directive
+
+# 🚀 Run Nginx in foreground to keep container alive
 CMD ["nginx", "-g", "daemon off;"]

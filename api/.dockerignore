@@ -3,5 +3,13 @@ npm-debug.log
 Dockerfile
 .dockerignore
 
+# Ignore OS or editor artifacts
+.DS_Store
+Thumbs.db
+
+# Ignore frontend build output (precautionary)
+dist
+build
+
+# Include Prisma folder for schema + seed
 !prisma/
-!prisma/schema.prisma

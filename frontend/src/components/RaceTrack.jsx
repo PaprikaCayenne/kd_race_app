@@ -1,8 +1,7 @@
 // File: frontend/src/components/RaceTrack.jsx
+// Version: v0.6.1
 
 import React, { useEffect, useRef, useState } from 'react';
-
-// ✅ Modular PixiJS v7.4.3 imports
 import { Application } from '@pixi/app';
 import { Graphics } from '@pixi/graphics';
 import { TickerPlugin } from '@pixi/ticker';
@@ -11,16 +10,15 @@ import '@pixi/display';
 
 import io from 'socket.io-client';
 
-// 🐛 Toggle debug logging
+// 🔧 Debug control
 const DEBUG = true;
 const debugLog = (...args) => DEBUG && console.log(...args);
 
-// 📦 Log package versions
-debugLog('[KD] RaceTrack Loaded – v0.4.9');
+// 📦 Package versions
+debugLog('[KD] RaceTrack Loaded – v0.6.1');
 debugLog('[Pixi] PixiJS v7.4.3');
 debugLog('[Socket.IO] Client:', io?.version ?? 'unknown');
 
-// 🌐 Socket.IO reference
 let socket;
 
 const RaceTrack = () => {
@@ -31,6 +29,8 @@ const RaceTrack = () => {
 
   const appRef = useRef(null);
   const horseSpritesRef = useRef(new Map());
+  const horsePositionsRef = useRef({});
+  const animationRef = useRef(null);
 
   // 🌐 WebSocket setup
   useEffect(() => {
@@ -42,13 +42,8 @@ const RaceTrack = () => {
       reconnectionDelay: 500,
     });
 
-    socket.on('connect', () => {
-      debugLog('[WS] ✅ Connected:', socket.id);
-    });
-
-    socket.on('connect_error', (err) => {
-      debugLog('[WS] ❌ Connection error:', err.message);
-    });
+    socket.on('connect', () => debugLog('[WS] ✅ Connected:', socket.id));
+    socket.on('connect_error', (err) => debugLog('[WS] ❌ Connection error:', err.message));
 
     socket.on('race:init', (data) => {
       debugLog('[WS] race:init received:', data);
@@ -56,6 +51,9 @@ const RaceTrack = () => {
         ...h,
         position: 50 + i * 30,
       }));
+      horsePositionsRef.current = Object.fromEntries(
+        initializedHorses.map((h) => [h.id, h.position])
+      );
       setHorses(initializedHorses);
       setRaceStarted(true);
       setRaceFinished(false);
@@ -64,11 +62,8 @@ const RaceTrack = () => {
     socket.on('race:tick', (data) => {
       if (raceFinished) return;
       debugLog('[WS] race:tick update:', data);
-      setHorses((prev) =>
-        prev.map((h) =>
-          h.id === data.horseId ? { ...h, position: 50 + data.pct * 9 } : h
-        )
-      );
+      horsePositionsRef.current[data.horseId] =
+        50 + data.pct * 9 + Math.sin(data.pct * 0.5) * 3;
     });
 
     socket.on('race:finish', (leaderboard) => {
@@ -83,7 +78,7 @@ const RaceTrack = () => {
     };
   }, [raceFinished]);
 
-  // 🎮 Initialize PixiJS
+  // 🎮 PixiJS app setup
   useEffect(() => {
     if (!canvasRef.current || appRef.current) {
       debugLog('[Pixi] Skipping init – already running or missing canvas');
@@ -110,11 +105,15 @@ const RaceTrack = () => {
       app.stage.addChild(track);
       debugLog('[Pixi] Track rendered');
 
+      animationRef.current = () => {
+        for (const [id, x] of Object.entries(horsePositionsRef.current)) {
+          const sprite = horseSpritesRef.current.get(parseInt(id));
+          if (sprite) sprite.x = x;
+        }
+      };
+
       app.ticker.add(() => {
-        horses.forEach((horse) => {
-          const sprite = horseSpritesRef.current.get(horse.id);
-          if (sprite) sprite.x = horse.position;
-        });
+        if (animationRef.current) animationRef.current();
       });
     } catch (err) {
       console.error('[Pixi] ❌ Initialization failed:', err);
@@ -130,7 +129,7 @@ const RaceTrack = () => {
     };
   }, []);
 
-  // 🐎 Render horses
+  // 🐴 Render horse sprites
   useEffect(() => {
     const app = appRef.current;
     if (!app || horses.length === 0) {
@@ -161,7 +160,7 @@ const RaceTrack = () => {
     debugLog(`[Pixi] 🐎 Total sprites: ${horseSpritesRef.current.size}`);
   }, [horses]);
 
-  // 🧪 Start race
+  // 🧪 Manually trigger a test race
   const startTestRace = () => {
     if (!socket?.connected) {
       debugLog('[Test] 🚫 Socket not connected');
@@ -176,6 +175,7 @@ const RaceTrack = () => {
         { id: 1, color: '#ff0000' },
         { id: 2, color: '#00ff00' },
         { id: 3, color: '#0000ff' },
+        { id: 4, color: '#ffff00' },
       ],
     });
   };
