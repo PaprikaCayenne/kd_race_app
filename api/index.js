@@ -13,42 +13,44 @@ import { execSync } from "child_process";
 // 🌱 Load environment variables
 dotenv.config();
 
-// 🧬 Ensure prisma client is generated in dev mode
+// 🧬 Run prisma generate in dev mode
 if (process.env.NODE_ENV !== "production") {
   try {
     console.log("🛠️ Running prisma generate...");
     execSync("npx prisma generate", { stdio: "inherit" });
   } catch (err) {
-    console.error("❌ Failed to generate Prisma client:", err);
+    console.error("❌ Prisma generate failed:", err);
   }
 }
 
 const app = express();
 const server = createServer(app);
+
+// 📡 Setup Socket.IO
 const io = new Server(server, {
   cors: { origin: "*" },
-  path: "/socket.io", // 👈 Final WebSocket path
+  path: "/api/socket.io", // ✅ Must match frontend and Nginx
 });
 
-// 🛡️ Prevent Express from handling upgrade requests
+// 🔌 Avoid Express interfering with upgrade requests
 app.use((req, res, next) => {
-  if (req.url.startsWith("/socket.io")) return next();
+  if (req.url.startsWith("/api/socket.io")) return next();
   next();
 });
 
-// 🌐 Middlewares
+// 🌐 JSON parsing
 app.use(express.json());
 
-// 🧩 API Routes
+// 🧩 REST API endpoints
 app.use("/api/horses", horsesRoute);
 app.use("/api/register", registerRoute);
 app.use("/api/admin", createAdminRoute(io));
 
-// 🏇 WebSocket setup
+// 🏇 WebSocket events
 setupRaceNamespace(io);
 
 // 🚀 Start server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
-  console.log(`🔥 KD API running on http://localhost:${PORT}`);
+  console.log(`🔥 KD API running at http://localhost:${PORT}`);
 });
