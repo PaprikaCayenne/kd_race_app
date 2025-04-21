@@ -16,27 +16,30 @@ const DEBUG = true;
 const debugLog = (...args) => DEBUG && console.log(...args);
 
 // 📦 Log package versions
-debugLog('[KD] RaceTrack Loaded – v0.4.7');
+debugLog('[KD] RaceTrack Loaded – v0.4.9');
 debugLog('[Pixi] PixiJS v7.4.3');
 debugLog('[Socket.IO] Client:', io?.version ?? 'unknown');
 
-// 🌐 Socket.IO config
+// 🌐 Socket.IO reference
 let socket;
 
 const RaceTrack = () => {
   const canvasRef = useRef(null);
   const [horses, setHorses] = useState([]);
   const [raceStarted, setRaceStarted] = useState(false);
+  const [raceFinished, setRaceFinished] = useState(false);
 
   const appRef = useRef(null);
   const horseSpritesRef = useRef(new Map());
 
-  // 🌐 Connect to WebSocket
+  // 🌐 WebSocket setup
   useEffect(() => {
     debugLog('[WS] Connecting to /race via /api/socket.io...');
     socket = io('/race', {
       path: '/api/socket.io',
       transports: ['websocket', 'polling'],
+      reconnectionAttempts: 10,
+      reconnectionDelay: 500,
     });
 
     socket.on('connect', () => {
@@ -44,7 +47,7 @@ const RaceTrack = () => {
     });
 
     socket.on('connect_error', (err) => {
-      console.error('[WS] ❌ Connection error:', err.message, err);
+      debugLog('[WS] ❌ Connection error:', err.message);
     });
 
     socket.on('race:init', (data) => {
@@ -55,9 +58,11 @@ const RaceTrack = () => {
       }));
       setHorses(initializedHorses);
       setRaceStarted(true);
+      setRaceFinished(false);
     });
 
     socket.on('race:tick', (data) => {
+      if (raceFinished) return;
       debugLog('[WS] race:tick update:', data);
       setHorses((prev) =>
         prev.map((h) =>
@@ -68,6 +73,7 @@ const RaceTrack = () => {
 
     socket.on('race:finish', (leaderboard) => {
       debugLog('🏁 [WS] race:finish', leaderboard);
+      setRaceFinished(true);
       setRaceStarted(false);
     });
 
@@ -75,7 +81,7 @@ const RaceTrack = () => {
       debugLog('[WS] Disconnecting from race namespace...');
       socket.disconnect();
     };
-  }, []);
+  }, [raceFinished]);
 
   // 🎮 Initialize PixiJS
   useEffect(() => {
@@ -97,7 +103,6 @@ const RaceTrack = () => {
       appRef.current = app;
       debugLog('[Pixi] App created:', app);
 
-      // 🛣️ Track background
       const track = new Graphics();
       track.beginFill(0xffffff);
       track.drawRect(50, 40, 900, 220);
@@ -105,7 +110,6 @@ const RaceTrack = () => {
       app.stage.addChild(track);
       debugLog('[Pixi] Track rendered');
 
-      // ⏱️ Frame updates
       app.ticker.add(() => {
         horses.forEach((horse) => {
           const sprite = horseSpritesRef.current.get(horse.id);
@@ -124,9 +128,9 @@ const RaceTrack = () => {
       }
       horseSpritesRef.current.clear();
     };
-  }, []); // init once
+  }, []);
 
-  // 🐎 Render horse sprites
+  // 🐎 Render horses
   useEffect(() => {
     const app = appRef.current;
     if (!app || horses.length === 0) {
@@ -157,7 +161,7 @@ const RaceTrack = () => {
     debugLog(`[Pixi] 🐎 Total sprites: ${horseSpritesRef.current.size}`);
   }, [horses]);
 
-  // 🧪 Trigger test race
+  // 🧪 Start race
   const startTestRace = () => {
     if (!socket?.connected) {
       debugLog('[Test] 🚫 Socket not connected');
@@ -165,6 +169,7 @@ const RaceTrack = () => {
     }
 
     debugLog('[Test] 🔁 Starting test race');
+    setRaceFinished(false);
     socket.emit('startRace', {
       raceId: Date.now(),
       horses: [
