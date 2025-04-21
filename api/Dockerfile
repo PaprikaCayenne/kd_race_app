@@ -1,26 +1,26 @@
 # 🐴 Dockerfile for kd_api – Node.js + Prisma backend API
-# Version: v1.0.0 – Production-ready with correct file permissions and simplified runtime
+# Version: v1.1.1 – Safe volume mount support + non-root runtime + correct file ownership
 
 ##########################
 # Stage 1: Builder Layer #
 ##########################
 FROM node:20 AS builder
 
-# 🏗️ Set working directory inside container
+# 📁 App directory
 WORKDIR /usr/src/app
 
-# 📦 Install dependencies early for caching benefits (no optional native deps)
+# 📦 Install dependencies without optional native modules
 COPY package*.json ./
 RUN npm install --omit=optional
 
-# 📄 Copy Prisma schema and generate client
+# 🧬 Generate Prisma client
 COPY ./prisma ./prisma
 RUN npx prisma generate --schema=./prisma/schema.prisma
 
-# 🧼 Fix permissions for generated folders (required when running as non-root later)
-RUN chown -R node:node /usr/src/app/node_modules /usr/src/app/prisma
+# 🧼 Fix ownership to non-root user (node = UID 1000)
+RUN chown -R node:node /usr/src/app
 
-# 📁 Copy source files late for better Docker caching
+# 📁 Copy full source late for build cache benefits
 COPY . .
 
 ##############################
@@ -28,13 +28,13 @@ COPY . .
 ##############################
 FROM node:20
 
-# 📁 Set working directory
+# 🏠 App dir in final image
 WORKDIR /usr/src/app
 
-# 👤 Use non-root user "node" (UID 1000+) to avoid host file issues
+# 👤 Run as safe user (matches LXC bind volumes)
 USER node
 
-# 📦 Copy only needed build output with correct ownership
+# 📦 Copy necessary build output
 COPY --chown=node:node --from=builder /usr/src/app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /usr/src/app/prisma ./prisma
 COPY --chown=node:node --from=builder /usr/src/app/package*.json ./
@@ -43,8 +43,8 @@ COPY --chown=node:node --from=builder /usr/src/app/routes ./routes
 COPY --chown=node:node --from=builder /usr/src/app/lib ./lib
 COPY --chown=node:node --from=builder /usr/src/app/sockets ./sockets
 
-# 🌐 Expose REST/WebSocket API port
+# 🌐 API + WebSocket port
 EXPOSE 4000
 
-# 🚀 Start production server (no dev-only tools like nodemon)
+# 🚀 Launch app (non-dev)
 CMD ["node", "index.js"]

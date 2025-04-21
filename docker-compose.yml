@@ -1,85 +1,109 @@
 # 🚀 Docker Compose configuration for KD Race App
-# Services: API backend, frontend builder (via pnpm), and Nginx reverse proxy
+# Services: API backend, frontend builder, and Nginx reverse proxy
 
 services:
-  # 🐴 API service – Node.js + Express + Prisma backend
+  # 🐴 kd_api – Node.js + Express + Prisma backend
   kd_api:
     build:
-      context: ./api                    # 📂 Path to API source folder
-      dockerfile: Dockerfile           # 🛠 Custom Dockerfile for Node.js/Prisma
+      context: ./api
+      dockerfile: Dockerfile
       args:
-        NODE_ENV: production           # 🔧 Passed to build stage
+        NODE_ENV: production
 
     container_name: kd_api
-    working_dir: /usr/src/app          # 📁 Must match Dockerfile WORKDIR
-    user: "node"                       # 👤 Run as non-root user for safety
+    working_dir: /usr/src/app
+    user: "node"  # 👤 Non-root user for safer volume writes
 
-    # Optional: Mount code during local dev
+    # Optional: enable during local development
     # volumes:
     #   - ./api:/usr/src/app:cached
 
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby
-      - API_ADMIN_PASS=${API_ADMIN_PASS}  # 🔐 Used to protect admin-only routes
+      - API_ADMIN_PASS=${API_ADMIN_PASS}
 
     ports:
-      - "4000:4000"                    # 🌍 REST + WebSocket
-      - "5555:5555"                    # 🔍 Optional: Prisma Studio
+      - "4000:4000"  # REST & WebSocket
+      - "5555:5555"  # Optional: Prisma Studio
 
     restart: unless-stopped
     networks:
       - kd_net
 
-  # ⚙️ Frontend builder – builds Vite app using pnpm and outputs to Nginx volume
+  # ⚙️ kd_frontend_builder – compiles Vite frontend using pnpm
   kd_frontend_builder:
     image: node:20
     container_name: kd_frontend_builder
     working_dir: /usr/src/app
-    user: "root"                       # Needed to chown output folder
+    user: "root"  # 👷 Needed to fix ownership of copied/mounted files
 
     volumes:
-      - ./frontend:/usr/src/app         # 🧱 Mount Vite + React project
-      - /websites/kd_race_app:/output   # 📤 Target folder served by Nginx
+      - type: volume
+        source: frontend_node_modules
+        target: /usr/src/app/node_modules
+      - type: volume
+        source: frontend_cache
+        target: /usr/src/app/.pnpm-store
+      - ./frontend:/usr/src/app:cached         # Source files
+      - /websites/kd_race_app:/output           # Final built assets
 
     command: >
       bash -c "
-        corepack enable &&                                              # 🧩 Enable Node's built-in package manager support
-        corepack prepare pnpm@8.15.4 --activate &&                      # ⏬ Install and activate specified pnpm version
-        rm -rf node_modules dist .vite .vite-temp package-lock.json && # 🧹 Full cleanup of old build artifacts
-        pnpm install --no-frozen-lockfile &&                            # ✅ Install dependencies without requiring a lockfile
-        pnpm run build &&                                               # 🛠 Build production frontend with Vite
-        cp -r dist/* /output &&                                         # 🚚 Move built files to shared output mount
-        chown -R 1007:1003 /output                                      # 🔐 Ensure correct permissions for Nginx
+        echo '🧹 Cleaning up previous build folders...' &&
+        rm -rf node_modules dist .vite .vite-temp &&
+
+        echo '👤 Ensuring writeable cache & proper ownership...' &&
+        mkdir -p /usr/src/app/.pnpm-store &&
+        chown -R 1000:1000 /usr/src/app /usr/src/app/.pnpm-store &&
+
+        echo '📦 Setting up pnpm and installing deps...' &&
+        corepack enable &&
+        corepack prepare pnpm@8.15.4 --activate &&
+        su node -c 'pnpm install --no-frozen-lockfile' &&
+
+        echo '🏗 Building frontend as node user...' &&
+        su node -c 'pnpm run build' &&
+
+        echo '🚚 Copying output to Nginx mount...' &&
+        cp -r dist/* /output &&
+        chown -R 1007:1003 /output &&
+
+        echo '✅ Frontend build complete.'
       "
 
     restart: on-failure
     networks:
       - kd_net
 
-  # 🌐 Nginx – serves frontend and proxies backend API/WebSocket traffic
+  # 🌐 kd_nginx – serves frontend and proxies backend API/WebSocket
   kd_nginx:
     build:
-      context: ./nginx               # 📁 Contains Dockerfile and kd.conf
+      context: ./nginx
       dockerfile: Dockerfile
 
     container_name: kd_nginx
     depends_on:
-      - kd_api                      # ⏱ Ensure API is up before proxying requests
+      - kd_api
 
     ports:
-      - "8086:80"                   # 🌐 Host HTTP port (Cloudflare handles HTTPS)
+      - "8086:80"  # External HTTP port
 
     volumes:
-      - /websites/kd_race_app:/usr/share/nginx/html:ro     # 📦 Static files from builder
-      - ./nginx/kd.conf:/etc/nginx/conf.d/default.conf:ro  # ⚙️ Custom routing and proxy config
+      - /websites/kd_race_app:/usr/share/nginx/html:ro     # 📦 Built frontend
+      - ./nginx/kd.conf:/etc/nginx/conf.d/default.conf:ro  # ⚙️ Custom routing config
 
     restart: unless-stopped
     networks:
       - kd_net
 
-# 🔌 Shared bridge network for internal communication
+# 🔌 Shared Docker network
 networks:
   kd_net:
     name: kd_net
     driver: bridge
+
+# 🧱 Volumes to isolate cached dependencies and store
+volumes:
+  frontend_node_modules:
+  frontend_cache:
