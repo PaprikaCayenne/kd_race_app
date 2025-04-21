@@ -36,7 +36,7 @@ services:
     image: node:20
     container_name: kd_frontend_builder
     working_dir: /usr/src/app
-    user: "root"  # 👷 Needed to fix ownership of copied/mounted files
+    user: "root"  # 👷 Required to handle file ownership correction
 
     volumes:
       - type: volume
@@ -45,27 +45,29 @@ services:
       - type: volume
         source: frontend_cache
         target: /usr/src/app/.pnpm-store
-      - ./frontend:/usr/src/app:cached         # Source files
-      - /websites/kd_race_app:/output           # Final built assets
+      - ./frontend:/usr/src/app:cached         # Editable React + Vite project
+      - /websites/kd_race_app:/output           # Output directory for final built assets
+
+    environment:
+      COREPACK_ENABLE_STRICT: "0"     # Prevents prompts
+      NODE_OPTIONS: "--no-warnings"   # Silences benign warnings
 
     command: >
       bash -c "
-        echo '🧹 Cleaning up previous build folders...' &&
-        rm -rf dist .vite .vite-temp &&
+        echo '🧹 Cleaning up old files (as root)...' &&
+        rm -rf /usr/src/app/dist /usr/src/app/.vite /usr/src/app/.vite-temp /output/* &&
 
-        echo '📦 Setting up pnpm and installing deps as node user...' &&
-        corepack enable &&
-        corepack prepare pnpm@8.15.4 --activate &&
-        su node -c 'pnpm install --no-frozen-lockfile' &&
+        echo '🔧 Fixing ownership of workspace to media-apps (PUID=1007, PGID=1003)...' &&
+        chown -R 1007:1003 /usr/src/app /output &&
 
-        echo '🏗 Building frontend as node user...' &&
-        su node -c 'pnpm run build' &&
+        echo '🛆 Installing deps and building as non-root user...' &&
+        su node -c 'corepack enable && \
+                    corepack prepare pnpm@8.15.4 --activate && \
+                    pnpm install --no-frozen-lockfile && \
+                    pnpm run build && \
+                    cp -r dist/* /output' &&
 
-        echo '🚚 Copying output to Nginx mount...' &&
-        cp -r dist/* /output &&
-        chown -R 1007:1003 /output &&
-
-        echo '✅ Frontend build complete.'
+        echo '✅ Build complete'
       "
 
     restart: on-failure
