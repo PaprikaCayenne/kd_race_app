@@ -1,4 +1,5 @@
 # 🚀 Docker Compose configuration for KD Race App
+# Version: v1.2.9 – Move copy step outside node user to fix permission issues
 # Services: API backend, frontend builder, and Nginx reverse proxy
 
 services:
@@ -49,8 +50,10 @@ services:
       - /websites/kd_race_app:/output           # Output directory for final built assets
 
     environment:
-      COREPACK_ENABLE_STRICT: "0"     # Prevents prompts
-      NODE_OPTIONS: "--no-warnings"   # Silences benign warnings
+      COREPACK_ENABLE_STRICT: "0"
+      NODE_OPTIONS: "--no-warnings"
+      PUID: "1007"
+      PGID: "1003"
 
     command: >
       bash -c "
@@ -58,14 +61,25 @@ services:
         rm -rf /usr/src/app/dist /usr/src/app/.vite /usr/src/app/.vite-temp /output/* &&
 
         echo '🔧 Fixing ownership of workspace to media-apps (PUID=1007, PGID=1003)...' &&
-        chown -R 1007:1003 /usr/src/app /output &&
+        chown -R $PUID:$PGID /usr/src/app /output &&
 
-        echo '🛆 Installing deps and building as non-root user...' &&
-        su node -c 'corepack enable && \
-                    corepack prepare pnpm@8.15.4 --activate && \
-                    pnpm install --no-frozen-lockfile && \
-                    pnpm run build && \
-                    cp -r dist/* /output' &&
+        echo '🔒 Fixing permissions before build...' &&
+        mkdir -p /usr/src/app/.npm /usr/src/app/.local/share/pnpm &&
+        chown -R node:node /usr/src/app /usr/src/app/.npm /usr/src/app/.local &&
+        chmod -R 755 /usr/src/app/.local/share/pnpm &&
+
+        echo '🛆 Installing deps and building as node user (inside owned workspace)...' &&
+        su node -c '
+          export HOME=/usr/src/app &&
+          npx pnpm install --no-frozen-lockfile &&
+          npx pnpm run build
+        ' &&
+
+        echo '📦 Copying built files to output (as root)...' &&
+        cp -r dist/* /output &&
+
+        echo '🔓 Ensuring output is world-readable for Nginx...' &&
+        chmod -R 755 /output &&
 
         echo '✅ Build complete'
       "
