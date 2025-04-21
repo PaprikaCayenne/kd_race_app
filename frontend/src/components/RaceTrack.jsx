@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.7.17 – Fix duplicate Pixi app crash, ensure movement, proper destroy, better Socket.IO version detection
+// Version: v0.7.18 – Sync with race.js tick %, improved logging, final stable motion
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from '@pixi/app';
@@ -11,9 +11,8 @@ const DEBUG = true;
 const debugLog = (...args) => DEBUG && console.log(...args);
 const errorLog = (...args) => console.error('[ERROR]', ...args);
 
-// 🌱 Version and environment info
 const PIXI_VERSION = '7.4.3';
-debugLog(`[KD] RaceTrack Loaded – v0.7.17`);
+debugLog(`[KD] RaceTrack Loaded – v0.7.18`);
 debugLog(`[PixiJS] Version: ${PIXI_VERSION}`);
 debugLog(`[Socket.IO] Version:`, typeof io?.Manager === 'function' ? io()?.io?.engine?.version ?? 'not available' : 'unavailable');
 
@@ -24,13 +23,10 @@ const RaceTrack = () => {
   const [horses, setHorses] = useState([]);
   const [raceStarted, setRaceStarted] = useState(false);
   const [raceFinished, setRaceFinished] = useState(false);
-  const [currentRaceId, setCurrentRaceId] = useState(null);
 
   const appRef = useRef(null);
   const horseSpritesRef = useRef(new Map());
   const horsePositionsRef = useRef({});
-  const horseVelocitiesRef = useRef({});
-  const finishedHorsesRef = useRef(new Set());
 
   const centerX = 500;
   const centerY = 300;
@@ -54,12 +50,13 @@ const RaceTrack = () => {
       debugLog('[WS] race:init received:', data);
       const initial = data.horses.map((h) => ({ ...h, pct: 0 }));
       horsePositionsRef.current = Object.fromEntries(initial.map((h) => [h.id, 0]));
-      horseVelocitiesRef.current = Object.fromEntries(initial.map((h) => [h.id, 0.0025 + Math.random() * 0.0015]));
-      finishedHorsesRef.current.clear();
-      setCurrentRaceId(data.raceId);
       setHorses(initial);
       setRaceStarted(true);
       setRaceFinished(false);
+    });
+
+    socket.on('race:tick', ({ horseId, pct }) => {
+      horsePositionsRef.current[horseId] = pct / 100;
     });
 
     return () => {
@@ -95,7 +92,7 @@ const RaceTrack = () => {
       for (let i = 0; i < 4; i++) {
         const radiusX = baseRadiusX + i * laneSpacing;
         const radiusY = baseRadiusY + i * laneSpacing;
-        track.drawRoundedRect(centerX - radiusX, centerY - radiusY, radiusX * 2, radiusY * 2, 50);
+        track.drawEllipse(centerX, centerY, radiusX, radiusY);
       }
       app.stage.addChild(track);
       debugLog('[Pixi] Track rendered with 4 lanes');
@@ -106,35 +103,13 @@ const RaceTrack = () => {
           const index = horses.findIndex((h) => h.id === parseInt(horseId));
           if (!sprite || index === -1) continue;
 
-          const velocity = horseVelocitiesRef.current[horseId] || 0.003;
-          if (pct < 1) {
-            horsePositionsRef.current[horseId] = Math.min(pct + velocity, 1);
-
-            if (horsePositionsRef.current[horseId] >= 1 && !finishedHorsesRef.current.has(horseId)) {
-              finishedHorsesRef.current.add(horseId);
-              debugLog(`[Race] Horse ${horseId} finished`);
-            }
-          }
-
-          const angle = horsePositionsRef.current[horseId] * 2 * Math.PI;
+          const angle = pct * 2 * Math.PI;
           const laneX = baseRadiusX + index * laneSpacing;
           const laneY = baseRadiusY + index * laneSpacing;
 
           sprite.x = centerX + laneX * Math.cos(angle);
           sprite.y = centerY + laneY * Math.sin(angle);
           sprite.rotation = angle + Math.PI / 2;
-        }
-
-        if (raceStarted && finishedHorsesRef.current.size === horses.length) {
-          debugLog('[Race] All horses finished – emitting race:finish');
-          const leaderboard = horses.map((h, i) => ({
-            horseId: h.id,
-            position: i + 1,
-            timeMs: 3000 + i * 250,
-          }));
-          socket.emit('race:finish', { raceId: currentRaceId, leaderboard });
-          setRaceStarted(false);
-          setRaceFinished(true);
         }
       });
     } catch (err) {
@@ -195,7 +170,6 @@ const RaceTrack = () => {
 
       const selected = horsesFromDb.slice(0, 4);
       const raceId = Date.now();
-      setCurrentRaceId(raceId);
       debugLog('[Test] 🚀 Starting test race with horses:', selected);
 
       setRaceFinished(false);
