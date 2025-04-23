@@ -1,9 +1,7 @@
 // routes/register.js
-
 import express from "express";
-import { getPrisma } from "../lib/prisma.js";
+import prisma from "../lib/prisma.js";
 
-const prisma = getPrisma();
 const router = express.Router();
 
 router.post("/", async (req, res) => {

@@ -4,16 +4,16 @@ import express from "express";
 import dotenv from "dotenv";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { setupRaceNamespace } from "./sockets/race.js";
 import horsesRoute from "./routes/horses.js";
 import registerRoute from "./routes/register.js";
 import { createAdminRoute } from "./routes/admin.js";
+import { setupRaceNamespace } from "./sockets/race.js";
 import { execSync } from "child_process";
 
-// 🌱 Load environment variables
+// 🌱 Load .env vars
 dotenv.config();
 
-// 🧬 Run prisma generate in dev mode
+// 🧬 Auto-generate Prisma client in non-prod
 if (process.env.NODE_ENV !== "production") {
   try {
     console.log("🛠️ Running prisma generate...");
@@ -29,24 +29,24 @@ const server = createServer(app);
 // 📡 Setup Socket.IO
 const io = new Server(server, {
   cors: { origin: "*" },
-  path: "/api/socket.io", // ✅ Must match frontend and Nginx
+  path: "/api/socket.io", // match frontend + nginx
 });
 
-// 🔌 Avoid Express interfering with upgrade requests
+// 🧩 API middleware
+app.use(express.json());
+
+// 🧬 Prevent Express from interfering with Socket upgrade
 app.use((req, res, next) => {
   if (req.url.startsWith("/api/socket.io")) return next();
   next();
 });
 
-// 🌐 JSON parsing
-app.use(express.json());
-
-// 🧩 REST API endpoints
+// 🔗 Routes
 app.use("/api/horses", horsesRoute);
 app.use("/api/register", registerRoute);
 app.use("/api/admin", createAdminRoute(io));
 
-// 🏇 WebSocket events
+// 🏇 WebSocket: race namespace logic
 setupRaceNamespace(io);
 
 // 🚀 Start server

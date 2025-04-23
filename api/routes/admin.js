@@ -1,11 +1,9 @@
 // routes/admin.js
-
 import express from "express";
-import { getPrisma } from "../lib/prisma.js";
+import prisma from "../lib/prisma.js";
 import seedrandom from "seedrandom";
 
 export function createAdminRoute(io) {
-  const prisma = getPrisma();
   const router = express.Router();
 
   router.post("/start", async (req, res) => {
