@@ -1,14 +1,27 @@
-services:
-  # 🏗️ One-off builder for frontend assets – run manually or via testing_rebuild.sh
-  kd_frontend_builder:
-    build:
-      context: .
-      dockerfile: ./frontend/Dockerfile
-    volumes:
-      - kd_race_app_dist_assets:/app/frontend/dist
-    # ⏱️ Do not auto-run – this is used for dev/testing only
+# File: docker-compose.yml
+# Version: v0.7.15 – Fixes missing context for frontend build
 
-  # 🚀 API backend serving routes and static frontend
+services:
+  # 🚀 Frontend build stage
+  kd_frontend:
+    build:
+      context: .  # 🔧 Build from root so Dockerfile gets full access
+      dockerfile: frontend/Dockerfile
+    volumes:
+      - ./frontend_dist_temp:/app/frontend/dist:ro  # ✅ Build output copied here
+
+  # 📦 Copy built frontend assets into volume
+  kd_copy_frontend:
+    image: alpine
+    depends_on:
+      - kd_frontend
+    volumes:
+      - dist_build:/target
+      - ./frontend_dist_temp:/source:ro
+    entrypoint: ["sh", "-c"]
+    command: "echo '🔍 Source folder:' && ls -l /source && rm -rf /target/* && cp -r /source/* /target/ && echo '✅ Copy complete'"
+
+  # 🔧 Backend API
   kd_api:
     build:
       context: ./api
@@ -16,7 +29,7 @@ services:
     ports:
       - "4000:4000"
     volumes:
-      - kd_race_app_dist_assets:/app/public  # Serves prebuilt frontend files
+      - dist_build:/app/public
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby
@@ -25,21 +38,20 @@ services:
     networks:
       - kd_net
 
-  # 🌐 Nginx reverse proxy serving frontend + proxying API and sockets
+  # 🌐 Nginx reverse proxy
   kd_nginx:
     image: nginx:alpine
     ports:
       - "8086:80"
     volumes:
-      - kd_race_app_dist_assets:/usr/share/nginx/html:ro
+      - dist_build:/usr/share/nginx/html:ro
       - ./nginx/kd.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
     networks:
       - kd_net
 
-# ✅ Consistent volume used everywhere
 volumes:
-  kd_race_app_dist_assets:
+  dist_build:
 
 networks:
   kd_net:

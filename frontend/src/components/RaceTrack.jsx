@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.7.26 – Adds clear console, testing script integration, and improved logs
+// Version: v0.7.27 – Fix auto-start bug, add controlled race lifecycle
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from '@pixi/app';
@@ -13,7 +13,7 @@ const debugLog = (...args) => DEBUG && console.log('[KD]', ...args);
 const errorLog = (...args) => console.error('[ERROR]', ...args);
 
 console.clear();
-debugLog('🏁 RaceTrack component initializing (v0.7.26)');
+debugLog('🏁 RaceTrack component initializing (v0.7.27)');
 
 let socket;
 
@@ -104,6 +104,8 @@ const RaceTrack = () => {
       debugLog('[Pixi] 🏁 Track rendered with 4 rounded rectangle lanes');
 
       app.ticker.add(() => {
+        if (!raceStarted) return;
+
         debugLog('[Pixi] 🔄 Ticker tick');
         debugLog('[Pixi] 🔍 Current horseSprites keys:', Array.from(horseSpritesRef.current.keys()));
 
@@ -112,19 +114,13 @@ const RaceTrack = () => {
           const sprite = horseSpritesRef.current.get(horseId);
           const index = horses.findIndex((h) => h.id === horseId);
 
-          if (!sprite || index === -1) {
-            debugLog(`[Pixi] ⚠️ Sprite or horse not found for ID: ${horseId}`);
-            continue;
-          }
+          if (!sprite || index === -1) continue;
 
           const angle = pct * 2 * Math.PI;
           const laneX = baseRadiusX - index * laneSpacing;
           const laneY = baseRadiusY - index * laneSpacing;
-
           const newX = centerX + laneX * Math.cos(angle);
           const newY = centerY + laneY * Math.sin(angle);
-
-          debugLog(`[Pixi] → Calculated pos for horse ${horseId}: pct=${pct}, x=${newX.toFixed(1)}, y=${newY.toFixed(1)}, angle=${angle.toFixed(2)}`);
 
           sprite.x = newX;
           sprite.y = newY;
@@ -142,7 +138,7 @@ const RaceTrack = () => {
       }
       horseSpritesRef.current.clear();
     };
-  }, []);
+  }, [raceStarted]);
 
   useEffect(() => {
     const app = appRef.current;
@@ -198,6 +194,7 @@ const RaceTrack = () => {
       const raceId = Date.now();
       debugLog('[Test] 🚀 Starting test race with horses:', selected);
 
+      setRaceStarted(true);
       setRaceFinished(false);
       socket.emit('startRace', {
         raceId,
