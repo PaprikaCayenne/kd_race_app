@@ -1,13 +1,13 @@
-# api/Dockerfile
+# File: api/Dockerfile
 FROM node:20
 
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies including devDependencies for tsx
 COPY ./package*.json ./
-RUN npm install --omit=optional
+RUN npm install
 
-# Copy backend code and Prisma schema
+# Copy all source code and Prisma schema
 COPY . .
 COPY ./prisma ./prisma
 

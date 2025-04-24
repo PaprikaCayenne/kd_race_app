@@ -1,5 +1,5 @@
 // File: api/sockets/race.js
-// Version: v0.7.21 – Stable race simulation and DB sync
+// Version: v0.7.80 – Fix FK violation by creating race before ticks
 
 import seedrandom from "seedrandom";
 import { PrismaClient } from "@prisma/client";
@@ -10,6 +10,7 @@ const DEBUG = true;
 const debugLog = (...args) => DEBUG && console.log(...args);
 const errorLog = (...args) => console.error("❌", ...args);
 
+// 🚦 Entry point to configure race socket namespace
 export function setupRaceNamespace(io) {
   const raceNamespace = io.of("/race");
 
@@ -20,8 +21,24 @@ export function setupRaceNamespace(io) {
       debugLog(`🏁 [Race] startRace received – RaceID: ${raceId}`);
       debugLog("🐎 Horses:", horses);
 
+      // ✅ Create race first to satisfy FK constraint
+      try {
+        await prisma.race.create({
+          data: {
+            id: BigInt(raceId),
+            startedAt: new Date(),
+          },
+        });
+        debugLog("💾 [DB] Race inserted");
+      } catch (err) {
+        errorLog("[DB] Failed to insert race:", err);
+        return;
+      }
+
       const rng = seedrandom(String(raceId));
       const horseStates = {};
+      const startTime = Date.now();
+
       for (const horse of horses) {
         horseStates[horse.id] = 0;
       }
@@ -38,17 +55,27 @@ export function setupRaceNamespace(io) {
           const delta = 1.2 + rng() * 2.2; // ~1.2% to 3.4% per tick
           horseStates[horse.id] += delta;
 
-          if (horseStates[horse.id] < 100) allFinished = false;
+          const pct = Math.min(horseStates[horse.id], 100);
+          const timeMs = Date.now() - startTime;
 
-          raceNamespace.emit("race:tick", {
-            raceId,
-            horseId: horse.id,
-            pct: Math.min(horseStates[horse.id], 100),
-          });
+          // 🎯 Save frame to DB
+          try {
+            await prisma.replayFrame.create({
+              data: {
+                raceId: BigInt(raceId),
+                horseId: horse.id,
+                pct,
+                timeMs,
+              },
+            });
+          } catch (err) {
+            errorLog("❌ [DB] Failed to store replay frame:", err);
+          }
 
-          debugLog(
-            `↪️ [Tick] Horse ${horse.id} → ${horseStates[horse.id].toFixed(1)}%`
-          );
+          raceNamespace.emit("race:tick", { raceId, horseId: horse.id, pct });
+          debugLog(`↪️ [Tick] Horse ${horse.id} → ${pct.toFixed(1)}%`);
+
+          if (pct < 100) allFinished = false;
         }
 
         if (allFinished) {
@@ -63,16 +90,13 @@ export function setupRaceNamespace(io) {
               timeMs: 3000 + index * 250,
             }));
 
-          raceNamespace.emit("race:finish", { raceId, leaderboard });
+          raceNamespace.emit("race:finish", leaderboard);
           debugLog("📤 [Race] race:finish emitted", leaderboard);
 
           try {
-            await prisma.race.create({
-              data: {
-                id: BigInt(raceId),
-                startedAt: new Date(),
-                endedAt: new Date(),
-              },
+            await prisma.race.update({
+              where: { id: BigInt(raceId) },
+              data: { endedAt: new Date() },
             });
 
             for (const { horseId, position, timeMs } of leaderboard.slice(0, 3)) {
@@ -84,15 +108,13 @@ export function setupRaceNamespace(io) {
                   timeMs,
                 },
               });
-              debugLog(
-                `💾 [DB] Result saved: Horse ${horseId}, Pos ${position}, ${timeMs}ms`
-              );
+              debugLog(`💾 [DB] Result saved: Horse ${horseId}, Pos ${position}, ${timeMs}ms`);
             }
           } catch (err) {
             errorLog("[DB] Error saving results:", err);
           }
         }
-      }, 1000 / 30); // 30 FPS
+      }, 1000 / 30); // 30 FPS tick interval
     });
   });
 }

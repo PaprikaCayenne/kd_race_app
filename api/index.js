@@ -1,4 +1,5 @@
 // File: api/index.js
+// Version: v0.7.76 – Add replay route for race tick playback
 
 import express from "express";
 import dotenv from "dotenv";
@@ -7,6 +8,7 @@ import { Server } from "socket.io";
 import horsesRoute from "./routes/horses.js";
 import registerRoute from "./routes/register.js";
 import { createAdminRoute } from "./routes/admin.js";
+import replayRoute from "./routes/replay.js";
 import { setupRaceNamespace } from "./sockets/race.js";
 import { execSync } from "child_process";
 
@@ -45,6 +47,7 @@ app.use((req, res, next) => {
 app.use("/api/horses", horsesRoute);
 app.use("/api/register", registerRoute);
 app.use("/api/admin", createAdminRoute(io));
+app.use("/api", replayRoute); // 🎬 Add replay endpoint for frontend
 
 // 🏇 WebSocket: race namespace logic
 setupRaceNamespace(io);

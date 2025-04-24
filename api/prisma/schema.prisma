@@ -28,6 +28,7 @@ model Horse {
   color         String
   registrations Registration[]
   results       Result[]
+  replayFrames  ReplayFrame[]
 
   @@map("horses")
 }
@@ -46,10 +47,11 @@ model Registration {
 
 // 🏁 Race model — ID must support high timestamp values
 model Race {
-  id         BigInt   @id @default(autoincrement()) @db.BigInt
+  id         BigInt        @id @default(autoincrement()) @db.BigInt
   startedAt  DateTime?
   endedAt    DateTime?
   results    Result[]
+  replay     ReplayFrame[]
 
   @@map("races")
 }
@@ -66,4 +68,18 @@ model Result {
   race     Race    @relation(fields: [raceId], references: [id])
 
   @@map("results")
+}
+
+// 🎬 ReplayFrame model — stores pct & timestamp for each tick
+model ReplayFrame {
+  id        Int     @id @default(autoincrement())
+  raceId    BigInt  @db.BigInt
+  horseId   Int
+  pct       Float
+  timeMs    Int
+
+  race      Race    @relation(fields: [raceId], references: [id])
+  horse     Horse   @relation(fields: [horseId], references: [id])
+
+  @@map("replay_frames")
 }
