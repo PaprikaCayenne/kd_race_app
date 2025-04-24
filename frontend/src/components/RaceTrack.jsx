@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.7.45 – Fix horse movement by reading sprites directly from ref
+// Version: v0.7.52 – Responsive resizing and enhanced debug
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from '@pixi/app';
@@ -12,211 +12,148 @@ const DEBUG = true;
 const debugLog = (...args) => DEBUG && console.log('[KD]', ...args);
 const errorLog = (...args) => console.error('[ERROR]', ...args);
 
-console.clear();
-window.__KD_RACE_APP_VERSION__ = 'v0.7.45';
-debugLog(`🔢 Frontend version: ${window.__KD_RACE_APP_VERSION__}`);
-debugLog('🏁 RaceTrack component initializing');
+window.__KD_RACE_APP_VERSION__ = 'v0.7.52';
+console.log('[KD] 🔢 Frontend version:', window.__KD_RACE_APP_VERSION__);
 
 let socket;
 
 const RaceTrack = () => {
   const canvasRef = useRef(null);
   const [horses, setHorses] = useState([]);
-  const [raceStarted, setRaceStarted] = useState(false);
-  const [raceFinished, setRaceFinished] = useState(false);
+  const raceStartedRef = useRef(false);
 
   const appRef = useRef(null);
   const horseSpritesRef = useRef(new Map());
   const horsePositionsRef = useRef({});
 
-  const centerX = 500;
-  const centerY = 300;
-  const baseRadiusX = 300;
-  const baseRadiusY = 160;
-  const laneSpacing = 20;
-
+  // WebSocket setup
   useEffect(() => {
-    debugLog('[WS] Connecting to /race via /api/socket.io...');
-    socket = io('/race', {
-      path: '/api/socket.io',
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 10,
-      reconnectionDelay: 500,
-    });
-
-    socket.on('connect', () => debugLog('[WS] ✅ Connected:', socket.id));
-    socket.on('connect_error', (err) => errorLog('[WS] ❌ Connection error:', err.message));
+    debugLog('Initializing WebSocket...');
+    socket = io('/race', { path: '/api/socket.io' });
+    socket.on('connect', () => debugLog('[WS] Connected:', socket.id));
 
     socket.on('race:init', (data) => {
-      debugLog('[WS] 🟢 race:init received:', data);
-      const initial = data.horses.map((h) => ({ ...h, pct: 0 }));
-      horsePositionsRef.current = Object.fromEntries(initial.map((h) => [h.id, 0]));
-
-      horseSpritesRef.current.forEach((sprite) => appRef.current?.stage.removeChild(sprite));
+      debugLog('[WS] race:init received:', data);
+      horsePositionsRef.current = Object.fromEntries(
+        data.horses.map(h => [String(h.id), 0])
+      );
+      debugLog('Initial positions map:', horsePositionsRef.current);
+      horseSpritesRef.current.forEach(s => appRef.current.stage.removeChild(s));
       horseSpritesRef.current.clear();
-
-      setHorses(initial);
-      setRaceStarted(true);
-      setRaceFinished(false);
+      setHorses(data.horses);
+      raceStartedRef.current = true;
     });
 
     socket.on('race:tick', ({ horseId, pct }) => {
-      horsePositionsRef.current[horseId] = pct / 100;
+      debugLog(`[WS] race:tick → ${horseId} => ${pct}%`);
+      horsePositionsRef.current[String(horseId)] = pct / 100;
     });
 
-    socket.on('race:finish', (data) => {
-      debugLog('[WS] 🏁 race:finish received:', data);
-      setRaceFinished(true);
+    socket.on('race:finish', (result) => {
+      debugLog('[WS] race:finish received:', result);
+      raceStartedRef.current = false;
     });
 
     return () => {
-      debugLog('[WS] Disconnecting...');
+      debugLog('Disconnecting WebSocket...');
       socket.disconnect();
     };
   }, []);
 
+  // Pixi init with responsive canvas
   useEffect(() => {
-    if (!canvasRef.current || appRef.current) {
-      debugLog('[Pixi] Skipping re-initialization');
-      return;
-    }
-
+    if (!canvasRef.current || appRef.current) return;
     try {
-      debugLog('[Pixi] 🎨 Initializing PixiJS application...');
-      const app = new Application({
-        view: canvasRef.current,
-        width: 1000,
-        height: 600,
-        backgroundColor: 0xd0f0e0,
-        antialias: true,
-        powerPreference: 'high-performance',
-      });
-
+      debugLog('Initializing Pixi Application...');
+      const container = canvasRef.current.parentElement;
+      const app = new Application({ view: canvasRef.current, backgroundColor: 0xd0f0e0, resizeTo: container });
       appRef.current = app;
 
-      const track = new Graphics();
-      track.lineStyle(4, 0xaaaaaa);
+      // draw track lanes
+      const drawTrack = () => {
+        debugLog('Drawing track...');
+        const { width, height } = app.renderer;
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const baseRX = width * 0.3;
+        const baseRY = height * 0.2667;
+        const laneGap = 20;
+        const track = new Graphics();
+        track.lineStyle(4, 0x888888);
+        for (let i = 0; i < 4; i++) {
+          const inset = i * laneGap;
+          const w = (baseRX - inset) * 2;
+          const h = (baseRY - inset) * 2;
+          debugLog(`Lane ${i+1}: x=${centerX - w/2}, y=${centerY - h/2}, w=${w}, h=${h}`);
+          track.drawRoundedRect(centerX - w/2, centerY - h/2, w, h, 50);
+        }
+        app.stage.addChild(track);
+      };
+      drawTrack();
 
-      for (let i = 0; i < 4; i++) {
-        const padding = i * laneSpacing;
-        const width = (baseRadiusX - padding) * 2;
-        const height = (baseRadiusY - padding) * 2;
-        const x = centerX - width / 2;
-        const y = centerY - height / 2;
-        const cornerRadius = 100;
-
-        track.drawRoundedRect(x, y, width, height, cornerRadius);
-        debugLog(`[Pixi] Track lane ${i + 1} drawn: x=${x}, y=${y}, w=${width}, h=${height}`);
-      }
-
-      app.stage.addChild(track);
-      debugLog('[Pixi] 🏁 Track rendered with 4 rounded rectangle lanes');
-
+      // animation loop
+      debugLog('Adding ticker loop...');
       app.ticker.add(() => {
-        if (!raceStarted || horseSpritesRef.current.size === 0) return;
-
-        horseSpritesRef.current.forEach((sprite, horseId, map) => {
-          const pct = horsePositionsRef.current[horseId];
-          const index = [...map.keys()].indexOf(horseId);
-
+        if (!raceStartedRef.current) return;
+        const { width, height } = app.renderer;
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const baseRX = width * 0.3;
+        const baseRY = height * 0.2667;
+        const laneGap = 20;
+        horseSpritesRef.current.forEach((sprite, id) => {
+          const pct = horsePositionsRef.current[id];
+          if (pct == null) return;
+          const idx = sprite._idx;
           const angle = pct * 2 * Math.PI;
-          const laneX = baseRadiusX - index * laneSpacing;
-          const laneY = baseRadiusY - index * laneSpacing;
-          const newX = centerX + laneX * Math.cos(angle);
-          const newY = centerY + laneY * Math.sin(angle);
-
+          const newX = centerX + (baseRX - idx*laneGap) * Math.cos(angle);
+          const newY = centerY + (baseRY - idx*laneGap) * Math.sin(angle);
           sprite.x = newX;
           sprite.y = newY;
-          sprite.rotation = angle + Math.PI / 2;
+          sprite.rotation = angle + Math.PI/2;
+          debugLog(`Sprite ${id} → x=${newX.toFixed(1)}, y=${newY.toFixed(1)}, angle=${angle.toFixed(2)}`);
         });
       });
     } catch (err) {
-      errorLog('[Pixi] ❌ Failed to initialize Pixi app:', err);
+      errorLog('Pixi init failed:', err);
     }
-
-    return () => {
-      if (appRef.current) {
-        appRef.current.destroy(true, { children: true });
-        appRef.current = null;
-      }
-      horseSpritesRef.current.clear();
-    };
+    return () => appRef.current?.destroy(true);
   }, []);
 
+  // spawn horse sprites once per init
   useEffect(() => {
     const app = appRef.current;
-    if (!app || horses.length === 0) return;
-
-    horses.forEach((horse, index) => {
-      if (!horseSpritesRef.current.has(horse.id)) {
-        try {
-          let colorHex;
-          try {
-            colorHex = new Color(horse.color || '#ff0000').toNumber();
-          } catch (err) {
-            errorLog(`[Pixi] ❌ Invalid horse color: '${horse.color}' – defaulting to red`);
-            colorHex = 0xff0000;
-          }
-
-          const sprite = new Graphics();
-          sprite.beginFill(colorHex);
-          sprite.drawRect(-10, -10, 20, 20);
-          sprite.endFill();
-          sprite.x = centerX + baseRadiusX - index * laneSpacing;
-          sprite.y = centerY;
-
-          horseSpritesRef.current.set(Number(horse.id), sprite);
-          app.stage.addChild(sprite);
-          debugLog(`[Pixi] 🐴 Added horse sprite → ID: ${horse.id}, x=${sprite.x}, y=${sprite.y}`);
-        } catch (err) {
-          errorLog(`[Pixi] ❌ Failed to render horse ${horse.id}:`, err);
-        }
-      }
+    if (!app) return;
+    horses.forEach((h, idx) => {
+      const key = String(h.id);
+      if (horseSpritesRef.current.has(key)) return;
+      const colorNum = new Color(h.color || '#ff0000').toNumber();
+      const sprite = new Graphics()
+        .beginFill(colorNum)
+        .drawCircle(0, 0, 12)
+        .endFill();
+      sprite._idx = idx;
+      horseSpritesRef.current.set(key, sprite);
+      app.stage.addChild(sprite);
+      debugLog(`Added sprite for horse ${key} at index ${idx}`);
     });
   }, [horses]);
 
   const startTestRace = async () => {
-    if (!socket?.connected) {
-      debugLog('[Test] 🚫 Socket not connected');
-      return;
-    }
-
-    try {
-      debugLog('[Test] 📡 Fetching horses from /api/horses...');
-      const res = await fetch('/api/horses');
-      const horsesFromDb = await res.json();
-
-      if (!Array.isArray(horsesFromDb) || horsesFromDb.length === 0) {
-        errorLog('[Test] ❌ No horses returned from API');
-        return;
-      }
-
-      const selected = horsesFromDb.slice(0, 4);
-      const raceId = Date.now();
-      debugLog('[Test] 🚀 Starting test race with horses:', selected);
-
-      setRaceStarted(true);
-      setRaceFinished(false);
-      socket.emit('startRace', {
-        raceId,
-        horses: selected,
-      });
-    } catch (err) {
-      errorLog('[Test] ❌ Failed to fetch horses:', err);
-    }
+    debugLog('startTestRace invoked');
+    if (!socket || socket.disconnected) return;
+    const res = await fetch('/api/horses');
+    const list = await res.json();
+    debugLog('Horses fetched:', list.slice(0, 4));
+    socket.emit('startRace', { raceId: Date.now(), horses: list.slice(0, 4) });
   };
 
   return (
     <div className="p-4">
-      <canvas ref={canvasRef} />
-      <div className="mt-4">
-        <button
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          onClick={startTestRace}
-        >
-          Start Test Race
-        </button>
-      </div>
+      <canvas ref={canvasRef} className="block w-full h-64 md:h-96" />
+      <button onClick={startTestRace} className="mt-4 bg-blue-600 px-4 py-2 text-white rounded">
+        Start Test Race
+      </button>
     </div>
   );
 };
