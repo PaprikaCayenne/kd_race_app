@@ -1,10 +1,10 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.7.27 – Fix auto-start bug, add controlled race lifecycle
+// Version: v0.7.45 – Fix horse movement by reading sprites directly from ref
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from '@pixi/app';
 import { Graphics } from '@pixi/graphics';
-import { string2hex } from '@pixi/utils';
+import { Color } from '@pixi/core';
 import '@pixi/display';
 import io from 'socket.io-client';
 
@@ -13,7 +13,9 @@ const debugLog = (...args) => DEBUG && console.log('[KD]', ...args);
 const errorLog = (...args) => console.error('[ERROR]', ...args);
 
 console.clear();
-debugLog('🏁 RaceTrack component initializing (v0.7.27)');
+window.__KD_RACE_APP_VERSION__ = 'v0.7.45';
+debugLog(`🔢 Frontend version: ${window.__KD_RACE_APP_VERSION__}`);
+debugLog('🏁 RaceTrack component initializing');
 
 let socket;
 
@@ -49,6 +51,10 @@ const RaceTrack = () => {
       debugLog('[WS] 🟢 race:init received:', data);
       const initial = data.horses.map((h) => ({ ...h, pct: 0 }));
       horsePositionsRef.current = Object.fromEntries(initial.map((h) => [h.id, 0]));
+
+      horseSpritesRef.current.forEach((sprite) => appRef.current?.stage.removeChild(sprite));
+      horseSpritesRef.current.clear();
+
       setHorses(initial);
       setRaceStarted(true);
       setRaceFinished(false);
@@ -56,7 +62,6 @@ const RaceTrack = () => {
 
     socket.on('race:tick', ({ horseId, pct }) => {
       horsePositionsRef.current[horseId] = pct / 100;
-      debugLog(`[WS] 🐎 race:tick → horse ${horseId} pct=${pct}`);
     });
 
     socket.on('race:finish', (data) => {
@@ -71,7 +76,10 @@ const RaceTrack = () => {
   }, []);
 
   useEffect(() => {
-    if (!canvasRef.current || appRef.current) return;
+    if (!canvasRef.current || appRef.current) {
+      debugLog('[Pixi] Skipping re-initialization');
+      return;
+    }
 
     try {
       debugLog('[Pixi] 🎨 Initializing PixiJS application...');
@@ -83,6 +91,7 @@ const RaceTrack = () => {
         antialias: true,
         powerPreference: 'high-performance',
       });
+
       appRef.current = app;
 
       const track = new Graphics();
@@ -104,17 +113,11 @@ const RaceTrack = () => {
       debugLog('[Pixi] 🏁 Track rendered with 4 rounded rectangle lanes');
 
       app.ticker.add(() => {
-        if (!raceStarted) return;
+        if (!raceStarted || horseSpritesRef.current.size === 0) return;
 
-        debugLog('[Pixi] 🔄 Ticker tick');
-        debugLog('[Pixi] 🔍 Current horseSprites keys:', Array.from(horseSpritesRef.current.keys()));
-
-        for (const [horseIdStr, pct] of Object.entries(horsePositionsRef.current)) {
-          const horseId = Number(horseIdStr);
-          const sprite = horseSpritesRef.current.get(horseId);
-          const index = horses.findIndex((h) => h.id === horseId);
-
-          if (!sprite || index === -1) continue;
+        horseSpritesRef.current.forEach((sprite, horseId, map) => {
+          const pct = horsePositionsRef.current[horseId];
+          const index = [...map.keys()].indexOf(horseId);
 
           const angle = pct * 2 * Math.PI;
           const laneX = baseRadiusX - index * laneSpacing;
@@ -125,7 +128,7 @@ const RaceTrack = () => {
           sprite.x = newX;
           sprite.y = newY;
           sprite.rotation = angle + Math.PI / 2;
-        }
+        });
       });
     } catch (err) {
       errorLog('[Pixi] ❌ Failed to initialize Pixi app:', err);
@@ -138,7 +141,7 @@ const RaceTrack = () => {
       }
       horseSpritesRef.current.clear();
     };
-  }, [raceStarted]);
+  }, []);
 
   useEffect(() => {
     const app = appRef.current;
@@ -149,7 +152,7 @@ const RaceTrack = () => {
         try {
           let colorHex;
           try {
-            colorHex = string2hex(horse.color || '#ff0000');
+            colorHex = new Color(horse.color || '#ff0000').toNumber();
           } catch (err) {
             errorLog(`[Pixi] ❌ Invalid horse color: '${horse.color}' – defaulting to red`);
             colorHex = 0xff0000;
@@ -164,14 +167,12 @@ const RaceTrack = () => {
 
           horseSpritesRef.current.set(Number(horse.id), sprite);
           app.stage.addChild(sprite);
-          debugLog(`[Pixi] 🐴 Added horse – ID: ${horse.id}, Name: ${horse.name}, DB Color: ${horse.color}, Hex: #${colorHex.toString(16).padStart(6, '0')}`);
+          debugLog(`[Pixi] 🐴 Added horse sprite → ID: ${horse.id}, x=${sprite.x}, y=${sprite.y}`);
         } catch (err) {
           errorLog(`[Pixi] ❌ Failed to render horse ${horse.id}:`, err);
         }
       }
     });
-
-    debugLog(`[Pixi] 🐎 Total horses rendered: ${horseSpritesRef.current.size}`);
   }, [horses]);
 
   const startTestRace = async () => {
@@ -207,7 +208,6 @@ const RaceTrack = () => {
 
   return (
     <div className="p-4">
-      <h2 className="text-xl font-bold mb-2">🏇 KD Oval Race Track</h2>
       <canvas ref={canvasRef} />
       <div className="mt-4">
         <button

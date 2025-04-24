@@ -1,25 +1,29 @@
 # File: docker-compose.yml
-# Version: v0.7.15 – Fixes missing context for frontend build
+# Version: v0.7.39 – Restore builder flow using bind mount copy
 
 services:
-  # 🚀 Frontend build stage
+  # 🚀 Frontend build stage (for one-off use)
   kd_frontend:
     build:
-      context: .  # 🔧 Build from root so Dockerfile gets full access
+      context: .  # 🔧 Full access from root
       dockerfile: frontend/Dockerfile
     volumes:
-      - ./frontend_dist_temp:/app/frontend/dist:ro  # ✅ Build output copied here
+      - ./frontend_dist_temp:/app/frontend/dist:ro  # ✅ Temporary build output
 
-  # 📦 Copy built frontend assets into volume
+  # 📦 Copy built frontend assets into final mount directory
   kd_copy_frontend:
     image: alpine
     depends_on:
       - kd_frontend
     volumes:
-      - dist_build:/target
+      - ./volumes/kd_race_app_dist_build:/target
       - ./frontend_dist_temp:/source:ro
     entrypoint: ["sh", "-c"]
-    command: "echo '🔍 Source folder:' && ls -l /source && rm -rf /target/* && cp -r /source/* /target/ && echo '✅ Copy complete'"
+    command: >
+      echo '🔍 Copying dist files...' &&
+      rm -rf /target/* &&
+      cp -r /source/* /target/ &&
+      echo '✅ Copy complete'
 
   # 🔧 Backend API
   kd_api:
@@ -29,7 +33,7 @@ services:
     ports:
       - "4000:4000"
     volumes:
-      - dist_build:/app/public
+      - ./volumes/kd_race_app_dist_build:/app/public
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby
@@ -44,14 +48,11 @@ services:
     ports:
       - "8086:80"
     volumes:
-      - dist_build:/usr/share/nginx/html:ro
+      - ./volumes/kd_race_app_dist_build:/usr/share/nginx/html:ro  # ✅ Bind mount for live preview
       - ./nginx/kd.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
     networks:
       - kd_net
-
-volumes:
-  dist_build:
 
 networks:
   kd_net:

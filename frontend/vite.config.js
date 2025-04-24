@@ -7,10 +7,13 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0',
-    port: 5173
+    port: 5173,
+    proxy: {
+      '/api': 'http://localhost:4000', // 👈 Proxy API requests to backend
+    },
   },
   build: {
-    outDir: 'dist'
+    outDir: 'dist',
   },
-  base: './' // ✅ Fix for relative paths in production
+  base: './', // ✅ Fix for relative paths in production
 });

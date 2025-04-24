@@ -1,18 +1,12 @@
-# File: frontend/Dockerfile
-# Version: v1.8 – Final fix for root context and stable copy
-
+# Stage 1: build
 FROM node:20 AS builder
-
-WORKDIR /app/frontend
-
-ENV ROLLUP_NO_NATIVE=true
-
+WORKDIR /app
 RUN npm install -g pnpm
+COPY frontend/package*.json ./frontend/
+RUN cd frontend && pnpm install --frozen-lockfile || pnpm install
+COPY frontend ./frontend
+RUN cd frontend && pnpm run build
 
-COPY frontend/package*.json ./
-RUN pnpm install --frozen-lockfile || pnpm install
-
-COPY frontend/. ./
-RUN pnpm run build && echo "✅ Build finished. Contents of dist:" && ls -l dist
-
-CMD ["true"]
+# Stage 2: copy
+FROM alpine
+COPY --from=builder /app/frontend/dist /app/frontend/dist
