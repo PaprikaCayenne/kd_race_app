@@ -1,26 +1,31 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.8.42 – Disable fallback horses for now, retain toggle UI and structure
+// Version: v0.8.57 – Use midBounds pathing for dynamic race:init horses
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics } from 'pixi.js';
 import { drawGreyOvalTrack } from '@/utils/drawGreyOvalTrack';
-import { drawHorseCenterline } from '@/utils/drawHorseCenterline';
+// import { drawHorseCenterline } from '@/utils/drawHorseCenterline';
 import { animateHorseSprites } from '@/utils/animateHorseSprites';
 import { generateAllLanes } from '@/utils/generateOffsetLane';
 import { generateRoundedRectCenterline } from '@/utils/generateRoundedRectCenterline';
 import { generatePondShape } from '@/utils/generatePondShape';
+import { io } from 'socket.io-client';
 
 const DEBUG = true;
 const debugLog = (...args) => DEBUG && console.log('[KD]', ...args);
 
-window.__KD_RACE_APP_VERSION__ = 'v0.8.42';
+const socket = io('/race', {
+  path: '/api/socket.io'
+});
+
+window.__KD_RACE_APP_VERSION__ = 'v0.8.57';
 console.log('[KD] 🔢 Frontend version:', window.__KD_RACE_APP_VERSION__);
 
 const RaceTrack = () => {
   const canvasRef = useRef(null);
   const appRef = useRef(null);
   const fallbackHorseSprites = useRef([]);
-  const [fallbackVisible, setFallbackVisible] = useState(false); // Disabled by default
+  const [fallbackVisible, setFallbackVisible] = useState(false);
   const [pastRaces, setPastRaces] = useState([]);
   const [selectedRaceId, setSelectedRaceId] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
@@ -59,19 +64,22 @@ const RaceTrack = () => {
     const { innerBounds, outerBounds } = drawGreyOvalTrack(app, container);
     const cornerRadius = 120;
     const segments = 400;
-    const centerline = generateRoundedRectCenterline(innerBounds, cornerRadius, segments);
+    const midBounds = {
+      x: (innerBounds.x + outerBounds.x) / 2,
+      y: (innerBounds.y + outerBounds.y) / 2,
+      width: (innerBounds.width + outerBounds.width) / 2,
+      height: (innerBounds.height + outerBounds.height) / 2,
+    };
+    const centerline = generateRoundedRectCenterline(midBounds, cornerRadius, segments);
     debugLog(`🧭 Centerline generated: ${centerline.length} points`);
-
-    drawHorseCenterline(app, centerline);
 
     const trackThickness = (outerBounds.width - innerBounds.width) / 2;
     const maxLaneWidth = (trackThickness - 20) / 2;
     const laneWidth = Math.min(30, maxLaneWidth);
     debugLog(`📏 Lane width adjusted: ${laneWidth}px`);
 
-    if (fallbackVisible) {
-      renderFallbackHorses(app, centerline, laneWidth);
-    }
+    // 🐎 Always render animated horses on page load once for testing
+    renderFallbackHorses(app, centerline, laneWidth);
 
     const pondPoints = generatePondShape(innerBounds.x + 80, innerBounds.y + 100, 120, 80);
     const pond = new Graphics();
@@ -81,6 +89,16 @@ const RaceTrack = () => {
     pond.endFill();
     app.stage.addChild(pond);
     debugLog(`🌊 Pond drawn with ${pondPoints.length} points`);
+
+    // 🟢 Draw green debug centerline
+    const centerlineLine = new Graphics();
+    centerlineLine.lineStyle(2, 0x00ff00);
+    centerlineLine.moveTo(centerline[0].x, centerline[0].y);
+    for (let i = 1; i < centerline.length; i++) {
+      centerlineLine.lineTo(centerline[i].x, centerline[i].y);
+    }
+    centerlineLine.closePath();
+    app.stage.addChild(centerlineLine);
   }, []);
 
   useEffect(() => {
@@ -89,7 +107,13 @@ const RaceTrack = () => {
       const { innerBounds, outerBounds } = drawGreyOvalTrack(appRef.current, canvasRef.current.parentElement);
       const cornerRadius = 120;
       const segments = 400;
-      const centerline = generateRoundedRectCenterline(innerBounds, cornerRadius, segments);
+      const midBounds = {
+        x: (innerBounds.x + outerBounds.x) / 2,
+        y: (innerBounds.y + outerBounds.y) / 2,
+        width: (innerBounds.width + outerBounds.width) / 2,
+        height: (innerBounds.height + outerBounds.height) / 2,
+      };
+      const centerline = generateRoundedRectCenterline(midBounds, cornerRadius, segments);
       const trackThickness = (outerBounds.width - innerBounds.width) / 2;
       const maxLaneWidth = (trackThickness - 20) / 2;
       const laneWidth = Math.min(30, maxLaneWidth);
@@ -99,14 +123,56 @@ const RaceTrack = () => {
     }
   }, [fallbackVisible]);
 
+  useEffect(() => {
+    socket.on('connect', () => {
+      debugLog('🔌 Connected to race socket');
+    });
+
+    socket.on('race:init', (data) => {
+      debugLog('🎬 Race init received:', data);
+
+      if (!appRef.current) return;
+      const container = canvasRef.current.parentElement;
+      const { innerBounds, outerBounds } = drawGreyOvalTrack(appRef.current, container);
+      const cornerRadius = 120;
+      const segments = 400;
+      const midBounds = {
+        x: (innerBounds.x + outerBounds.x) / 2,
+        y: (innerBounds.y + outerBounds.y) / 2,
+        width: (innerBounds.width + outerBounds.width) / 2,
+        height: (innerBounds.height + outerBounds.height) / 2,
+      };
+      const centerline = generateRoundedRectCenterline(midBounds, cornerRadius, segments);
+      const trackThickness = (outerBounds.width - innerBounds.width) / 2;
+      const maxLaneWidth = (trackThickness - 20) / 2;
+      const laneWidth = Math.min(30, maxLaneWidth);
+
+      const lanes = generateAllLanes(centerline, data.horses.length, laneWidth);
+
+      fallbackHorseSprites.current = lanes.map((lane, index) => {
+        return animateHorseSprites(appRef.current, [lane], 1.0, index);
+      });
+    });
+
+    return () => {
+      socket.off('connect');
+      socket.off('race:init');
+    };
+  }, []);
+
   const startBackendRace = async () => {
+    if (socket.disconnected) {
+      debugLog('⏳ Waiting for socket to connect before starting race...');
+      await new Promise((resolve) => socket.once('connect', resolve));
+    }
+
     debugLog('📡 Requesting race from backend...');
     try {
       const res = await fetch('/api/admin/start', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-pass': '2199213879'
+          'x-admin-pass': '6a2e8819c6fb4c15'
         }
       });
 
