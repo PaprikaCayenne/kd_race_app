@@ -1,192 +1,159 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.8.14 – Restore full race logic and live PixiJS rendering
+// Version: v0.8.42 – Disable fallback horses for now, retain toggle UI and structure
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Application } from '@pixi/app';
-import { Graphics } from '@pixi/graphics';
-import { Color } from '@pixi/core';
-import '@pixi/display';
-import io from 'socket.io-client';
-import { generateOvalPath } from '../../../api/utils/generateOvalPath.js';
+import { Application, Graphics } from 'pixi.js';
+import { drawGreyOvalTrack } from '@/utils/drawGreyOvalTrack';
+import { drawHorseCenterline } from '@/utils/drawHorseCenterline';
+import { animateHorseSprites } from '@/utils/animateHorseSprites';
+import { generateAllLanes } from '@/utils/generateOffsetLane';
+import { generateRoundedRectCenterline } from '@/utils/generateRoundedRectCenterline';
+import { generatePondShape } from '@/utils/generatePondShape';
 
 const DEBUG = true;
 const debugLog = (...args) => DEBUG && console.log('[KD]', ...args);
-const errorLog = (...args) => console.error('[ERROR]', ...args);
 
-window.__KD_RACE_APP_VERSION__ = 'v0.8.14';
+window.__KD_RACE_APP_VERSION__ = 'v0.8.42';
 console.log('[KD] 🔢 Frontend version:', window.__KD_RACE_APP_VERSION__);
-
-let socket;
 
 const RaceTrack = () => {
   const canvasRef = useRef(null);
-  const [horses, setHorses] = useState([]);
-  const [raceMode, setRaceMode] = useState('live');
+  const appRef = useRef(null);
+  const fallbackHorseSprites = useRef([]);
+  const [fallbackVisible, setFallbackVisible] = useState(false); // Disabled by default
   const [pastRaces, setPastRaces] = useState([]);
   const [selectedRaceId, setSelectedRaceId] = useState(null);
-  const appRef = useRef(null);
-  const horseSpritesRef = useRef(new Map());
-  const horsePositionsRef = useRef({});
-  const horsePathsRef = useRef({});
-  const frameCounterRef = useRef(0);
-  const finishedRef = useRef(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  const replayFramesRef = useRef([]);
-  const replayIndexRef = useRef(0);
-  const trackGraphicRef = useRef(null);
+  const renderFallbackHorses = (app, centerline, laneWidth) => {
+    const lanes = generateAllLanes(centerline, 4, laneWidth);
+    debugLog('🧪 Fallback lanes:', lanes);
+    fallbackHorseSprites.current = lanes.map((lane, index) => {
+      debugLog(`  Lane ${index} has ${lane.length} points`);
+      return animateHorseSprites(app, [lane], 1.0, index);
+    });
+  };
 
-  useEffect(() => {
-    debugLog('WebSocket initializing...');
-    socket = io('/race', { path: '/api/socket.io' });
-    socket.on('connect', () => debugLog('[WS] Connected:', socket.id));
-
-    socket.on('race:init', data => {
-      debugLog('[WS] race:init', data);
-      finishedRef.current = false;
-      replayFramesRef.current = [];
-      replayIndexRef.current = 0;
-      horsePathsRef.current = data.horsePaths || {};
-      debugLog('🧭 All Horse Paths:', horsePathsRef.current);
-
-      setRaceMode('live');
-      horsePositionsRef.current = Object.fromEntries(
-        data.horses.map(h => [h.id, 0])
-      );
-      const app = appRef.current;
-      if (app?.stage) {
-        horseSpritesRef.current.forEach(s => {
-          try { app.stage.removeChild(s); } catch {}
-        });
-        if (trackGraphicRef.current) {
-          try { app.stage.removeChild(trackGraphicRef.current); } catch {}
-        }
-      }
-      horseSpritesRef.current.clear();
-      setHorses(data.horses);
-
-      const examplePath = data.horsePaths?.[data.horses[0]?.id];
-      if (app && examplePath?.length > 1) {
-        const track = new Graphics();
-        track.lineStyle(5, 0x555555);
-        track.moveTo(examplePath[0][0], examplePath[0][1]);
-        for (let i = 1; i < examplePath.length; i++) {
-          track.lineTo(examplePath[i][0], examplePath[i][1]);
-        }
-        trackGraphicRef.current = track;
-        app.stage.addChild(track);
+  const clearFallbackHorses = () => {
+    if (!appRef.current) return;
+    fallbackHorseSprites.current.forEach((spriteMap) => {
+      for (const sprite of spriteMap.values()) {
+        debugLog('❌ Removing fallback sprite');
+        appRef.current.stage.removeChild(sprite);
       }
     });
-
-    socket.on('race:tick', tick => {
-      if (raceMode === 'live') {
-        horsePositionsRef.current[tick.horseId] = tick.pct / 100;
-        replayFramesRef.current.push(tick);
-      }
-    });
-
-    return () => socket.disconnect();
-  }, [raceMode]);
+    fallbackHorseSprites.current = [];
+  };
 
   useEffect(() => {
     if (!canvasRef.current || appRef.current) return;
-    try {
-      const container = canvasRef.current.parentElement;
-      const app = new Application({
-        view: canvasRef.current,
-        backgroundColor: 0xd0f0e0,
-        resizeTo: container,
-      });
-      appRef.current = app;
 
-      const basePath = generateOvalPath(500, 350, 300, 200, 200, 400);
-      const track = new Graphics();
-      track.lineStyle(5, 0x999999);
-      track.moveTo(basePath[0].x, basePath[0].y);
-      for (let i = 1; i < basePath.length; i++) {
-        track.lineTo(basePath[i].x, basePath[i].y);
-      }
-      trackGraphicRef.current = track;
-      app.stage.addChild(track);
-      debugLog(`📏 Generated track drawn on page load. Points: ${basePath.length}`);
+    const container = canvasRef.current.parentElement;
+    const app = new Application({
+      view: canvasRef.current,
+      backgroundColor: 0xd0f0e0,
+      resizeTo: container
+    });
+    appRef.current = app;
 
-      app.ticker.add(() => {
-        const frameCounter = ++frameCounterRef.current;
-        let allFinished = true;
+    const { innerBounds, outerBounds } = drawGreyOvalTrack(app, container);
+    const cornerRadius = 120;
+    const segments = 400;
+    const centerline = generateRoundedRectCenterline(innerBounds, cornerRadius, segments);
+    debugLog(`🧭 Centerline generated: ${centerline.length} points`);
 
-        if (raceMode === 'replay') {
-          if (replayIndexRef.current < replayFramesRef.current.length) {
-            const tick = replayFramesRef.current[replayIndexRef.current++];
-            horsePositionsRef.current[tick.horseId] = tick.pct / 100;
-          }
-        }
+    drawHorseCenterline(app, centerline);
 
-        horseSpritesRef.current.forEach((sprite, id) => {
-          const rawPct = horsePositionsRef.current[id];
-          if (rawPct == null || isNaN(rawPct)) return;
+    const trackThickness = (outerBounds.width - innerBounds.width) / 2;
+    const maxLaneWidth = (trackThickness - 20) / 2;
+    const laneWidth = Math.min(30, maxLaneWidth);
+    debugLog(`📏 Lane width adjusted: ${laneWidth}px`);
 
-          const pct = Math.min(Math.max(rawPct, 0), 1);
-          if (pct < 1) allFinished = false;
-
-          const path = horsePathsRef.current[id];
-          if (!path || path.length === 0) return;
-
-          const pathIndex = Math.floor(pct * (path.length - 1));
-          const [x, y] = path[pathIndex] || [];
-          if (x == null || y == null) return;
-
-          sprite.x = x;
-          sprite.y = y;
-
-          if (pathIndex + 1 < path.length) {
-            const [nx, ny] = path[pathIndex + 1];
-            sprite.rotation = Math.atan2(ny - y, nx - x);
-          }
-
-          if (frameCounter % 5 === 0) {
-            debugLog(`🐎 Horse ${id} → pct=${pct.toFixed(3)}, idx=${pathIndex}, x=${x.toFixed(1)}, y=${y.toFixed(1)}`);
-          }
-        });
-
-        if (allFinished && !finishedRef.current) {
-          finishedRef.current = true;
-          debugLog('🏁 Race complete! All horses have finished.');
-        }
-      });
-    } catch (e) {
-      errorLog('Pixi init error:', e);
+    if (fallbackVisible) {
+      renderFallbackHorses(app, centerline, laneWidth);
     }
-    return () => appRef.current?.destroy(true);
-  }, [raceMode]);
+
+    const pondPoints = generatePondShape(innerBounds.x + 80, innerBounds.y + 100, 120, 80);
+    const pond = new Graphics();
+    pond.beginFill(0x66ccff);
+    pond.moveTo(pondPoints[0].x, pondPoints[0].y);
+    pondPoints.slice(1).forEach(p => pond.lineTo(p.x, p.y));
+    pond.endFill();
+    app.stage.addChild(pond);
+    debugLog(`🌊 Pond drawn with ${pondPoints.length} points`);
+  }, []);
 
   useEffect(() => {
-    const app = appRef.current;
-    if (!app) return;
-    horses.forEach((horse, idx) => {
-      const key = horse.id;
-      if (horseSpritesRef.current.has(key)) return;
-      const colorNum = new Color(horse.color || '#ff0000').toNumber();
-      const sprite = new Graphics()
-        .beginFill(colorNum)
-        .drawCircle(0, 0, 12)
-        .endFill();
-      sprite._idx = idx;
-      horseSpritesRef.current.set(key, sprite);
-      try {
-        app.stage?.addChild(sprite);
-      } catch {}
-      debugLog(`🎨 Sprite created: Horse ${key}, lane ${idx}`);
-    });
-  }, [horses]);
+    if (!appRef.current) return;
+    if (fallbackVisible) {
+      const { innerBounds, outerBounds } = drawGreyOvalTrack(appRef.current, canvasRef.current.parentElement);
+      const cornerRadius = 120;
+      const segments = 400;
+      const centerline = generateRoundedRectCenterline(innerBounds, cornerRadius, segments);
+      const trackThickness = (outerBounds.width - innerBounds.width) / 2;
+      const maxLaneWidth = (trackThickness - 20) / 2;
+      const laneWidth = Math.min(30, maxLaneWidth);
+      renderFallbackHorses(appRef.current, centerline, laneWidth);
+    } else {
+      clearFallbackHorses();
+    }
+  }, [fallbackVisible]);
+
+  const startBackendRace = async () => {
+    debugLog('📡 Requesting race from backend...');
+    try {
+      const res = await fetch('/api/admin/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-pass': '2199213879'
+        }
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+
+      const data = await res.json();
+      debugLog('🏁 Race started from backend:', data);
+      setFallbackVisible(false);
+      setErrorMessage('');
+    } catch (err) {
+      console.error('❌ Failed to start backend race:', err);
+      setErrorMessage('Failed to start race. Please check server logs.');
+    }
+  };
+
+  const loadReplay = async (raceId) => {
+    debugLog('📥 Loading replay for race', raceId);
+    const res = await fetch(`/api/race/${raceId}/replay`);
+    const { frames } = await res.json();
+    debugLog('🎬 Replay loaded:', frames.length, 'frames');
+  };
+
+  useEffect(() => {
+    fetch('/api/races')
+      .then(res => res.json())
+      .then(data => setPastRaces(data))
+      .catch(err => console.error('Failed to fetch past races', err));
+  }, []);
 
   return (
     <div className="p-4">
-      <canvas ref={canvasRef} className="block w-full h-64 md:h-96" />
+      <canvas ref={canvasRef} className="block w-full h-64 md:h-[600px]" />
       <div className="mt-4 space-x-2">
         <button
-          onClick={startTestRace}
+          onClick={startBackendRace}
           className="bg-blue-600 px-4 py-2 text-white rounded"
         >
-          Start Test Race
+          Start Backend Race
+        </button>
+        <button
+          onClick={() => setFallbackVisible(!fallbackVisible)}
+          className="bg-green-600 px-4 py-2 text-white rounded"
+        >
+          Toggle Fallback Horses
         </button>
         {pastRaces.length > 0 && (
           <select
@@ -199,9 +166,12 @@ const RaceTrack = () => {
           >
             <option value="" disabled>Select a replay</option>
             {pastRaces.map(r => (
-              <option key={r.raceId} value={r.raceId}>{r.name}</option>
+              <option key={r.raceId} value={r.raceId}>{r.name || `Race ${r.raceId}`}</option>
             ))}
           </select>
+        )}
+        {errorMessage && (
+          <div className="text-red-500 text-sm mt-2">{errorMessage}</div>
         )}
       </div>
     </div>

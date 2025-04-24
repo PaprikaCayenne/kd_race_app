@@ -1,4 +1,4 @@
-// File: api/utils/generateOvalPath.js
+// File: frontend/src/utils/generateOvalPath.js
 // Version: v0.2.0 – Churchill Downs-inspired path with seed support
 
 import seedrandom from 'seedrandom';

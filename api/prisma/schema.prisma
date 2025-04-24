@@ -1,3 +1,6 @@
+// File: prisma/schema.prisma
+// Version: v0.4.0 – Add TrackMeta and HorsePath for race visualization
+
 generator client {
   provider = "prisma-client-js"
   output   = "../node_modules/.prisma/client"
@@ -8,7 +11,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// 👤 User model
 model User {
   id            Int             @id @default(autoincrement())
   firstName     String
@@ -21,7 +23,6 @@ model User {
   @@map("users")
 }
 
-// 🐎 Horse model
 model Horse {
   id            Int             @id @default(autoincrement())
   name          String
@@ -29,11 +30,11 @@ model Horse {
   registrations Registration[]
   results       Result[]
   replayFrames  ReplayFrame[]
+  horsePaths    HorsePath[]
 
   @@map("horses")
 }
 
-// 📝 Registration ties users to horses
 model Registration {
   id         Int      @id @default(autoincrement())
   user       User     @relation(fields: [userId], references: [id])
@@ -45,18 +46,18 @@ model Registration {
   @@map("registrations")
 }
 
-// 🏁 Race model — ID must support high timestamp values
 model Race {
   id         BigInt        @id @default(autoincrement()) @db.BigInt
   startedAt  DateTime?
   endedAt    DateTime?
   results    Result[]
   replay     ReplayFrame[]
+  horsePaths HorsePath[]
+  trackMeta  TrackMeta?
 
   @@map("races")
 }
 
-// 🥇 Result model — foreign key to Race uses BigInt
 model Result {
   id       Int     @id @default(autoincrement())
   raceId   BigInt  @db.BigInt
@@ -70,7 +71,6 @@ model Result {
   @@map("results")
 }
 
-// 🎬 ReplayFrame model — stores pct & timestamp for each tick
 model ReplayFrame {
   id        Int     @id @default(autoincrement())
   raceId    BigInt  @db.BigInt
@@ -82,4 +82,32 @@ model ReplayFrame {
   horse     Horse   @relation(fields: [horseId], references: [id])
 
   @@map("replay_frames")
+}
+
+model HorsePath {
+  id      Int     @id @default(autoincrement())
+  raceId  BigInt  @db.BigInt
+  horseId Int
+  index   Int     // Position in path
+  x       Float
+  y       Float
+
+  race    Race    @relation(fields: [raceId], references: [id])
+  horse   Horse   @relation(fields: [horseId], references: [id])
+
+  @@map("horse_paths")
+}
+
+model TrackMeta {
+  id           Int     @id @default(autoincrement())
+  raceId       BigInt  @unique @db.BigInt
+  centerline   Json
+  horseCount   Int
+  laneWidth    Int
+  bounds       Json
+  cornerRadius Int
+
+  race         Race    @relation(fields: [raceId], references: [id])
+
+  @@map("track_meta")
 }

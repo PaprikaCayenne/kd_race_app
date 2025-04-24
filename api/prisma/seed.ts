@@ -1,5 +1,5 @@
 // File: prisma/seed.ts
-// Version: v0.6.4 – Fix casing, BigInt raceId, and JLL horse fun
+// Version: v0.6.5 – Updated to match new schema with HorsePath and TrackMeta
 
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
@@ -7,14 +7,17 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🧹 Clearing old data...');
 
-  // Respect FK constraints: clear in the correct order
+  // Clear in correct FK order
+  await prisma.replayFrame.deleteMany();
+  await prisma.horsePath.deleteMany();
+  await prisma.trackMeta.deleteMany();
   await prisma.result.deleteMany();
   await prisma.race.deleteMany();
   await prisma.registration.deleteMany();
   await prisma.user.deleteMany();
   await prisma.horse.deleteMany();
 
-  console.log('🐎 Seeding branded horses...');
+  console.log('🐎 Seeding horses...');
 
   const redHorse = await prisma.horse.create({
     data: { name: 'Leaseloon Lightning', color: 'red' }
@@ -71,39 +74,12 @@ async function main() {
     ]
   });
 
-  console.log('🏁 Creating race and storing results...');
-
-  const race = await prisma.race.create({
-    data: {
-      startedAt: new Date(),
-      endedAt: new Date()
-    }
+  console.log('🏁 Creating race (empty stub for now)...');
+  await prisma.race.create({
+    data: {}
   });
 
-  await prisma.result.createMany({
-    data: [
-      {
-        raceId: BigInt(race.id), // 🧠 Cast raceId for BigInt safety
-        horseId: redHorse.id,
-        position: 1,
-        timeMs: 10234
-      },
-      {
-        raceId: BigInt(race.id),
-        horseId: blueHorse.id,
-        position: 2,
-        timeMs: 10500
-      },
-      {
-        raceId: BigInt(race.id),
-        horseId: greenHorse.id,
-        position: 3,
-        timeMs: 11012
-      }
-    ]
-  });
-
-  console.log('✅ Seeded database successfully!');
+  console.log('✅ Seed complete');
 }
 
 main()
