@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.7.52 – Responsive resizing and enhanced debug
+// Version: v0.7.58 – Increased spacing, edge safety & smoothing
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from '@pixi/app';
@@ -12,7 +12,7 @@ const DEBUG = true;
 const debugLog = (...args) => DEBUG && console.log('[KD]', ...args);
 const errorLog = (...args) => console.error('[ERROR]', ...args);
 
-window.__KD_RACE_APP_VERSION__ = 'v0.7.52';
+window.__KD_RACE_APP_VERSION__ = 'v0.7.58';
 console.log('[KD] 🔢 Frontend version:', window.__KD_RACE_APP_VERSION__);
 
 let socket;
@@ -20,114 +20,127 @@ let socket;
 const RaceTrack = () => {
   const canvasRef = useRef(null);
   const [horses, setHorses] = useState([]);
-  const raceStartedRef = useRef(false);
-
   const appRef = useRef(null);
   const horseSpritesRef = useRef(new Map());
   const horsePositionsRef = useRef({});
 
   // WebSocket setup
   useEffect(() => {
-    debugLog('Initializing WebSocket...');
+    debugLog('WebSocket initializing...');
     socket = io('/race', { path: '/api/socket.io' });
     socket.on('connect', () => debugLog('[WS] Connected:', socket.id));
 
-    socket.on('race:init', (data) => {
-      debugLog('[WS] race:init received:', data);
+    socket.on('race:init', data => {
+      debugLog('[WS] race:init', data);
+      // start all evenly spaced on finish line
       horsePositionsRef.current = Object.fromEntries(
-        data.horses.map(h => [String(h.id), 0])
+        data.horses.map((h, i) => [h.id, -i * 0.02])
       );
-      debugLog('Initial positions map:', horsePositionsRef.current);
       horseSpritesRef.current.forEach(s => appRef.current.stage.removeChild(s));
       horseSpritesRef.current.clear();
       setHorses(data.horses);
-      raceStartedRef.current = true;
     });
 
     socket.on('race:tick', ({ horseId, pct }) => {
-      debugLog(`[WS] race:tick → ${horseId} => ${pct}%`);
-      horsePositionsRef.current[String(horseId)] = pct / 100;
+      horsePositionsRef.current[horseId] = pct / 100;
     });
 
-    socket.on('race:finish', (result) => {
-      debugLog('[WS] race:finish received:', result);
-      raceStartedRef.current = false;
-    });
-
-    return () => {
-      debugLog('Disconnecting WebSocket...');
-      socket.disconnect();
-    };
+    return () => socket.disconnect();
   }, []);
 
-  // Pixi init with responsive canvas
+  // Pixi init & track draw
   useEffect(() => {
     if (!canvasRef.current || appRef.current) return;
     try {
-      debugLog('Initializing Pixi Application...');
       const container = canvasRef.current.parentElement;
-      const app = new Application({ view: canvasRef.current, backgroundColor: 0xd0f0e0, resizeTo: container });
+      const app = new Application({
+        view: canvasRef.current,
+        backgroundColor: 0xd0f0e0,
+        resizeTo: container,
+      });
       appRef.current = app;
 
-      // draw track lanes
       const drawTrack = () => {
-        debugLog('Drawing track...');
         const { width, height } = app.renderer;
-        const centerX = width / 2;
-        const centerY = height / 2;
-        const baseRX = width * 0.3;
-        const baseRY = height * 0.2667;
-        const laneGap = 20;
+        const cx = width / 2;
+        const cy = height / 2;
+        const baseRX = width * 0.45;
+        const baseRY = height * 0.32;
+        const outerGap = 40;
+        // fixed boundary inset so spacing remains perfect
+        const boundaryInset = 4 * 25 + 10;
         const track = new Graphics();
-        track.lineStyle(4, 0x888888);
-        for (let i = 0; i < 4; i++) {
-          const inset = i * laneGap;
-          const w = (baseRX - inset) * 2;
-          const h = (baseRY - inset) * 2;
-          debugLog(`Lane ${i+1}: x=${centerX - w/2}, y=${centerY - h/2}, w=${w}, h=${h}`);
-          track.drawRoundedRect(centerX - w/2, centerY - h/2, w, h, 50);
-        }
+
+        // Outer border
+        track.lineStyle(5, 0x333333);
+        track.drawRoundedRect(
+          cx - (baseRX + outerGap),
+          cy - (baseRY + outerGap),
+          (baseRX + outerGap) * 2,
+          (baseRY + outerGap) * 2,
+          100
+        );
+
+        // Inner border
+        track.lineStyle(5, 0x333333);
+        track.drawRoundedRect(
+          cx - (baseRX - boundaryInset),
+          cy - (baseRY - boundaryInset),
+          (baseRX - boundaryInset) * 2,
+          (baseRY - boundaryInset) * 2,
+          100
+        );
+
         app.stage.addChild(track);
       };
       drawTrack();
 
-      // animation loop
-      debugLog('Adding ticker loop...');
-      app.ticker.add(() => {
-        if (!raceStartedRef.current) return;
+      // Movement loop with smoothing & edge safety
+      app.ticker.add(delta => {
         const { width, height } = app.renderer;
-        const centerX = width / 2;
-        const centerY = height / 2;
-        const baseRX = width * 0.3;
-        const baseRY = height * 0.2667;
-        const laneGap = 20;
+        const cx = width / 2;
+        const cy = height / 2;
+        const baseRX = width * 0.45;
+        const baseRY = height * 0.32;
+        const laneGap = 25; // radial lane spacing
+        const spriteRadius = 12;
+
         horseSpritesRef.current.forEach((sprite, id) => {
-          const pct = horsePositionsRef.current[id];
-          if (pct == null) return;
+          const rawPct = horsePositionsRef.current[id] || 0;
+          const pct = Math.min(Math.max(rawPct, 0), 1);
+          const targetAngle = pct * 2 * Math.PI;
+          // smoothing current angle
+          if (sprite._currentAngle == null) sprite._currentAngle = targetAngle;
+          sprite._currentAngle += (targetAngle - sprite._currentAngle) * 0.05 * delta;
+          const angle = sprite._currentAngle;
+
+          // radial position per lane
           const idx = sprite._idx;
-          const angle = pct * 2 * Math.PI;
-          const newX = centerX + (baseRX - idx*laneGap) * Math.cos(angle);
-          const newY = centerY + (baseRY - idx*laneGap) * Math.sin(angle);
-          sprite.x = newX;
-          sprite.y = newY;
-          sprite.rotation = angle + Math.PI/2;
-          debugLog(`Sprite ${id} → x=${newX.toFixed(1)}, y=${newY.toFixed(1)}, angle=${angle.toFixed(2)}`);
+          const rX = baseRX - idx * laneGap;
+          const rY = baseRY - idx * laneGap;
+          // ensure edges stay inside boundaries
+          const effRX = rX - spriteRadius;
+          const effRY = rY - spriteRadius;
+
+          sprite.x = cx + effRX * Math.cos(angle);
+          sprite.y = cy + effRY * Math.sin(angle);
+          sprite.rotation = angle + Math.PI / 2;
         });
       });
-    } catch (err) {
-      errorLog('Pixi init failed:', err);
+    } catch (e) {
+      errorLog('Pixi init error:', e);
     }
     return () => appRef.current?.destroy(true);
   }, []);
 
-  // spawn horse sprites once per init
+  // Create sprites
   useEffect(() => {
     const app = appRef.current;
     if (!app) return;
-    horses.forEach((h, idx) => {
-      const key = String(h.id);
+    horses.forEach((horse, idx) => {
+      const key = horse.id;
       if (horseSpritesRef.current.has(key)) return;
-      const colorNum = new Color(h.color || '#ff0000').toNumber();
+      const colorNum = new Color(horse.color || '#ff0000').toNumber();
       const sprite = new Graphics()
         .beginFill(colorNum)
         .drawCircle(0, 0, 12)
@@ -135,16 +148,15 @@ const RaceTrack = () => {
       sprite._idx = idx;
       horseSpritesRef.current.set(key, sprite);
       app.stage.addChild(sprite);
-      debugLog(`Added sprite for horse ${key} at index ${idx}`);
+      debugLog(`Sprite ${key} created.`);
     });
   }, [horses]);
 
   const startTestRace = async () => {
-    debugLog('startTestRace invoked');
+    debugLog('startTestRace');
     if (!socket || socket.disconnected) return;
     const res = await fetch('/api/horses');
     const list = await res.json();
-    debugLog('Horses fetched:', list.slice(0, 4));
     socket.emit('startRace', { raceId: Date.now(), horses: list.slice(0, 4) });
   };
 
