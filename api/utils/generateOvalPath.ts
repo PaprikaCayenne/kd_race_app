@@ -1,22 +1,24 @@
-// File: api/utils/generateOvalPath.js
-// Version: v0.2.0 – Churchill Downs-inspired path with seed support
+// File: api/utils/generateOvalPath.ts
+// Version: v0.2.2 – Fix top-level import for seedrandom + support default export
 
 import seedrandom from 'seedrandom';
 
-/**
- * Generate a Churchill-style oval path.
- *
- * @param {Object} opts
- * @param {number} opts.centerX
- * @param {number} opts.centerY
- * @param {number} opts.radiusX - horizontal curve radius
- * @param {number} opts.radiusY - vertical curve radius
- * @param {number} opts.straightLength - length of the straight segments
- * @param {number} opts.resolution - number of total points
- * @param {string} [opts.seed]
- * @returns {Array<{x: number, y: number}>}
- */
-export function generateOvalPath({
+interface OvalPathOptions {
+  centerX: number;
+  centerY: number;
+  radiusX: number;
+  radiusY: number;
+  straightLength?: number;
+  resolution?: number;
+  seed?: string | null;
+}
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+export default function generateOvalPath({
   centerX,
   centerY,
   radiusX,
@@ -24,9 +26,10 @@ export function generateOvalPath({
   straightLength = 300,
   resolution = 400,
   seed = null,
-}) {
+}: OvalPathOptions): Point[] {
   const rng = seed ? seedrandom(seed) : Math.random;
-  const points = [];
+
+  const points: Point[] = [];
   const halfSeg = Math.floor(resolution / 2);
 
   // Semicircle (left turn)

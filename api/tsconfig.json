@@ -1,0 +1,21 @@
+// File: api/tsconfig.json
+// Version: v0.2.0 – Support full TypeScript migration across routes, sockets, and utils
+
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "allowJs": false,
+    "checkJs": false,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*", "prisma/**/*", "types/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

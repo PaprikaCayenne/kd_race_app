@@ -1,5 +1,5 @@
 // File: frontend/src/utils/animateHorseSprites.js
-// Version: v0.2.0 – Animate horses along their path with speed factor (no JSX)
+// Version: v0.3.0 – Center-aligned triangle sprites at path start with color and direction
 
 import { Graphics } from 'pixi.js';
 
@@ -20,9 +20,15 @@ export function animateHorseSprites(app, horsePaths, speedFactor = 1.0, baseInde
     const color = 0xff0000 + i * 0x1111;
     const sprite = new Graphics()
       .beginFill(color)
-      .drawPolygon([0, -10, 10, 10, -10, 10]) // triangle shape
+      .moveTo(0, -10)
+      .lineTo(10, 10)
+      .lineTo(-10, 10)
+      .lineTo(0, -10)
       .endFill();
 
+    const start = path[0];
+    sprite.position.set(start.x, start.y);
+    sprite.pivot.set(0, 0); // Center pivot if needed
     app.stage.addChild(sprite);
     horseSprites.set(i + baseIndex, sprite);
   });
@@ -36,8 +42,7 @@ export function animateHorseSprites(app, horsePaths, speedFactor = 1.0, baseInde
       const sprite = horseSprites.get(i + baseIndex);
       const index = Math.floor(t * (path.length - 1));
       const { x, y } = path[index];
-      sprite.x = x;
-      sprite.y = y;
+      sprite.position.set(x, y);
     });
   });
 

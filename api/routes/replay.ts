@@ -1,14 +1,14 @@
-// File: api/routes/replay.js
-// Version: v0.7.2 – Add /api/races list for dropdown menu
+// File: api/routes/replay.ts
+// Version: v0.7.3 – Converted to TypeScript with typed responses
 
-import express from "express";
+import express, { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
 // GET /api/race/:raceId/replay — Returns all tick frames for a race
-router.get("/race/:raceId/replay", async (req, res) => {
+router.get("/race/:raceId/replay", async (req: Request, res: Response) => {
   const { raceId } = req.params;
 
   if (!raceId || isNaN(Number(raceId))) {
@@ -34,7 +34,7 @@ router.get("/race/:raceId/replay", async (req, res) => {
 });
 
 // GET /api/races — Returns metadata for available replays
-router.get("/races", async (req, res) => {
+router.get("/races", async (_req: Request, res: Response) => {
   try {
     const races = await prisma.race.findMany({
       orderBy: { startedAt: "desc" },

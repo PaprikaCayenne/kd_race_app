@@ -1,10 +1,13 @@
-// routes/register.js
-import express from "express";
-import prisma from "../lib/prisma.js";
+// File: api/routes/register.ts
+// Version: v0.2.0 – Convert to TypeScript and fully type route handler
+
+import express, { Request, Response } from "express";
+import prisma from "../lib/prisma";
 
 const router = express.Router();
 
-router.post("/", async (req, res) => {
+// POST /api/register
+router.post("/", async (req: Request, res: Response) => {
   const { firstName, lastName, nickname, horseId, deviceId } = req.body;
 
   if (!firstName || !lastName || !horseId || !deviceId) {

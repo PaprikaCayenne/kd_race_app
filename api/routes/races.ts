@@ -1,7 +1,7 @@
-// File: api/routes/races.js
-// Version: v0.7.80 – Return last 10 races with formatted names
+// File: api/routes/races.ts
+// Version: v0.2.0 – Convert to TypeScript, add types to response
 
-import express from "express";
+import express, { Request, Response } from "express";
 import { PrismaClient } from "@prisma/client";
 import { format } from "date-fns";
 
@@ -10,7 +10,7 @@ const prisma = new PrismaClient();
 
 // GET /api/races
 // Returns the 10 most recent races with formatted display names
-router.get("/races", async (req, res) => {
+router.get("/races", async (_req: Request, res: Response) => {
   try {
     const races = await prisma.race.findMany({
       orderBy: { startedAt: "desc" },
@@ -18,7 +18,6 @@ router.get("/races", async (req, res) => {
     });
 
     const response = races.map((race, index) => {
-      // Format startedAt to MM-DD-YY hh:mm AM/PM
       const dateStr = format(race.startedAt ?? new Date(), "MM-dd-yy hh:mm a");
       return {
         raceId: race.id.toString(),

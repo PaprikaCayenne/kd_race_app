@@ -1,30 +1,39 @@
-// File: api/sockets/race.js
-// Version: v0.8.9 – Fix bug in frontend path usage and remove null toFixed crash
+// File: api/sockets/race.ts
+// Version: v0.9.1 – Fix TS import paths after migration
 
 import seedrandom from "seedrandom";
+import { Server, Socket } from "socket.io";
 import { PrismaClient } from "@prisma/client";
-import { generateOvalPath } from "../utils/generateOvalPath.js";
+import { generateRoundedRectCenterline } from "../utils/generateRoundedRectCenterline.ts";
+import { generateHorsePathWithSpeed } from "../utils/generateHorsePathWithSpeed.ts";
+import { Point } from "../types";
 
 const prisma = new PrismaClient();
 
 const DEBUG = true;
-const debugLog = (...args) => DEBUG && console.log(...args);
-const errorLog = (...args) => console.error("❌", ...args);
+const debugLog = (...args: any[]) => DEBUG && console.log(...args);
+const errorLog = (...args: any[]) => console.error("❌", ...args);
 
 let currentTournamentSeed = Date.now();
 
-export function setupRaceNamespace(io) {
+export function setupRaceNamespace(io: Server): void {
   const raceNamespace = io.of("/race");
 
-  raceNamespace.on("connection", (socket) => {
+  raceNamespace.on("connection", (socket: Socket) => {
     debugLog("✅ [WS] Client connected to /race:", socket.id);
 
-    socket.on("admin:setTournamentSeed", ({ seed }) => {
+    socket.on("admin:setTournamentSeed", ({ seed }: { seed: number }) => {
       currentTournamentSeed = seed;
       debugLog("🌱 Tournament seed set to:", seed);
     });
 
-    socket.on("startRace", async ({ raceId, horses }) => {
+    socket.on("startRace", async ({
+      raceId,
+      horses
+    }: {
+      raceId: string;
+      horses: { id: number; name: string; color: string }[];
+    }) => {
       debugLog(`🏁 [Race] startRace received – RaceID: ${raceId}`);
       debugLog("🐎 Horses:", horses);
 
@@ -32,8 +41,8 @@ export function setupRaceNamespace(io) {
         await prisma.race.create({
           data: {
             id: BigInt(raceId),
-            startedAt: new Date(),
-          },
+            startedAt: new Date()
+          }
         });
         debugLog("💾 [DB] Race inserted");
       } catch (err) {
@@ -41,34 +50,35 @@ export function setupRaceNamespace(io) {
         return;
       }
 
-      const pathSeed = String(currentTournamentSeed);
-      const basePath = generateOvalPath({
-        centerX: 500,
-        centerY: 350,
-        radiusX: 300,
-        radiusY: 200,
-        straightLength: 200,
-        resolution: 400,
-        seed: pathSeed,
-      });
-      debugLog("🛣️ Track generated with seed:", pathSeed);
+      const rng = seedrandom(String(currentTournamentSeed));
+      const innerBounds = { x: 200, y: 150, width: 600, height: 350 };
+      const cornerRadius = 120;
+      const centerline: Point[] = generateRoundedRectCenterline(
+        innerBounds,
+        cornerRadius,
+        400
+      );
 
-      const horsePaths = {};
-      const laneOffset = 25;
-      horses.forEach((horse, idx) => {
-        horsePaths[horse.id] = basePath.map((point) => [point.x + idx * laneOffset, point.y + idx * laneOffset]);
+      const horsePaths = generateHorsePathWithSpeed(centerline, {
+        laneCount: horses.length,
+        startAt: centerline[0],
+        debug: true,
+        debugOutputPath: `./replays/paths-race-${raceId}.json`
       });
 
-      const rng = seedrandom(String(raceId));
-      const horseStates = {};
+      const horseStates: Record<number, number> = {};
       const startTime = Date.now();
 
       for (const horse of horses) {
         horseStates[horse.id] = 0;
       }
 
-      raceNamespace.emit("race:init", { raceId, horses, horsePaths });
-      debugLog("📤 [Race] race:init emitted with paths");
+      raceNamespace.emit("race:init", {
+        raceId,
+        horses,
+        horsePaths
+      });
+      debugLog("📤 [Race] race:init emitted with generated paths");
 
       const interval = setInterval(async () => {
         let allFinished = true;
@@ -88,14 +98,18 @@ export function setupRaceNamespace(io) {
                 raceId: BigInt(raceId),
                 horseId: horse.id,
                 pct,
-                timeMs,
-              },
+                timeMs
+              }
             });
           } catch (err) {
             errorLog("❌ [DB] Failed to store replay frame:", err);
           }
 
-          raceNamespace.emit("race:tick", { raceId, horseId: horse.id, pct });
+          raceNamespace.emit("race:tick", {
+            raceId,
+            horseId: horse.id,
+            pct
+          });
           debugLog(`↪️ [Tick] Horse ${horse.id} → ${pct.toFixed(1)}%`);
 
           if (pct < 100) allFinished = false;
@@ -110,7 +124,7 @@ export function setupRaceNamespace(io) {
             .map(([horseId], index) => ({
               horseId: parseInt(horseId),
               position: index + 1,
-              timeMs: 3000 + index * 250,
+              timeMs: 3000 + index * 250
             }));
 
           raceNamespace.emit("race:finish", leaderboard);
@@ -119,7 +133,7 @@ export function setupRaceNamespace(io) {
           try {
             await prisma.race.update({
               where: { id: BigInt(raceId) },
-              data: { endedAt: new Date() },
+              data: { endedAt: new Date() }
             });
 
             for (const { horseId, position, timeMs } of leaderboard.slice(0, 3)) {
@@ -128,10 +142,12 @@ export function setupRaceNamespace(io) {
                   raceId: BigInt(raceId),
                   horseId,
                   position,
-                  timeMs,
-                },
+                  timeMs
+                }
               });
-              debugLog(`💾 [DB] Result saved: Horse ${horseId}, Pos ${position}, ${timeMs}ms`);
+              debugLog(
+                `💾 [DB] Result saved: Horse ${horseId}, Pos ${position}, ${timeMs}ms`
+              );
             }
           } catch (err) {
             errorLog("[DB] Error saving results:", err);

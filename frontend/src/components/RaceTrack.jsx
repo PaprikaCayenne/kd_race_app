@@ -1,12 +1,10 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.8.57 – Use midBounds pathing for dynamic race:init horses
+// Version: v0.8.61 – Send centerline to backend via /api/admin/start
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics } from 'pixi.js';
 import { drawGreyOvalTrack } from '@/utils/drawGreyOvalTrack';
-// import { drawHorseCenterline } from '@/utils/drawHorseCenterline';
 import { animateHorseSprites } from '@/utils/animateHorseSprites';
-import { generateAllLanes } from '@/utils/generateOffsetLane';
 import { generateRoundedRectCenterline } from '@/utils/generateRoundedRectCenterline';
 import { generatePondShape } from '@/utils/generatePondShape';
 import { io } from 'socket.io-client';
@@ -18,37 +16,36 @@ const socket = io('/race', {
   path: '/api/socket.io'
 });
 
-window.__KD_RACE_APP_VERSION__ = 'v0.8.57';
+window.__KD_RACE_APP_VERSION__ = 'v0.8.61';
 console.log('[KD] 🔢 Frontend version:', window.__KD_RACE_APP_VERSION__);
+
+function interpolatePath(path, pct) {
+  const t = pct / 100;
+  const total = path.length;
+  const exact = t * (total - 1);
+  const i = Math.floor(exact);
+  const j = Math.min(i + 1, total - 1);
+  const frac = exact - i;
+  const p1 = path[i];
+  const p2 = path[j];
+  return {
+    x: p1.x + frac * (p2.x - p1.x),
+    y: p1.y + frac * (p2.y - p1.y)
+  };
+}
 
 const RaceTrack = () => {
   const canvasRef = useRef(null);
   const appRef = useRef(null);
-  const fallbackHorseSprites = useRef([]);
-  const [fallbackVisible, setFallbackVisible] = useState(false);
+  const horseSpritesRef = useRef(new Map());
+  const horsePathsRef = useRef({});
+  const currentPctsRef = useRef({});
   const [pastRaces, setPastRaces] = useState([]);
   const [selectedRaceId, setSelectedRaceId] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
-
-  const renderFallbackHorses = (app, centerline, laneWidth) => {
-    const lanes = generateAllLanes(centerline, 4, laneWidth);
-    debugLog('🧪 Fallback lanes:', lanes);
-    fallbackHorseSprites.current = lanes.map((lane, index) => {
-      debugLog(`  Lane ${index} has ${lane.length} points`);
-      return animateHorseSprites(app, [lane], 1.0, index);
-    });
-  };
-
-  const clearFallbackHorses = () => {
-    if (!appRef.current) return;
-    fallbackHorseSprites.current.forEach((spriteMap) => {
-      for (const sprite of spriteMap.values()) {
-        debugLog('❌ Removing fallback sprite');
-        appRef.current.stage.removeChild(sprite);
-      }
-    });
-    fallbackHorseSprites.current = [];
-  };
+  const [fallbackVisible, setFallbackVisible] = useState(false);
+  const fallbackTrackRef = useRef(null);
+  const centerlineRef = useRef([]);
 
   useEffect(() => {
     if (!canvasRef.current || appRef.current) return;
@@ -68,18 +65,11 @@ const RaceTrack = () => {
       x: (innerBounds.x + outerBounds.x) / 2,
       y: (innerBounds.y + outerBounds.y) / 2,
       width: (innerBounds.width + outerBounds.width) / 2,
-      height: (innerBounds.height + outerBounds.height) / 2,
+      height: (innerBounds.height + outerBounds.height) / 2
     };
     const centerline = generateRoundedRectCenterline(midBounds, cornerRadius, segments);
+    centerlineRef.current = centerline;
     debugLog(`🧭 Centerline generated: ${centerline.length} points`);
-
-    const trackThickness = (outerBounds.width - innerBounds.width) / 2;
-    const maxLaneWidth = (trackThickness - 20) / 2;
-    const laneWidth = Math.min(30, maxLaneWidth);
-    debugLog(`📏 Lane width adjusted: ${laneWidth}px`);
-
-    // 🐎 Always render animated horses on page load once for testing
-    renderFallbackHorses(app, centerline, laneWidth);
 
     const pondPoints = generatePondShape(innerBounds.x + 80, innerBounds.y + 100, 120, 80);
     const pond = new Graphics();
@@ -90,7 +80,6 @@ const RaceTrack = () => {
     app.stage.addChild(pond);
     debugLog(`🌊 Pond drawn with ${pondPoints.length} points`);
 
-    // 🟢 Draw green debug centerline
     const centerlineLine = new Graphics();
     centerlineLine.lineStyle(2, 0x00ff00);
     centerlineLine.moveTo(centerline[0].x, centerline[0].y);
@@ -98,29 +87,8 @@ const RaceTrack = () => {
       centerlineLine.lineTo(centerline[i].x, centerline[i].y);
     }
     centerlineLine.closePath();
-    app.stage.addChild(centerlineLine);
-  }, []);
-
-  useEffect(() => {
-    if (!appRef.current) return;
-    if (fallbackVisible) {
-      const { innerBounds, outerBounds } = drawGreyOvalTrack(appRef.current, canvasRef.current.parentElement);
-      const cornerRadius = 120;
-      const segments = 400;
-      const midBounds = {
-        x: (innerBounds.x + outerBounds.x) / 2,
-        y: (innerBounds.y + outerBounds.y) / 2,
-        width: (innerBounds.width + outerBounds.width) / 2,
-        height: (innerBounds.height + outerBounds.height) / 2,
-      };
-      const centerline = generateRoundedRectCenterline(midBounds, cornerRadius, segments);
-      const trackThickness = (outerBounds.width - innerBounds.width) / 2;
-      const maxLaneWidth = (trackThickness - 20) / 2;
-      const laneWidth = Math.min(30, maxLaneWidth);
-      renderFallbackHorses(appRef.current, centerline, laneWidth);
-    } else {
-      clearFallbackHorses();
-    }
+    fallbackTrackRef.current = centerlineLine;
+    if (fallbackVisible) app.stage.addChild(centerlineLine);
   }, [fallbackVisible]);
 
   useEffect(() => {
@@ -130,34 +98,55 @@ const RaceTrack = () => {
 
     socket.on('race:init', (data) => {
       debugLog('🎬 Race init received:', data);
+      horsePathsRef.current = {};
+      currentPctsRef.current = {};
 
       if (!appRef.current) return;
-      const container = canvasRef.current.parentElement;
-      const { innerBounds, outerBounds } = drawGreyOvalTrack(appRef.current, container);
-      const cornerRadius = 120;
-      const segments = 400;
-      const midBounds = {
-        x: (innerBounds.x + outerBounds.x) / 2,
-        y: (innerBounds.y + outerBounds.y) / 2,
-        width: (innerBounds.width + outerBounds.width) / 2,
-        height: (innerBounds.height + outerBounds.height) / 2,
-      };
-      const centerline = generateRoundedRectCenterline(midBounds, cornerRadius, segments);
-      const trackThickness = (outerBounds.width - innerBounds.width) / 2;
-      const maxLaneWidth = (trackThickness - 20) / 2;
-      const laneWidth = Math.min(30, maxLaneWidth);
-
-      const lanes = generateAllLanes(centerline, data.horses.length, laneWidth);
-
-      fallbackHorseSprites.current = lanes.map((lane, index) => {
-        return animateHorseSprites(appRef.current, [lane], 1.0, index);
+      horseSpritesRef.current.forEach(sprite => {
+        appRef.current.stage.removeChild(sprite);
       });
+      horseSpritesRef.current.clear();
+
+      data.horses.forEach((horse, index) => {
+        horsePathsRef.current[horse.id] = horse.path;
+        const spriteMap = animateHorseSprites(appRef.current, [horse.path], 1.0, index);
+        spriteMap.forEach((sprite) => {
+          horseSpritesRef.current.set(horse.id, sprite);
+        });
+
+        if (DEBUG) {
+          const dots = new Graphics();
+          dots.beginFill(0xff0000);
+          horse.path.slice(0, 10).forEach(p => dots.drawCircle(p.x, p.y, 2));
+          dots.endFill();
+          appRef.current.stage.addChild(dots);
+        }
+      });
+    });
+
+    socket.on('race:tick', ({ horseId, pct }) => {
+      debugLog(`📦 tick: ${horseId} → ${pct}`);
+      currentPctsRef.current[horseId] = pct;
     });
 
     return () => {
       socket.off('connect');
       socket.off('race:init');
+      socket.off('race:tick');
     };
+  }, []);
+
+  useEffect(() => {
+    if (!appRef.current) return;
+    appRef.current.ticker.add(() => {
+      for (const [horseId, sprite] of horseSpritesRef.current.entries()) {
+        const path = horsePathsRef.current[horseId];
+        const pct = currentPctsRef.current[horseId];
+        if (!path || pct == null) continue;
+        const pos = interpolatePath(path, pct);
+        sprite.position.set(pos.x, pos.y);
+      }
+    });
   }, []);
 
   const startBackendRace = async () => {
@@ -173,7 +162,8 @@ const RaceTrack = () => {
         headers: {
           'Content-Type': 'application/json',
           'x-admin-pass': '6a2e8819c6fb4c15'
-        }
+        },
+        body: JSON.stringify({ centerline: centerlineRef.current })
       });
 
       if (!res.ok) {
@@ -183,7 +173,6 @@ const RaceTrack = () => {
 
       const data = await res.json();
       debugLog('🏁 Race started from backend:', data);
-      setFallbackVisible(false);
       setErrorMessage('');
     } catch (err) {
       console.error('❌ Failed to start backend race:', err);
@@ -216,10 +205,21 @@ const RaceTrack = () => {
           Start Backend Race
         </button>
         <button
-          onClick={() => setFallbackVisible(!fallbackVisible)}
-          className="bg-green-600 px-4 py-2 text-white rounded"
+          onClick={() => {
+            if (!appRef.current || !fallbackTrackRef.current) return;
+            setFallbackVisible(v => {
+              const next = !v;
+              if (next) {
+                appRef.current.stage.addChild(fallbackTrackRef.current);
+              } else {
+                appRef.current.stage.removeChild(fallbackTrackRef.current);
+              }
+              return next;
+            });
+          }}
+          className="bg-gray-600 px-4 py-2 text-white rounded"
         >
-          Toggle Fallback Horses
+          Toggle Static Track
         </button>
         {pastRaces.length > 0 && (
           <select
