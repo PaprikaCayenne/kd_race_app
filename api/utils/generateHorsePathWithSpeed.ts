@@ -1,5 +1,5 @@
 // File: api/utils/generateHorsePathWithSpeed.ts
-// Version: v0.6.2 – Restore clean lanes without spawn jitter
+// Version: v0.6.4 – Dynamically rotate centerline to match frontend startAt
 
 import fs from 'fs';
 import path from 'path';
@@ -16,7 +16,7 @@ interface GenerateOptions {
   laneSpacing?: number;
   debug?: boolean;
   debugOutputPath?: string;
-  startAt?: { x: number; y: number };
+  startAt?: Point; // Receive actual startAt point
   innerBoundary?: Point[];
   outerBoundary?: Point[];
 }
@@ -29,8 +29,9 @@ export function generateHorsePathWithSpeed(
   const spacing = options.laneSpacing ?? 30;
   const pathByHorse: Record<number, PathPoint[]> = {};
 
-  const calculatedStartAt = options.startAt || estimateBottomMiddle(centerline);
-  const rotatedCenterline = rotateToClosestPoint(centerline, calculatedStartAt);
+  const rotatedCenterline = options.startAt
+    ? rotateCenterlineToStartAt(centerline, options.startAt)
+    : centerline;
 
   for (let i = 0; i < laneCount; i++) {
     const offset = (i - (laneCount - 1) / 2) * spacing;
@@ -52,37 +53,27 @@ export function generateHorsePathWithSpeed(
       fs.mkdirSync(debugDir, { recursive: true });
     }
     fs.writeFileSync(debugPath, JSON.stringify(pathByHorse, null, 2));
-    console.log(`🏏 Path debug written to: ${debugPath}`);
+    console.log(`🐎 Path debug written to: ${debugPath}`);
   }
 
   return pathByHorse;
 }
 
-function estimateBottomMiddle(centerline: Point[]): Point {
-  let lowestY = -Infinity;
-  let candidate: Point = centerline[0];
-  for (const pt of centerline) {
-    if (pt.y > lowestY) {
-      lowestY = pt.y;
-      candidate = pt;
-    }
-  }
-  return candidate;
-}
-
-function rotateToClosestPoint(points: Point[], target: Point): Point[] {
+function rotateCenterlineToStartAt(points: Point[], startAt: Point): Point[] {
   let minDist = Infinity;
-  let minIdx = 0;
+  let bestIdx = 0;
+
   for (let i = 0; i < points.length; i++) {
-    const dx = points[i].x - target.x;
-    const dy = points[i].y - target.y;
+    const dx = points[i].x - startAt.x;
+    const dy = points[i].y - startAt.y;
     const dist = dx * dx + dy * dy;
     if (dist < minDist) {
       minDist = dist;
-      minIdx = i;
+      bestIdx = i;
     }
   }
-  return [...points.slice(minIdx), ...points.slice(0, minIdx)];
+
+  return [...points.slice(bestIdx), ...points.slice(0, bestIdx)];
 }
 
 function offsetLane(points: Point[], offset: number): Point[] {
