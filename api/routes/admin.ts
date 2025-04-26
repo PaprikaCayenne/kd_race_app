@@ -1,17 +1,19 @@
 // File: api/routes/admin.ts
-// Version: v0.5.3 – Fix TS import path for generateHorsePathWithSpeed
+// Version: v0.5.7 – Send centerline, innerBoundary, outerBoundary from frontend, support dynamic start positioning
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
 import prisma from "../lib/prisma.js";
 import generateOvalPath from "../utils/generateOvalPath";
-import { generateHorsePathWithSpeed } from "../utils/generateHorsePathWithSpeed.ts";
+import { generateHorsePathWithSpeed } from "../utils/generateHorsePathWithSpeed.js";
 import fs from "fs";
 
 export function createAdminRoute(io: Server) {
   const router = express.Router();
 
   router.post("/start", async (req: Request, res: Response) => {
+    console.log("🏁 KD Backend Race Logic Version: v0.5.7-full-bounds+start-align");
+
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {
       console.warn("⛔ Invalid admin pass", pass);
@@ -26,7 +28,7 @@ export function createAdminRoute(io: Server) {
         select: { horseId: true }
       });
 
-      const racedIds = racedHorseIds.map((r) => r.horseId);
+      const racedIds = racedHorseIds.map(r => r.horseId);
       const unraced = await prisma.horse.findMany({
         where: { id: { notIn: racedIds } }
       });
@@ -39,9 +41,17 @@ export function createAdminRoute(io: Server) {
       const selected = unraced.sort(() => Math.random() - 0.5).slice(0, 4);
       const race = await prisma.race.create({ data: {} });
 
-      // 🛣️ Receive centerline from frontend if available
-      const body = req.body as { centerline?: { x: number; y: number }[] };
+      const body = req.body as {
+        centerline?: { x: number; y: number }[];
+        innerBoundary?: { x: number; y: number }[];
+        outerBoundary?: { x: number; y: number }[];
+        startAt?: { x: number; y: number };
+      };
+
       let centerline = body?.centerline;
+      let innerBoundary = body?.innerBoundary;
+      let outerBoundary = body?.outerBoundary;
+      let startAt = body?.startAt;
 
       if (!centerline || !Array.isArray(centerline) || centerline.length < 10) {
         console.warn("⚠️ No valid centerline provided — using default generated oval");
@@ -53,12 +63,24 @@ export function createAdminRoute(io: Server) {
           straightLength: 250,
           resolution: 400
         });
+        innerBoundary = undefined;
+        outerBoundary = undefined;
+      }
+
+      if (!startAt) {
+        startAt = centerline.reduce((closest, pt) => {
+          const dist = Math.abs(pt.x - 500) + Math.abs(pt.y - 550);
+          return dist < closest.dist ? { pt, dist } : closest;
+        }, { pt: centerline[0], dist: Infinity }).pt;
       }
 
       const horsePaths = generateHorsePathWithSpeed(centerline, {
         laneCount: selected.length,
         debug: true,
-        debugOutputPath: `./debug/race-${race.id}-paths.json`
+        debugOutputPath: `./debug/race-${race.id}-paths.json`,
+        innerBoundary,
+        outerBoundary,
+        startAt
       });
 
       const raceNamespace = io.of("/race");
