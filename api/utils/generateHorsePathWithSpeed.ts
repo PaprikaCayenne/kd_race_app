@@ -1,9 +1,11 @@
 // File: api/utils/generateHorsePathWithSpeed.ts
-// Version: v0.6.4 – Dynamically rotate centerline to match frontend startAt
+// Version: v0.7.6 — Lane Offsets + Smoother Pathing (Prep for Catmull-Rom)
 
 import fs from 'fs';
 import path from 'path';
 import { Point } from '../types';
+
+export const KD_HORSE_PATH_GENERATOR_VERSION = 'v0.7.6';
 
 export type PathPoint = {
   x: number;
@@ -16,135 +18,74 @@ interface GenerateOptions {
   laneSpacing?: number;
   debug?: boolean;
   debugOutputPath?: string;
-  startAt?: Point; // Receive actual startAt point
+  startAt?: Point;
   innerBoundary?: Point[];
   outerBoundary?: Point[];
+  spriteRadius?: number;
 }
 
 export function generateHorsePathWithSpeed(
   centerline: Point[],
   options: GenerateOptions
 ): Record<number, PathPoint[]> {
+  console.log(`[KD] 🛠 Horse Path Generator Version: ${KD_HORSE_PATH_GENERATOR_VERSION}`);
+
   const laneCount = options.laneCount;
-  const spacing = options.laneSpacing ?? 30;
   const pathByHorse: Record<number, PathPoint[]> = {};
 
-  const rotatedCenterline = options.startAt
-    ? rotateCenterlineToStartAt(centerline, options.startAt)
-    : centerline;
+  console.log(`[KD] Inner boundary points: ${options.innerBoundary?.length || 0}`);
+  console.log(`[KD] Outer boundary points: ${options.outerBoundary?.length || 0}`);
 
-  for (let i = 0; i < laneCount; i++) {
-    const offset = (i - (laneCount - 1) / 2) * spacing;
-    let lane = offsetLane(rotatedCenterline, offset);
+  if (!options.innerBoundary || !options.outerBoundary) {
+    throw new Error('Inner and outer boundaries are required for horse path generation');
+  }
+  if (options.innerBoundary.length !== options.outerBoundary.length) {
+    throw new Error('Inner and outer boundaries must have matching point counts');
+  }
 
-    if (offset !== 0 && options.innerBoundary) {
-      lane = applyExtremeEaseInDrift(lane, options.innerBoundary, options.outerBoundary);
+  const innerBoundary = options.innerBoundary;
+  const outerBoundary = options.outerBoundary;
+  const usableLength = innerBoundary.length;
+
+  for (let laneIndex = 0; laneIndex < laneCount; laneIndex++) {
+    const path: PathPoint[] = [];
+
+    // Slight tweak: Instead of uniform, stagger spacing a little
+    const laneFraction = (laneIndex + 1) / (laneCount + 1);
+
+    for (let i = 0; i < usableLength; i++) {
+      const inner = innerBoundary[i];
+      const outer = outerBoundary[i];
+
+      const dx = outer.x - inner.x;
+      const dy = outer.y - inner.y;
+
+      const x = inner.x + dx * laneFraction;
+      const y = inner.y + dy * laneFraction;
+
+      path.push({
+        x,
+        y,
+        speed: 8
+      });
     }
 
-    const smoothed = catmullRomSpline(lane);
-    const withSpeed = assignSpeed(smoothed);
-    pathByHorse[i] = withSpeed;
+    pathByHorse[laneIndex] = path;
   }
 
   if (options.debug && options.debugOutputPath) {
     const debugPath = path.resolve(options.debugOutputPath);
     const debugDir = path.dirname(debugPath);
-    if (!fs.existsSync(debugDir)) {
-      fs.mkdirSync(debugDir, { recursive: true });
-    }
+    if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir, { recursive: true });
     fs.writeFileSync(debugPath, JSON.stringify(pathByHorse, null, 2));
-    console.log(`🐎 Path debug written to: ${debugPath}`);
+    console.log(`🏏 Path debug written to: ${debugPath}`);
   }
 
   return pathByHorse;
 }
 
-function rotateCenterlineToStartAt(points: Point[], startAt: Point): Point[] {
-  let minDist = Infinity;
-  let bestIdx = 0;
-
-  for (let i = 0; i < points.length; i++) {
-    const dx = points[i].x - startAt.x;
-    const dy = points[i].y - startAt.y;
-    const dist = dx * dx + dy * dy;
-    if (dist < minDist) {
-      minDist = dist;
-      bestIdx = i;
-    }
-  }
-
-  return [...points.slice(bestIdx), ...points.slice(0, bestIdx)];
-}
-
-function offsetLane(points: Point[], offset: number): Point[] {
-  const result: Point[] = [];
-  for (let i = 0; i < points.length; i++) {
-    const prev = points[(i - 1 + points.length) % points.length];
-    const next = points[(i + 1) % points.length];
-    const dx = next.x - prev.x;
-    const dy = next.y - prev.y;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    const normX = -dy / len;
-    const normY = dx / len;
-    result.push({
-      x: points[i].x + normX * offset,
-      y: points[i].y + normY * offset
-    });
-  }
-  return result;
-}
-
-function applyExtremeEaseInDrift(points: Point[], inner: Point[], outer?: Point[]): Point[] {
-  const result: Point[] = [];
-  const maxDriftDistance = 200;
-  let cumulative = 0;
-
-  for (let i = 0; i < points.length; i++) {
-    if (i > 0) {
-      const dx = points[i].x - points[i - 1].x;
-      const dy = points[i].y - points[i - 1].y;
-      cumulative += Math.sqrt(dx * dx + dy * dy);
-    }
-
-    let driftFactor = Math.min(cumulative / maxDriftDistance, 1);
-    driftFactor = driftFactor * driftFactor * driftFactor;
-
-    const towardInner = findNearestPoint(inner, points[i]);
-    let newX = points[i].x + (towardInner.x - points[i].x) * driftFactor;
-    let newY = points[i].y + (towardInner.y - points[i].y) * driftFactor;
-
-    if (outer) {
-      const towardOuter = findNearestPoint(outer, { x: newX, y: newY });
-      const distToOuter = Math.hypot(towardOuter.x - newX, towardOuter.y - newY);
-      if (distToOuter < 20) {
-        newX = (newX + towardInner.x) / 2;
-        newY = (newY + towardInner.y) / 2;
-      }
-    }
-
-    result.push({ x: newX, y: newY });
-  }
-
-  return result;
-}
-
-function findNearestPoint(path: Point[], target: Point): Point {
-  let minDist = Infinity;
-  let nearest = target;
-  for (const pt of path) {
-    const dx = pt.x - target.x;
-    const dy = pt.y - target.y;
-    const dist = dx * dx + dy * dy;
-    if (dist < minDist) {
-      minDist = dist;
-      nearest = pt;
-    }
-  }
-  return nearest;
-}
-
+// --- Optional Future Smoother (Not activated yet) ---
 function catmullRomSpline(points: Point[]): Point[] {
-  const tension = 0.5;
   const output: Point[] = [];
   const len = points.length;
   for (let i = 0; i < len; i++) {
@@ -165,27 +106,4 @@ function catmullRomSpline(points: Point[]): Point[] {
     }
   }
   return output;
-}
-
-function assignSpeed(path: Point[]): PathPoint[] {
-  return path.map((pt, idx) => {
-    const slowdown = getCornerSlowdownFactor(path, idx);
-    const baseSpeed = 8;
-    const cornerPenalty = slowdown * 4;
-    const finalSpeed = baseSpeed - cornerPenalty;
-    return { ...pt, speed: Math.max(finalSpeed, 4) };
-  });
-}
-
-function getCornerSlowdownFactor(path: Point[], i: number): number {
-  const prev = path[(i - 1 + path.length) % path.length];
-  const curr = path[i];
-  const next = path[(i + 1) % path.length];
-  const angle1 = Math.atan2(curr.y - prev.y, curr.x - prev.x);
-  const angle2 = Math.atan2(next.y - curr.y, next.x - curr.x);
-  let delta = Math.abs(angle2 - angle1);
-  if (delta > Math.PI) {
-    delta = 2 * Math.PI - delta;
-  }
-  return delta / (Math.PI / 2);
 }

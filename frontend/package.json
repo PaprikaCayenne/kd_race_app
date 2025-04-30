@@ -1,7 +1,7 @@
 {
   "type": "module",
   "name": "kd-frontend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
@@ -12,7 +12,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "seedrandom": "^3.0.5",
-    "socket.io-client": "^4.7.2"
+    "socket.io-client": "^4.7.2",
+    "pako": "^2.1.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.0.3",
