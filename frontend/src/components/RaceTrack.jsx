@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.9.19 — Split race generation and movement + always show start line
+// Version: v0.9.20 — Add global speedFactor for 60-second race pacing
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics } from 'pixi.js';
@@ -12,10 +12,12 @@ import { io } from 'socket.io-client';
 import pako from 'pako';
 
 const socket = io('/race', { path: '/api/socket.io' });
-window.__KD_RACE_APP_VERSION__ = 'v0.9.19';
+window.__KD_RACE_APP_VERSION__ = 'v0.9.20';
 console.log('[KD] 🔢 Frontend version:', window.__KD_RACE_APP_VERSION__);
 
 const debugLog = (...args) => console.log('[KD]', ...args);
+
+const speedFactor = 1.0; // ← Adjust this to control global race speed (1.0 = 60s race)
 
 const RaceTrack = () => {
   const canvasRef = useRef(null);
@@ -24,7 +26,7 @@ const RaceTrack = () => {
   const horsePathsRef = useRef({});
   const currentPctsRef = useRef({});
   const horsesRef = useRef([]);
-  const raceTickerRef = useRef(null); // for manual tick loop
+  const raceTickerRef = useRef(null);
 
   const centerlineRef = useRef([]);
   const innerBoundsRef = useRef(null);
@@ -172,21 +174,19 @@ const RaceTrack = () => {
     const pcts = {};
     horsesRef.current.forEach(horse => (pcts[horse.id] = 0));
 
-    if (raceTickerRef.current) cancelAnimationFrame(raceTickerRef.current);
+    if (raceTickerRef.current) clearInterval(raceTickerRef.current);
 
-    const animate = () => {
+    raceTickerRef.current = setInterval(() => {
       let stillRunning = false;
       for (const horse of horsesRef.current) {
         if (pcts[horse.id] < 100) {
-          pcts[horse.id] += Math.random() * 1.5 + 0.5; // simulate 0.5–2% advance per frame
+          pcts[horse.id] += 0.028 * speedFactor; // ← 3600 ticks for full race
           currentPctsRef.current[horse.id] = Math.min(pcts[horse.id], 100);
           stillRunning = true;
         }
       }
-      if (stillRunning) raceTickerRef.current = requestAnimationFrame(animate);
-    };
-
-    animate();
+      if (!stillRunning) clearInterval(raceTickerRef.current);
+    }, 1000 / 60); // 60 FPS
   };
 
   const generateRace = async () => {
