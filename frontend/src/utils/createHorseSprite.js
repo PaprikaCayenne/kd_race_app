@@ -1,5 +1,5 @@
 // File: frontend/src/utils/createHorseSprite.js
-// Version: v0.2.4 — Fix padded hex logging, remove misleading short values
+// Version: v0.2.5 — Align triangle tip to right; rotate accurately on path
 
 import { Graphics, Sprite } from 'pixi.js';
 import { parseColorStringToHex } from './parseColorStringToHex.js';
@@ -21,9 +21,9 @@ export function createHorseSprite(colorInput, horseId = null, appInstance = null
   const g = new Graphics();
   g.beginFill(finalColor);
   g.drawPolygon([
-    -size / 2, size / 2,
-     size / 2, size / 2,
-     0, -size / 2
+    size / 2, 0,             // tip — faces right (0 radians)
+    -size / 2, size / 2,     // back-bottom
+    -size / 2, -size / 2     // back-top
   ]);
   g.endFill();
 
@@ -33,5 +33,7 @@ export function createHorseSprite(colorInput, horseId = null, appInstance = null
   }
 
   const texture = appInstance.renderer.generateTexture(g);
-  return new Sprite(texture);
+  const sprite = new Sprite(texture);
+  sprite.anchor.set(0.5); // center anchor for rotation
+  return sprite;
 }

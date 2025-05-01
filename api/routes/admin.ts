@@ -1,5 +1,5 @@
 // File: api/routes/admin.ts
-// Version: v0.6.4 — Send horse color as string (frontend parses), no backend parseInt
+// Version: v0.6.7 — Log horse startPoint before emit for visual debugging
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
@@ -8,6 +8,7 @@ import generateOvalPath from "../utils/generateOvalPath";
 import { generateHorsePathWithSpeed } from "../utils/generateHorsePathWithSpeed.js";
 import fs from "fs";
 import pako from "pako";
+import { Point } from "../types";
 
 function getTimestamp() {
   const now = new Date();
@@ -35,7 +36,7 @@ export function createAdminRoute(io: Server) {
 
   router.post("/start", async (req: Request, res: Response) => {
     const timestamp = getTimestamp();
-    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.6.4`);
+    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.6.7`);
 
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {
@@ -65,10 +66,10 @@ export function createAdminRoute(io: Server) {
       const race = await prisma.race.create({ data: {} });
 
       const body = req.body as {
-        centerline?: { x: number; y: number }[];
-        innerBoundary?: { x: number; y: number }[];
-        outerBoundary?: { x: number; y: number }[];
-        startAt?: { x: number; y: number };
+        centerline?: Point[];
+        innerBoundary?: Point[];
+        outerBoundary?: Point[];
+        startAt?: Point;
       };
 
       console.log(`[${timestamp}] 🔹 Received body sample`, {
@@ -78,11 +79,7 @@ export function createAdminRoute(io: Server) {
         outerBoundarySample: body.outerBoundary?.slice(0, 5)
       });
 
-      let centerline = body?.centerline;
-      let innerBoundary = body?.innerBoundary;
-      let outerBoundary = body?.outerBoundary;
-      let startAt = body?.startAt;
-
+      const { centerline, innerBoundary, outerBoundary, startAt } = body;
       if (!centerline || !innerBoundary || !outerBoundary || !startAt) {
         console.warn(`[${timestamp}] ⚠️ Missing or invalid track data — aborting`);
         return res.status(400).json({ error: "Invalid track data" });
@@ -90,7 +87,7 @@ export function createAdminRoute(io: Server) {
 
       const debugOutputPath = `./debug/race-${race.id}-paths-${timestamp}.json`;
 
-      const horsePaths = generateHorsePathWithSpeed(centerline, {
+      const horsePathResults = generateHorsePathWithSpeed(centerline, {
         laneCount: selected.length,
         debug: true,
         debugOutputPath,
@@ -101,14 +98,24 @@ export function createAdminRoute(io: Server) {
 
       const raceNamespace = io.of("/race");
       if (raceNamespace.sockets.size > 0) {
-        const payload = {
-          raceId: race.id.toString(),
-          horses: selected.map((h, i) => ({
+        const horses = selected.map((h, i) => {
+          const debug = {
             id: h.id.toString(),
             name: h.name,
-            color: h.color, // send as string, not parsed
-            path: horsePaths[i]
-          }))
+            color: h.color,
+            startPoint: horsePathResults[i].startPoint
+          };
+          console.log(`[${timestamp}] 🐎 Horse payload preview:`, debug);
+
+          return {
+            ...debug,
+            path: horsePathResults[i].path
+          };
+        });
+
+        const payload = {
+          raceId: race.id.toString(),
+          horses
         };
 
         const compressed = pako.deflate(JSON.stringify(payload));

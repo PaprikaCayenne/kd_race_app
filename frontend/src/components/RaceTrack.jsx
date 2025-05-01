@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.9.20 — Add global speedFactor for 60-second race pacing
+// Version: v0.9.35 – Start line controlled by startAtPercent constant
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics } from 'pixi.js';
@@ -12,12 +12,12 @@ import { io } from 'socket.io-client';
 import pako from 'pako';
 
 const socket = io('/race', { path: '/api/socket.io' });
-window.__KD_RACE_APP_VERSION__ = 'v0.9.20';
+window.__KD_RACE_APP_VERSION__ = 'v0.9.35';
 console.log('[KD] 🔢 Frontend version:', window.__KD_RACE_APP_VERSION__);
 
 const debugLog = (...args) => console.log('[KD]', ...args);
-
-const speedFactor = 1.0; // ← Adjust this to control global race speed (1.0 = 60s race)
+const speedFactor = 1.0;
+const startAtPercent = 0.67; // Easily adjust where the race starts
 
 const RaceTrack = () => {
   const canvasRef = useRef(null);
@@ -41,7 +41,11 @@ const RaceTrack = () => {
 
   useEffect(() => {
     if (!canvasRef.current || appRef.current) return;
-    const app = new Application({ view: canvasRef.current, backgroundColor: 0xd0f0e0, resizeTo: canvasRef.current.parentElement });
+    const app = new Application({
+      view: canvasRef.current,
+      backgroundColor: 0xd0f0e0,
+      resizeTo: canvasRef.current.parentElement
+    });
     appRef.current = app;
 
     const { innerBounds, outerBounds } = drawGreyOvalTrack(app, app.view.parentElement);
@@ -62,25 +66,37 @@ const RaceTrack = () => {
     const centerline = generateRoundedRectCenterline(midBounds, 120, 400);
     centerlineRef.current = centerline;
 
-    const startIdx = Math.floor(centerline.length * 0.55);
+    const startIdx = Math.floor(centerline.length * startAtPercent);
     startAtRef.current = centerline[startIdx];
 
     const triangle = new Graphics();
-    const angle = Math.atan2(centerline[startIdx + 1].y - centerline[startIdx].y, centerline[startIdx + 1].x - centerline[startIdx].x);
+    const angle = Math.atan2(
+      centerline[startIdx + 1].y - centerline[startIdx].y,
+      centerline[startIdx + 1].x - centerline[startIdx].x
+    );
     const size = 10;
-    const tip = { x: centerline[startIdx].x + Math.cos(angle) * size, y: centerline[startIdx].y + Math.sin(angle) * size };
-    const left = { x: centerline[startIdx].x + Math.cos(angle + Math.PI * 2 / 3) * size, y: centerline[startIdx].y + Math.sin(angle + Math.PI * 2 / 3) * size };
-    const right = { x: centerline[startIdx].x + Math.cos(angle - Math.PI * 2 / 3) * size, y: centerline[startIdx].y + Math.sin(angle - Math.PI * 2 / 3) * size };
+    const tip = {
+      x: centerline[startIdx].x + Math.cos(angle) * size,
+      y: centerline[startIdx].y + Math.sin(angle) * size
+    };
+    const left = {
+      x: centerline[startIdx].x + Math.cos(angle + Math.PI * 2 / 3) * size,
+      y: centerline[startIdx].y + Math.sin(angle + Math.PI * 2 / 3) * size
+    };
+    const right = {
+      x: centerline[startIdx].x + Math.cos(angle - Math.PI * 2 / 3) * size,
+      y: centerline[startIdx].y + Math.sin(angle - Math.PI * 2 / 3) * size
+    };
 
     triangle.lineStyle(2, 0x00ff00);
     triangle.moveTo(tip.x, tip.y);
     triangle.lineTo(left.x, left.y);
     triangle.moveTo(tip.x, tip.y);
     triangle.lineTo(right.x, right.y);
-
     triangle.lineStyle(2, 0x000000);
     triangle.moveTo(left.x, left.y);
     triangle.lineTo(right.x, right.y);
+    markerRef.current = triangle;
 
     const line = new Graphics();
     const dx = centerline[startIdx + 1].x - centerline[startIdx].x;
@@ -91,11 +107,8 @@ const RaceTrack = () => {
     line.lineStyle(4, 0x00ff00);
     line.moveTo(centerline[startIdx].x + normX * 100, centerline[startIdx].y + normY * 100);
     line.lineTo(centerline[startIdx].x - normX * 100, centerline[startIdx].y - normY * 100);
-
     app.stage.addChild(line);
-    app.stage.addChild(triangle);
     startLineRef.current = line;
-    markerRef.current = triangle;
 
     const pond = new Graphics();
     const pondPoints = generatePondShape(innerBounds.x + 80, innerBounds.y + 100, 120, 80);
@@ -105,6 +118,17 @@ const RaceTrack = () => {
     pond.endFill();
     app.stage.addChild(pond);
   }, []);
+
+  useEffect(() => {
+    if (!appRef.current || !markerRef.current) return;
+    if (debugVisible) {
+      if (!appRef.current.stage.children.includes(markerRef.current)) {
+        appRef.current.stage.addChild(markerRef.current);
+      }
+    } else {
+      appRef.current.stage.removeChild(markerRef.current);
+    }
+  }, [debugVisible]);
 
   useEffect(() => {
     if (!debugVisible) {
@@ -155,7 +179,15 @@ const RaceTrack = () => {
         horsePathsRef.current[horse.id] = horse.path;
         const sprite = createHorseSprite(horse.color, horse.id, appRef.current);
         if (sprite.anchor?.set) sprite.anchor.set(0.5);
-        sprite.position.set(horse.path[0].x, horse.path[0].y);
+
+        const pos = horse.startPoint;
+        debugLog(`📍 Placing horse ${horse.id} at:`, pos);
+        if (!pos) {
+          console.warn(`[KD] ⚠️ No startPoint for horse ${horse.id}, skipping`);
+          return;
+        }
+
+        sprite.position.set(pos.x, pos.y);
         appRef.current.stage.addChild(sprite);
         horseSpritesRef.current.set(horse.id, sprite);
       });
@@ -173,20 +205,19 @@ const RaceTrack = () => {
   const runManualTicks = () => {
     const pcts = {};
     horsesRef.current.forEach(horse => (pcts[horse.id] = 0));
-
     if (raceTickerRef.current) clearInterval(raceTickerRef.current);
 
     raceTickerRef.current = setInterval(() => {
       let stillRunning = false;
       for (const horse of horsesRef.current) {
         if (pcts[horse.id] < 100) {
-          pcts[horse.id] += 0.028 * speedFactor; // ← 3600 ticks for full race
+          pcts[horse.id] += 0.028 * speedFactor;
           currentPctsRef.current[horse.id] = Math.min(pcts[horse.id], 100);
           stillRunning = true;
         }
       }
       if (!stillRunning) clearInterval(raceTickerRef.current);
-    }, 1000 / 60); // 60 FPS
+    }, 1000 / 60);
   };
 
   const generateRace = async () => {
@@ -224,6 +255,10 @@ const RaceTrack = () => {
           y: path[i].y + frac * (path[j].y - path[i].y)
         };
         sprite.position.set(pos.x, pos.y);
+
+        const dx = path[j].x - path[i].x;
+        const dy = path[j].y - path[i].y;
+        sprite.rotation = Math.atan2(dy, dx);
       }
     });
   }, []);
