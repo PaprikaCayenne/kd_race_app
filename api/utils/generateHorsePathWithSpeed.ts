@@ -1,7 +1,5 @@
-// File: backend/utils/generateHorsePathWithSpeed.ts
-// Version: v0.9.68 — Fixes undefined `centerline` crash with input validation
-
 import { Point } from '@/types/geometry';
+import generateHorsePath from './generateHorsePath';
 
 interface HorsePathOptions {
   id: number;
@@ -40,11 +38,9 @@ export function generateHorsePathWithSpeed({
   const dirX = dx / len;
   const dirY = dy / len;
 
-  // Get perpendicular vector (normalized)
   const perpX = -dirY;
   const perpY = dirX;
 
-  // Calculate offset: center horses around middle lane
   const laneOffset = (id - (totalHorses - 1) / 2);
   const fullOffset = laneOffset * (spriteRadius * 2 + spacingPx);
 
@@ -61,12 +57,4 @@ export function generateHorsePathWithSpeed({
     startPoint: offsetPath[0],
     direction: { x: dirX, y: dirY },
   };
-}
-
-// Inlined fallback — rotates centerline from startIndex
-function generateHorsePath(centerline: Point[], startIndex: number): Point[] {
-  return [
-    ...centerline.slice(startIndex),
-    ...centerline.slice(0, startIndex),
-  ];
 }
