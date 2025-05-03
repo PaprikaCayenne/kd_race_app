@@ -1,5 +1,5 @@
 // File: backend/utils/generateHorsePathWithSpeed.ts
-// Version: v0.9.67 — Inlined fallback path generation if missing external dependency
+// Version: v0.9.68 — Fixes undefined `centerline` crash with input validation
 
 import { Point } from '@/types/geometry';
 
@@ -20,6 +20,10 @@ export function generateHorsePathWithSpeed({
   spriteRadius = 12,
   spacingPx = 6,
 }: HorsePathOptions) {
+  if (!centerline || !Array.isArray(centerline) || centerline.length < 2) {
+    throw new Error(`generateHorsePathWithSpeed: invalid or missing centerline`);
+  }
+
   const basePath = generateHorsePath(centerline, startIndex);
 
   if (basePath.length < 2) {
@@ -59,14 +63,10 @@ export function generateHorsePathWithSpeed({
   };
 }
 
-// Fallback inline implementation — generates path from rotated centerline
+// Inlined fallback — rotates centerline from startIndex
 function generateHorsePath(centerline: Point[], startIndex: number): Point[] {
-  if (centerline.length === 0) return [];
-
-  const rotated = [
+  return [
     ...centerline.slice(startIndex),
     ...centerline.slice(0, startIndex),
   ];
-
-  return rotated;
 }
