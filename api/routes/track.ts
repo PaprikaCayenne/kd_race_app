@@ -1,8 +1,9 @@
 // File: api/routes/track.ts
-// Version: v0.1.3 — Enforce required startAtPercent, width, and height from query
+// Version: v0.1.4 — Adds distance[] and curvature[] to track geometry response
 
 import express, { Request, Response } from 'express';
 import { generateGreyOvalTrack } from '../utils/generateGreyOvalTrack';
+import { computeTrackGeometry } from '../utils/computeTrackGeometry';
 
 const router = express.Router();
 
@@ -25,17 +26,18 @@ router.get('/', (req: Request, res: Response) => {
   const width = Math.max(Number(rawWidth), 800);
   const height = Math.max(Number(rawHeight), 400);
 
-  const track = generateGreyOvalTrack(
-    { width, height },
-    startAtPercent
-  );
+  const track = generateGreyOvalTrack({ width, height }, startAtPercent);
+
+  const { distance, curvature } = computeTrackGeometry(track.centerline);
 
   res.json({
     innerBoundary: track.innerBounds.pointsArray,
     outerBoundary: track.outerBounds.pointsArray,
     centerline: track.centerline,
     startAt: track.startAt,
-    startLineAt: track.startLineAt
+    startLineAt: track.startLineAt,
+    distance,
+    curvature
   });
 });
 

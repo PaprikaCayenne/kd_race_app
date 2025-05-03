@@ -1,134 +1,72 @@
-// File: api/utils/generateHorsePathWithSpeed.ts
-// Version: v0.9.10 — Use first horse's X as fixed alignment for all lanes
+// File: backend/utils/generateHorsePathWithSpeed.ts
+// Version: v0.9.67 — Inlined fallback path generation if missing external dependency
 
-import fs from "fs";
-import { Point } from "../types";
+import { Point } from '@/types/geometry';
 
-export interface HorsePathConfig {
-  laneCount: number;
-  startAt: Point;
-  startInnerPoint: Point;
-  startOuterPoint: Point;
-  innerBoundary: Point[];
-  outerBoundary: Point[];
-  debug?: boolean;
-  debugOutputPath?: string;
+interface HorsePathOptions {
+  id: number;
+  centerline: Point[];
+  startIndex: number;
+  totalHorses: number;
+  spriteRadius?: number; // default to 12
+  spacingPx?: number;    // default to 6
 }
 
-export interface HorsePathResult {
-  path: Point[];
-  startPoint: Point;
+export function generateHorsePathWithSpeed({
+  id,
+  centerline,
+  startIndex,
+  totalHorses,
+  spriteRadius = 12,
+  spacingPx = 6,
+}: HorsePathOptions) {
+  const basePath = generateHorsePath(centerline, startIndex);
+
+  if (basePath.length < 2) {
+    throw new Error(`Horse ${id} has insufficient path data`);
+  }
+
+  const start = basePath[0];
+  const next = basePath[1];
+
+  const dx = next.x - start.x;
+  const dy = next.y - start.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+
+  const dirX = dx / len;
+  const dirY = dy / len;
+
+  // Get perpendicular vector (normalized)
+  const perpX = -dirY;
+  const perpY = dirX;
+
+  // Calculate offset: center horses around middle lane
+  const laneOffset = (id - (totalHorses - 1) / 2);
+  const fullOffset = laneOffset * (spriteRadius * 2 + spacingPx);
+
+  const offsetX = perpX * fullOffset;
+  const offsetY = perpY * fullOffset;
+
+  const offsetPath = basePath.map(pt => ({
+    x: pt.x + offsetX,
+    y: pt.y + offsetY,
+  }));
+
+  return {
+    path: offsetPath,
+    startPoint: offsetPath[0],
+    direction: { x: dirX, y: dirY },
+  };
 }
 
-export function generateHorsePathWithSpeed(
-  centerline: Point[],
-  config: HorsePathConfig
-): HorsePathResult[] {
-  console.log("[KD] 🛠 Horse Path Generator Version: v0.9.10");
+// Fallback inline implementation — generates path from rotated centerline
+function generateHorsePath(centerline: Point[], startIndex: number): Point[] {
+  if (centerline.length === 0) return [];
 
-  const {
-    laneCount,
-    startAt,
-    startInnerPoint,
-    startOuterPoint,
-    innerBoundary,
-    outerBoundary,
-    debug,
-    debugOutputPath
-  } = config;
+  const rotated = [
+    ...centerline.slice(startIndex),
+    ...centerline.slice(0, startIndex),
+  ];
 
-  const length = centerline.length;
-  if (
-    innerBoundary.length !== length ||
-    outerBoundary.length !== length ||
-    centerline.length !== length
-  ) {
-    throw new Error("All boundaries must have the same length");
-  }
-
-  const findClosestIndex = (arr: Point[], target: Point) => {
-    let bestIdx = 0;
-    let minDist = Infinity;
-    arr.forEach((p, i) => {
-      const dx = p.x - target.x;
-      const dy = p.y - target.y;
-      const dist = dx * dx + dy * dy;
-      if (dist < minDist) {
-        bestIdx = i;
-        minDist = dist;
-      }
-    });
-    return bestIdx;
-  };
-
-  const startIdx = findClosestIndex(centerline, startAt);
-  const offsetSteps = 3;
-  const startFromIdx = (startIdx - offsetSteps + length) % length;
-
-  const TRACK_PADDING = 0.1;
-  const SPRITE_LENGTH = 30;
-  const horses: HorsePathResult[] = [];
-
-  const forward = {
-    x: centerline[(startIdx + 1) % length].x - centerline[startIdx].x,
-    y: centerline[(startIdx + 1) % length].y - centerline[startIdx].y
-  };
-  const forwardLen = Math.sqrt(forward.x ** 2 + forward.y ** 2);
-  const forwardNorm = { x: forward.x / forwardLen, y: forward.y / forwardLen };
-
-  const span = {
-    x: startOuterPoint.x - startInnerPoint.x,
-    y: startOuterPoint.y - startInnerPoint.y
-  };
-
-  let fixedX: number | null = null;
-
-  for (let lane = 0; lane < laneCount; lane++) {
-    const lanePath: Point[] = [];
-    const fraction = TRACK_PADDING + ((1 - 2 * TRACK_PADDING) * (lane + 0.5)) / laneCount;
-
-    const baseOnLine = {
-      x: startInnerPoint.x + span.x * fraction,
-      y: startInnerPoint.y + span.y * fraction
-    };
-
-    const rawStartPoint = {
-      x: baseOnLine.x - forwardNorm.x * SPRITE_LENGTH,
-      y: baseOnLine.y - forwardNorm.y * SPRITE_LENGTH
-    };
-
-    // 🧪 Fix all Xs to match first lane's start point
-    if (fixedX === null) {
-      fixedX = rawStartPoint.x;
-    }
-
-    const startPoint = {
-      x: fixedX,
-      y: rawStartPoint.y
-    };
-
-    for (let i = 0; i < length; i++) {
-      const idx = (startFromIdx + i) % length;
-      const inner = innerBoundary[idx];
-      const outer = outerBoundary[idx];
-      const dx = outer.x - inner.x;
-      const dy = outer.y - inner.y;
-      const px = inner.x + dx * fraction;
-      const py = inner.y + dy * fraction;
-      lanePath.push({ x: px, y: py });
-    }
-
-    horses.push({ path: lanePath, startPoint });
-  }
-
-  if (debug && debugOutputPath) {
-    const dir = debugOutputPath.split("/").slice(0, -1).join("/");
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(debugOutputPath, JSON.stringify(horses, null, 2));
-    console.log(`[KD] 🧾 Debug written to ${debugOutputPath}`);
-  }
-
-  return horses;
+  return rotated;
 }

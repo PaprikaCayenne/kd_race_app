@@ -1,5 +1,5 @@
 // File: api/routes/admin.ts
-// Version: v0.7.8 — Passes startInnerPoint and startOuterPoint to horse path generator
+// Version: v0.7.10 — Fix call to generateHorsePathWithSpeed with correct options
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
@@ -33,7 +33,7 @@ export function createAdminRoute(io: Server) {
 
   router.post("/start", express.json(), async (req: Request, res: Response) => {
     const timestamp = getTimestamp();
-    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.8`);
+    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.10`);
 
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {
@@ -102,18 +102,16 @@ export function createAdminRoute(io: Server) {
       const slicedInner = innerBounds.pointsArray.slice(0, sharedLength);
       const slicedOuter = outerBounds.pointsArray.slice(0, sharedLength);
 
-      const debugOutputPath = `./debug/race-${race.id}-paths-${timestamp}.json`;
-
-      const horsePathResults = generateHorsePathWithSpeed(slicedCenterline, {
-        laneCount: selected.length,
-        debug: true,
-        debugOutputPath,
-        startAt,
-        startInnerPoint,
-        startOuterPoint,
-        innerBoundary: slicedInner,
-        outerBoundary: slicedOuter
-      });
+      const horsePathResults = selected.map((horse, i) =>
+        generateHorsePathWithSpeed({
+          horseId: horse.id,
+          innerBoundary: slicedInner,
+          outerBoundary: slicedOuter,
+          startAt,
+          offsetSteps: 3,
+          laneFraction: i / (selected.length - 1)
+        })
+      );
 
       const raceNamespace = io.of("/race");
 

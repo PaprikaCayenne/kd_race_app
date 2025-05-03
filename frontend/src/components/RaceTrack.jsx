@@ -1,10 +1,11 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.9.53 — Adds red debug dots and logs to inspect horse startPoint alignment
+// Version: v0.9.66 — Fixes sprite rotation using path[1] - path[0] direction vector, ensures startPoint accuracy
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics } from 'pixi.js';
 import { createHorseSprite } from '@/utils/createHorseSprite';
 import { renderPond } from '@/utils/renderPond';
+import { parseColorStringToHex } from '@/utils/parseColorStringToHex';
 import { io } from 'socket.io-client';
 import pako from 'pako';
 
@@ -12,7 +13,7 @@ const socket = io('/race', { path: '/api/socket.io' });
 const startAtPercent = 0.67;
 const canvasHeight = 800;
 
-window.__KD_RACE_APP_VERSION__ = 'v0.9.53';
+window.__KD_RACE_APP_VERSION__ = 'v0.9.66';
 console.log('[KD] 🔢 Frontend version:', window.__KD_RACE_APP_VERSION__);
 
 const RaceTrack = () => {
@@ -23,10 +24,10 @@ const RaceTrack = () => {
   const horsePathsRef = useRef({});
   const horsesRef = useRef([]);
 
-  const markerRef = useRef(null);
   const startLineRef = useRef(null);
   const trackDataRef = useRef(null);
   const debugDotsRef = useRef([]);
+  const debugPathLinesRef = useRef([]);
 
   const [debugVisible, setDebugVisible] = useState(false);
   const [raceReady, setRaceReady] = useState(false);
@@ -66,19 +67,6 @@ const RaceTrack = () => {
       line.lineTo(startLineAt.x - normX * halfLength, startLineAt.y - normY * halfLength);
       app.stage.addChild(line);
       startLineRef.current = line;
-
-      const angle = Math.atan2(dy, dx);
-      const size = 10;
-      const tip = { x: startAt.x + Math.cos(angle) * size, y: startAt.y + Math.sin(angle) * size };
-      const left = { x: startAt.x + Math.cos(angle + Math.PI * 2 / 3) * size, y: startAt.y + Math.sin(angle + Math.PI * 2 / 3) * size };
-      const right = { x: startAt.x + Math.cos(angle - Math.PI * 2 / 3) * size, y: startAt.y + Math.sin(angle - Math.PI * 2 / 3) * size };
-
-      const triangle = new Graphics();
-      triangle.lineStyle(2, 0x00ff00).moveTo(tip.x, tip.y).lineTo(left.x, left.y);
-      triangle.moveTo(tip.x, tip.y).lineTo(right.x, right.y);
-      triangle.lineStyle(2, 0x000000).moveTo(left.x, left.y).lineTo(right.x, right.y);
-      markerRef.current = triangle;
-      if (debugVisible) app.stage.addChild(triangle);
     }
 
     renderPond(app, innerBoundary);
@@ -125,42 +113,60 @@ const RaceTrack = () => {
         debugDotsRef.current.forEach(dot => appRef.current.stage.removeChild(dot));
         debugDotsRef.current = [];
 
+        debugPathLinesRef.current.forEach(line => appRef.current.stage.removeChild(line));
+        debugPathLinesRef.current = [];
+
         horsesRef.current = horses;
         horsePathsRef.current = {};
 
         horses.forEach(horse => {
           const path = horse.path;
+          const start = horse.startPoint;
+          const pathStart = path[0];
+          const pathNext = path[1];
+
+          const dx = pathNext.x - pathStart.x;
+          const dy = pathNext.y - pathStart.y;
+          const dist = Math.sqrt(Math.pow(pathStart.x - start.x, 2) + Math.pow(pathStart.y - start.y, 2));
+
+          console.log(`[KD] 🧭 Horse ${horse.id} startPoint:`, start);
+          console.log(`[KD] 🧵 Horse ${horse.id} path[0]:`, pathStart);
+          console.log(`[KD] 📏 Distance between start and path[0]: ${dist.toFixed(2)} px`);
+
           const sprite = createHorseSprite(horse.color, horse.id, appRef.current);
           sprite.anchor?.set?.(0.5);
           sprite.zIndex = 5;
-          sprite.position.set(horse.startPoint.x, horse.startPoint.y);
+          sprite.position.set(start.x, start.y);
 
-          if (path.length >= 2) {
-            const dx = path[1].x - path[0].x;
-            const dy = path[1].y - path[0].y;
-            sprite.rotation = Math.atan2(dy, dx);
-          }
+          sprite.rotation = Math.atan2(dy, dx);
 
           appRef.current.stage.addChild(sprite);
           horseSpritesRef.current.set(horse.id, sprite);
           horsePathsRef.current[horse.id] = path;
 
-          // White debug dot
-          const whiteDot = new Graphics();
-          whiteDot.beginFill(0xffffff).drawCircle(0, 0, 6).endFill();
-          whiteDot.zIndex = 99;
-          whiteDot.position.set(horse.startPoint.x, horse.startPoint.y);
-          debugDotsRef.current.push(whiteDot);
-          if (debugVisible) appRef.current.stage.addChild(whiteDot);
+          const dotStart = new Graphics();
+          dotStart.beginFill(0xffffff).drawCircle(0, 0, 4).endFill();
+          dotStart.zIndex = 99;
+          dotStart.position.set(start.x, start.y);
+          debugDotsRef.current.push(dotStart);
+          if (debugVisible) appRef.current.stage.addChild(dotStart);
 
-          // Red dot for alignment check
-          const redDot = new Graphics();
-          redDot.beginFill(0xff0000).drawCircle(0, 0, 3).endFill();
-          redDot.position.set(horse.startPoint.x, horse.startPoint.y);
-          redDot.zIndex = 100;
-          if (debugVisible) appRef.current.stage.addChild(redDot);
+          const dotPath0 = new Graphics();
+          dotPath0.beginFill(0xff0000).drawCircle(0, 0, 4).endFill();
+          dotPath0.zIndex = 98;
+          dotPath0.position.set(pathStart.x, pathStart.y);
+          debugDotsRef.current.push(dotPath0);
+          if (debugVisible) appRef.current.stage.addChild(dotPath0);
 
-          console.log(`[KD] 🧭 Horse ${horse.id} startPoint:`, horse.startPoint);
+          const pathLine = new Graphics();
+          pathLine.lineStyle(1, parseColorStringToHex(horse.color, horse.id));
+          path.forEach((pt, i) => {
+            if (i === 0) pathLine.moveTo(pt.x, pt.y);
+            else pathLine.lineTo(pt.x, pt.y);
+          });
+          pathLine.zIndex = 1;
+          debugPathLinesRef.current.push(pathLine);
+          if (debugVisible) appRef.current.stage.addChild(pathLine);
         });
 
         setRaceReady(true);
@@ -178,13 +184,21 @@ const RaceTrack = () => {
 
   useEffect(() => {
     if (!appRef.current) return;
+    const app = appRef.current;
+
     debugDotsRef.current.forEach(dot => {
       if (debugVisible) {
-        if (!appRef.current.stage.children.includes(dot)) {
-          appRef.current.stage.addChild(dot);
-        }
+        if (!app.stage.children.includes(dot)) app.stage.addChild(dot);
       } else {
-        appRef.current.stage.removeChild(dot);
+        app.stage.removeChild(dot);
+      }
+    });
+
+    debugPathLinesRef.current.forEach(line => {
+      if (debugVisible) {
+        if (!app.stage.children.includes(line)) app.stage.addChild(line);
+      } else {
+        app.stage.removeChild(line);
       }
     });
   }, [debugVisible]);
