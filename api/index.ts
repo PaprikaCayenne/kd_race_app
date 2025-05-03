@@ -1,5 +1,5 @@
 // File: api/index.ts
-// Version: v0.8.0 – Convert to TypeScript, maintain all features
+// Version: v0.8.1 – Mount track route and preserve full app structure
 
 import express from "express";
 import dotenv from "dotenv";
@@ -9,6 +9,7 @@ import horsesRoute from "./routes/horses.js";
 import registerRoute from "./routes/register.js";
 import { createAdminRoute } from "./routes/admin.js";
 import replayRoute from "./routes/replay.js";
+import trackRoute from "./routes/track.js"; // ✅ Added
 import { setupRaceNamespace } from "./sockets/race.js";
 import { execSync } from "child_process";
 
@@ -48,6 +49,7 @@ app.use("/api/horses", horsesRoute);
 app.use("/api/register", registerRoute);
 app.use("/api/admin", createAdminRoute(io));
 app.use("/api", replayRoute);
+app.use("/api/track", trackRoute); // ✅ Mount new route here
 
 // 🏇 Setup race WebSocket namespace
 setupRaceNamespace(io);

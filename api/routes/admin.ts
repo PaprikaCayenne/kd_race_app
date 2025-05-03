@@ -1,57 +1,71 @@
 // File: api/routes/admin.ts
-// Version: v0.6.7 — Log horse startPoint before emit for visual debugging
+// Version: v0.7.8 — Passes startInnerPoint and startOuterPoint to horse path generator
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
 import prisma from "../lib/prisma.js";
-import generateOvalPath from "../utils/generateOvalPath";
-import { generateHorsePathWithSpeed } from "../utils/generateHorsePathWithSpeed.js";
-import fs from "fs";
 import pako from "pako";
+import fs from "fs";
 import { Point } from "../types";
+import { generateGreyOvalTrack } from "../utils/generateGreyOvalTrack";
+import { generateHorsePathWithSpeed } from "../utils/generateHorsePathWithSpeed";
 
 function getTimestamp() {
   const now = new Date();
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Chicago',
-    month: '2-digit',
-    day: '2-digit',
-    year: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    month: "2-digit",
+    day: "2-digit",
+    year: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
     hour12: true
   });
   const parts = formatter.formatToParts(now).reduce((acc, part) => {
     acc[part.type] = part.value;
     return acc;
   }, {} as Record<string, string>);
-  const hour12 = parts.hour.padStart(2, "0");
-  const minute = parts.minute.padStart(2, "0");
-  const ampm = parts.dayPeriod;
-  return `${parts.month}-${parts.day}-${parts.year}_${hour12}-${minute}${ampm}`;
+  return `${parts.month}-${parts.day}-${parts.year}_${parts.hour.padStart(2, "0")}-${parts.minute}${parts.dayPeriod}`;
 }
 
 export function createAdminRoute(io: Server) {
   const router = express.Router();
 
-  router.post("/start", async (req: Request, res: Response) => {
+  router.post("/start", express.json(), async (req: Request, res: Response) => {
     const timestamp = getTimestamp();
-    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.6.7`);
+    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.8`);
 
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {
-      console.warn(`[${timestamp}] ⛔ Invalid admin pass attempt`);
+      console.warn(`[${timestamp}] ⛔ Invalid admin pass`);
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    try {
-      console.log(`[${timestamp}] ✅ Admin pass verified`);
+    const { startAtPercent, width, height } = req.body;
 
-      const racedHorseIds = await prisma.result.findMany({
-        distinct: ["horseId"],
-        select: { horseId: true }
-      });
-      const racedIds = racedHorseIds.map(r => r.horseId);
+    if (
+      typeof startAtPercent !== "number" ||
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      isNaN(startAtPercent) ||
+      isNaN(width) ||
+      isNaN(height)
+    ) {
+      console.warn(`[${timestamp}] ❌ Invalid POST body:`, req.body);
+      return res.status(400).json({ error: "Missing or invalid track parameters" });
+    }
+
+    const clampedPercent = Math.min(Math.max(startAtPercent, 0), 1);
+    const safeWidth = Math.max(width, 800);
+    const safeHeight = Math.max(height, 400);
+
+    try {
+      const racedIds = (
+        await prisma.result.findMany({
+          distinct: ["horseId"],
+          select: { horseId: true }
+        })
+      ).map(r => r.horseId);
 
       const unraced = await prisma.horse.findMany({
         where: { id: { notIn: racedIds } }
@@ -65,56 +79,60 @@ export function createAdminRoute(io: Server) {
       const selected = unraced.sort(() => Math.random() - 0.5).slice(0, 4);
       const race = await prisma.race.create({ data: {} });
 
-      const body = req.body as {
-        centerline?: Point[];
-        innerBoundary?: Point[];
-        outerBoundary?: Point[];
-        startAt?: Point;
-      };
+      const {
+        innerBounds,
+        outerBounds,
+        centerline,
+        startAt,
+        startLineAt,
+        startInnerPoint,
+        startOuterPoint
+      } = generateGreyOvalTrack(
+        { width: safeWidth, height: safeHeight },
+        clampedPercent
+      );
 
-      console.log(`[${timestamp}] 🔹 Received body sample`, {
-        centerlineSample: body.centerline?.slice(0, 5),
-        startAt: body.startAt,
-        innerBoundarySample: body.innerBoundary?.slice(0, 5),
-        outerBoundarySample: body.outerBoundary?.slice(0, 5)
-      });
+      const sharedLength = Math.min(
+        centerline.length,
+        innerBounds.pointsArray.length,
+        outerBounds.pointsArray.length
+      );
 
-      const { centerline, innerBoundary, outerBoundary, startAt } = body;
-      if (!centerline || !innerBoundary || !outerBoundary || !startAt) {
-        console.warn(`[${timestamp}] ⚠️ Missing or invalid track data — aborting`);
-        return res.status(400).json({ error: "Invalid track data" });
-      }
+      const slicedCenterline = centerline.slice(0, sharedLength);
+      const slicedInner = innerBounds.pointsArray.slice(0, sharedLength);
+      const slicedOuter = outerBounds.pointsArray.slice(0, sharedLength);
 
       const debugOutputPath = `./debug/race-${race.id}-paths-${timestamp}.json`;
 
-      const horsePathResults = generateHorsePathWithSpeed(centerline, {
+      const horsePathResults = generateHorsePathWithSpeed(slicedCenterline, {
         laneCount: selected.length,
         debug: true,
         debugOutputPath,
-        innerBoundary,
-        outerBoundary,
-        startAt
+        startAt,
+        startInnerPoint,
+        startOuterPoint,
+        innerBoundary: slicedInner,
+        outerBoundary: slicedOuter
       });
 
       const raceNamespace = io.of("/race");
-      if (raceNamespace.sockets.size > 0) {
-        const horses = selected.map((h, i) => {
-          const debug = {
-            id: h.id.toString(),
-            name: h.name,
-            color: h.color,
-            startPoint: horsePathResults[i].startPoint
-          };
-          console.log(`[${timestamp}] 🐎 Horse payload preview:`, debug);
 
-          return {
-            ...debug,
-            path: horsePathResults[i].path
-          };
-        });
+      if (raceNamespace.sockets.size > 0) {
+        const horses = selected.map((h, i) => ({
+          id: h.id.toString(),
+          name: h.name,
+          color: h.color,
+          startPoint: horsePathResults[i].startPoint,
+          path: horsePathResults[i].path
+        }));
 
         const payload = {
           raceId: race.id.toString(),
+          centerline: slicedCenterline,
+          innerBoundary: slicedInner,
+          outerBoundary: slicedOuter,
+          startAt,
+          startLineAt,
           horses
         };
 
@@ -125,12 +143,15 @@ export function createAdminRoute(io: Server) {
 
         raceNamespace.emit("race:init", compressed);
       } else {
-        console.warn(`[${timestamp}] ⚠️ No clients connected to /race — skipping emit`);
+        console.warn(`[${timestamp}] ⚠️ No clients connected to /race`);
       }
 
       res.json({ success: true, raceId: race.id.toString() });
     } catch (err) {
-      console.error(`[${timestamp}] 💥 Error in /api/admin/start:`, err);
+      console.error(`[${timestamp}] 💥 Error in /api/admin/start`, {
+        body: req.body,
+        error: err
+      });
       res.status(500).json({ error: "Internal server error" });
     }
   });
