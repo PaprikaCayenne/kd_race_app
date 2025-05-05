@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.9.67 — Adds placement debug logging per horse for alignment verification
+// Version: v0.9.69 — Applies inverse rotation to horse positions and paths to match unrotated Pixi canvas
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics } from 'pixi.js';
@@ -13,8 +13,19 @@ const socket = io('/race', { path: '/api/socket.io' });
 const startAtPercent = 0.67;
 const canvasHeight = 800;
 
-window.__KD_RACE_APP_VERSION__ = 'v0.9.67';
+window.__KD_RACE_APP_VERSION__ = 'v0.9.69';
 console.log('[KD] 🔢 Frontend version:', window.__KD_RACE_APP_VERSION__);
+
+const rotatePointBack = (p, angle, origin) => {
+  const cos = Math.cos(-angle);
+  const sin = Math.sin(-angle);
+  const dx = p.x - origin.x;
+  const dy = p.y - origin.y;
+  return {
+    x: origin.x + dx * cos - dy * sin,
+    y: origin.y + dx * sin + dy * cos,
+  };
+};
 
 const RaceTrack = () => {
   const containerRef = useRef(null);
@@ -31,6 +42,13 @@ const RaceTrack = () => {
 
   const [debugVisible, setDebugVisible] = useState(false);
   const [raceReady, setRaceReady] = useState(false);
+
+  const computeTrackAngle = (centerline) => {
+    if (!centerline || centerline.length < 2) return 0;
+    const dx = centerline[1].x - centerline[0].x;
+    const dy = centerline[1].y - centerline[0].y;
+    return Math.atan2(dy, dx);
+  };
 
   const drawDerbyTrack = ({ innerBoundary, outerBoundary, centerline, startAt, startLineAt }) => {
     if (!appRef.current) return;
@@ -76,7 +94,6 @@ const RaceTrack = () => {
     if (!containerRef.current || appRef.current) return;
 
     const width = containerRef.current.offsetWidth;
-
     const app = new Application({
       view: canvasRef.current,
       backgroundColor: 0xd0f0e0,
@@ -107,12 +124,14 @@ const RaceTrack = () => {
         const parsed = JSON.parse(inflated);
         const { horses } = parsed;
 
+        const track = trackDataRef.current;
+        const trackAngle = computeTrackAngle(track.centerline);
+        const origin = track.centerline[0];
+
         horseSpritesRef.current.forEach(sprite => appRef.current.stage.removeChild(sprite));
         horseSpritesRef.current.clear();
-
         debugDotsRef.current.forEach(dot => appRef.current.stage.removeChild(dot));
         debugDotsRef.current = [];
-
         debugPathLinesRef.current.forEach(line => appRef.current.stage.removeChild(line));
         debugPathLinesRef.current = [];
 
@@ -120,14 +139,15 @@ const RaceTrack = () => {
         horsePathsRef.current = {};
 
         horses.forEach(horse => {
-          const path = horse.path;
-          const start = horse.startPoint;
+          const rawStart = horse.startPoint;
+          const path = horse.path.map(pt => rotatePointBack(pt, trackAngle, origin));
+          const start = rotatePointBack(rawStart, trackAngle, origin);
           const pathStart = path[0];
           const pathNext = path[1];
 
           const dx = pathNext.x - pathStart.x;
           const dy = pathNext.y - pathStart.y;
-          const dist = Math.sqrt(Math.pow(pathStart.x - start.x, 2) + Math.pow(pathStart.y - start.y, 2));
+          const dist = Math.sqrt((pathStart.x - start.x) ** 2 + (pathStart.y - start.y) ** 2);
 
           console.log(`[KD] 🧭 Horse ${horse.id} (placement ${horse.placement}) startPoint:`, start);
           console.log(`[KD] 🧵 Horse ${horse.id} path[0]:`, pathStart);
@@ -143,29 +163,20 @@ const RaceTrack = () => {
           horseSpritesRef.current.set(horse.id, sprite);
           horsePathsRef.current[horse.id] = path;
 
-          const dotStart = new Graphics();
-          dotStart.beginFill(0xffffff).drawCircle(0, 0, 4).endFill();
-          dotStart.zIndex = 99;
-          dotStart.position.set(start.x, start.y);
-          debugDotsRef.current.push(dotStart);
-          if (debugVisible) appRef.current.stage.addChild(dotStart);
+          const dot = new Graphics();
+          dot.beginFill(0xffffff).drawCircle(0, 0, 4).endFill();
+          dot.zIndex = 99;
+          dot.position.set(start.x, start.y);
+          debugDotsRef.current.push(dot);
+          if (debugVisible) appRef.current.stage.addChild(dot);
 
-          const dotPath0 = new Graphics();
-          dotPath0.beginFill(0xff0000).drawCircle(0, 0, 4).endFill();
-          dotPath0.zIndex = 98;
-          dotPath0.position.set(pathStart.x, pathStart.y);
-          debugDotsRef.current.push(dotPath0);
-          if (debugVisible) appRef.current.stage.addChild(dotPath0);
-
-          const pathLine = new Graphics();
-          pathLine.lineStyle(1, parseColorStringToHex(horse.color, horse.id));
-          path.forEach((pt, i) => {
-            if (i === 0) pathLine.moveTo(pt.x, pt.y);
-            else pathLine.lineTo(pt.x, pt.y);
-          });
-          pathLine.zIndex = 1;
-          debugPathLinesRef.current.push(pathLine);
-          if (debugVisible) appRef.current.stage.addChild(pathLine);
+          const offsetLine = new Graphics();
+          offsetLine.lineStyle(2, 0xff00ff);
+          offsetLine.moveTo(start.x, start.y);
+          offsetLine.lineTo(start.x + horse.debug?.offset?.perpX * 40, start.y + horse.debug?.offset?.perpY * 40);
+          offsetLine.zIndex = 100;
+          debugDotsRef.current.push(offsetLine);
+          if (debugVisible) appRef.current.stage.addChild(offsetLine);
         });
 
         setRaceReady(true);
@@ -181,53 +192,18 @@ const RaceTrack = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (!appRef.current) return;
-    const app = appRef.current;
-
-    debugDotsRef.current.forEach(dot => {
-      if (debugVisible) {
-        if (!app.stage.children.includes(dot)) app.stage.addChild(dot);
-      } else {
-        app.stage.removeChild(dot);
-      }
-    });
-
-    debugPathLinesRef.current.forEach(line => {
-      if (debugVisible) {
-        if (!app.stage.children.includes(line)) app.stage.addChild(line);
-      } else {
-        app.stage.removeChild(line);
-      }
-    });
-  }, [debugVisible]);
-
-  const triggerGenerateHorses = async () => {
-    const width = containerRef.current.offsetWidth;
-
-    try {
-      await fetch('/api/admin/start', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-pass': '6a2e8819c6fb4c15'
-        },
-        body: JSON.stringify({
-          startAtPercent,
-          width,
-          height: canvasHeight
-        })
-      });
-    } catch (err) {
-      console.error('❌ Error triggering race:', err);
-    }
-  };
-
   return (
     <div ref={containerRef} className="p-4">
       <canvas ref={canvasRef} className="block w-full h-[800px]" />
       <div className="mt-4 space-x-2">
-        <button onClick={triggerGenerateHorses} className="bg-blue-600 px-4 py-2 text-white rounded">Generate Horses</button>
+        <button onClick={() => fetch('/api/admin/start', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-pass': '6a2e8819c6fb4c15'
+          },
+          body: JSON.stringify({ startAtPercent, width: containerRef.current.offsetWidth, height: canvasHeight })
+        })} className="bg-blue-600 px-4 py-2 text-white rounded">Generate Horses</button>
         <button disabled={!raceReady} className="bg-green-600 px-4 py-2 text-white rounded disabled:opacity-50">Start Race</button>
         <button onClick={() => setDebugVisible(v => !v)} className="bg-gray-600 px-4 py-2 text-white rounded">Toggle Visuals</button>
       </div>

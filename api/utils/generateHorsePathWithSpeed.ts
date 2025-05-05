@@ -1,5 +1,5 @@
-// File: api/utils/generateHorsePathWithSpeed.ts
-// Version: v0.9.76 — Uses lanePath tangent instead of startLine vector for accurate lateral placement
+// File: backend/utils/generateHorsePathWithSpeed.ts
+// Version: v0.9.79 — Final fix: shared startPoint + tangent for true vertical stacking
 
 import { Point } from '@/types/geometry';
 import calculateLaneFraction from './calculateLaneFraction';
@@ -25,14 +25,14 @@ export function generateHorsePathWithSpeed({
   outerBoundary,
   centerline,
   startAt,
-  startLineAt, // still passed in for future flexibility
+  startLineAt,
   totalHorses,
   placement,
   spriteRadius = 12,
   spacingPx = 6,
 }: HorsePathOptions) {
   const debug: Record<string, any> = {
-    version: 'v0.9.76',
+    version: 'v0.9.79',
     input: { id, placement, totalHorses, spriteRadius, spacingPx },
   };
 
@@ -59,55 +59,53 @@ export function generateHorsePathWithSpeed({
     outerStart: rotatedOuter[0],
   };
 
-  const laneFrac = calculateLaneFraction(placement, totalHorses);
-  debug.lane = { placement, laneFrac };
-
-  const lanePath: Point[] = rotatedInner.map((inner, i) =>
-    interpolateLanePoint(inner, rotatedOuter[i], laneFrac)
+  // 1. Use center lane to compute shared tangent
+  const centerLanePath: Point[] = rotatedInner.map((inner, i) =>
+    interpolateLanePoint(inner, rotatedOuter[i], 0.5)
   );
-
-  if (lanePath.length < 2) {
-    throw new Error(`generateHorsePathWithSpeed: lane path too short`);
-  }
-
-  // Correct offset: use actual tangent of lanePath
-  const dx = lanePath[1].x - lanePath[0].x;
-  const dy = lanePath[1].y - lanePath[0].y;
+  const dx = centerLanePath[1].x - centerLanePath[0].x;
+  const dy = centerLanePath[1].y - centerLanePath[0].y;
   const len = Math.sqrt(dx * dx + dy * dy);
-  if (len === 0) throw new Error(`generateHorsePathWithSpeed: invalid tangent direction`);
-
+  if (len === 0) throw new Error(`generateHorsePathWithSpeed: invalid center tangent`);
   const dirX = dx / len;
   const dirY = dy / len;
   const perpX = -dirY;
   const perpY = dirX;
 
-  const offsetFromCenter = (placement - (totalHorses - 1) / 2) * (spriteRadius * 2 + spacingPx);
-  debug.offset = { offsetFromCenter, perpX, perpY };
+  // 2. Use only center lane start point for all horses
+  const baseStart = centerLanePath[0];
 
-  const offsetPath = lanePath.map(pt => ({
+  // 3. Offset each horse from that one point
+  const offsetFromCenter = (placement - (totalHorses - 1) / 2) * (spriteRadius * 2 + spacingPx);
+  const finalStartPoint = {
+    x: baseStart.x + perpX * offsetFromCenter,
+    y: baseStart.y + perpY * offsetFromCenter,
+  };
+
+  // 4. Generate shared path (we'll still use full lanePath for animation)
+  const horseLanePath: Point[] = rotatedInner.map((inner, i) =>
+    interpolateLanePoint(inner, rotatedOuter[i], 0.5)
+  );
+  const offsetPath = horseLanePath.map(pt => ({
     x: pt.x + perpX * offsetFromCenter,
     y: pt.y + perpY * offsetFromCenter,
   }));
 
-  const first = offsetPath?.[0];
-  if (
-    !first ||
-    typeof first.x !== 'number' ||
-    typeof first.y !== 'number' ||
-    !Number.isFinite(first.x) ||
-    !Number.isFinite(first.y)
-  ) {
-    console.error('[KD] ❌ Invalid startPoint generated:', first, { debug });
-    throw new Error('generateHorsePathWithSpeed: invalid startPoint (null or NaN)');
-  }
+  debug.offset = {
+    offsetFromCenter,
+    perpX,
+    perpY,
+    sharedStart: baseStart,
+    tangent: { dx, dy, len },
+  };
 
-  console.log(`[KD] 🧪 generateHorsePathWithSpeed.ts version: v0.9.76 (id: ${id}, placement: ${placement})`);
-  console.log(`[KD] 📐 Offset vector: perpX=${perpX.toFixed(3)}, perpY=${perpY.toFixed(3)}`);
-  console.log(`[KD] 🐎 Final startPoint for horse ${id}: x=${first.x.toFixed(2)}, y=${first.y.toFixed(2)}`);
+  console.log(`[KD] 🧪 generateHorsePathWithSpeed.ts version: v0.9.79 (id: ${id}, placement: ${placement})`);
+  console.log(`[KD] 🔁 offsetFromCenter=${offsetFromCenter.toFixed(2)} → startPoint=(${finalStartPoint.x.toFixed(1)}, ${finalStartPoint.y.toFixed(1)})`);
+  console.log(`[KD] 🧭 shared tangent=(${dx.toFixed(2)}, ${dy.toFixed(2)}) → perp=(${perpX.toFixed(2)}, ${perpY.toFixed(2)})`);
 
   return {
     path: offsetPath,
-    startPoint: first,
+    startPoint: finalStartPoint,
     direction: { x: dirX, y: dirY },
     debug,
   };
