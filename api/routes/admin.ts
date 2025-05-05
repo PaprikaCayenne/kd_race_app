@@ -1,11 +1,10 @@
 // File: api/routes/admin.ts
-// Version: v0.7.10 — Fix call to generateHorsePathWithSpeed with correct options
+// Version: v0.7.13 — FIX: Passes placement into generateHorsePathWithSpeed to avoid NaN errors
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
 import prisma from "../lib/prisma.js";
 import pako from "pako";
-import fs from "fs";
 import { Point } from "../types";
 import { generateGreyOvalTrack } from "../utils/generateGreyOvalTrack";
 import { generateHorsePathWithSpeed } from "../utils/generateHorsePathWithSpeed";
@@ -33,7 +32,7 @@ export function createAdminRoute(io: Server) {
 
   router.post("/start", express.json(), async (req: Request, res: Response) => {
     const timestamp = getTimestamp();
-    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.10`);
+    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.13`);
 
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {
@@ -42,7 +41,6 @@ export function createAdminRoute(io: Server) {
     }
 
     const { startAtPercent, width, height } = req.body;
-
     if (
       typeof startAtPercent !== "number" ||
       typeof width !== "number" ||
@@ -84,13 +82,8 @@ export function createAdminRoute(io: Server) {
         outerBounds,
         centerline,
         startAt,
-        startLineAt,
-        startInnerPoint,
-        startOuterPoint
-      } = generateGreyOvalTrack(
-        { width: safeWidth, height: safeHeight },
-        clampedPercent
-      );
+        startLineAt
+      } = generateGreyOvalTrack({ width: safeWidth, height: safeHeight }, clampedPercent);
 
       const sharedLength = Math.min(
         centerline.length,
@@ -104,12 +97,13 @@ export function createAdminRoute(io: Server) {
 
       const horsePathResults = selected.map((horse, i) =>
         generateHorsePathWithSpeed({
-          horseId: horse.id,
+          id: i,                 // For debug and logging
+          placement: i,          // ✅ Now correctly passed in
           innerBoundary: slicedInner,
           outerBoundary: slicedOuter,
+          centerline: slicedCenterline,
           startAt,
-          offsetSteps: 3,
-          laneFraction: i / (selected.length - 1)
+          totalHorses: selected.length,
         })
       );
 
@@ -121,7 +115,8 @@ export function createAdminRoute(io: Server) {
           name: h.name,
           color: h.color,
           startPoint: horsePathResults[i].startPoint,
-          path: horsePathResults[i].path
+          path: horsePathResults[i].path,
+          placement: i
         }));
 
         const payload = {
@@ -131,7 +126,7 @@ export function createAdminRoute(io: Server) {
           outerBoundary: slicedOuter,
           startAt,
           startLineAt,
-          horses
+          horses,
         };
 
         const compressed = pako.deflate(JSON.stringify(payload));

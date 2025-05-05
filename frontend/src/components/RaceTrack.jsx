@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.9.66 — Fixes sprite rotation using path[1] - path[0] direction vector, ensures startPoint accuracy
+// Version: v0.9.67 — Adds placement debug logging per horse for alignment verification
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics } from 'pixi.js';
@@ -13,7 +13,7 @@ const socket = io('/race', { path: '/api/socket.io' });
 const startAtPercent = 0.67;
 const canvasHeight = 800;
 
-window.__KD_RACE_APP_VERSION__ = 'v0.9.66';
+window.__KD_RACE_APP_VERSION__ = 'v0.9.67';
 console.log('[KD] 🔢 Frontend version:', window.__KD_RACE_APP_VERSION__);
 
 const RaceTrack = () => {
@@ -129,7 +129,7 @@ const RaceTrack = () => {
           const dy = pathNext.y - pathStart.y;
           const dist = Math.sqrt(Math.pow(pathStart.x - start.x, 2) + Math.pow(pathStart.y - start.y, 2));
 
-          console.log(`[KD] 🧭 Horse ${horse.id} startPoint:`, start);
+          console.log(`[KD] 🧭 Horse ${horse.id} (placement ${horse.placement}) startPoint:`, start);
           console.log(`[KD] 🧵 Horse ${horse.id} path[0]:`, pathStart);
           console.log(`[KD] 📏 Distance between start and path[0]: ${dist.toFixed(2)} px`);
 
@@ -137,7 +137,6 @@ const RaceTrack = () => {
           sprite.anchor?.set?.(0.5);
           sprite.zIndex = 5;
           sprite.position.set(start.x, start.y);
-
           sprite.rotation = Math.atan2(dy, dx);
 
           appRef.current.stage.addChild(sprite);

@@ -1,5 +1,5 @@
 // File: api/utils/generateGreyOvalTrack.ts
-// Version: v0.5.3 — Add startInnerPoint and startOuterPoint for proper start line anchoring
+// Version: v0.5.4 — Adds validation and logging for boundary generation and array safety
 
 import { Point } from '../types';
 
@@ -38,8 +38,15 @@ export function generateGreyOvalTrack(
   const outerW = width - 2 * paddingX;
   const outerH = height - 2 * paddingY;
 
+  // ✅ Log to validate dimensions
+  console.log(`[KD] Track dimensions: innerW=${innerW}, innerH=${innerH}, outerW=${outerW}, outerH=${outerH}`);
+
   const outerBoundary = generateRoundedRectPoints(outerX, outerY, outerW, outerH, outerCornerRadius + trackWidth);
   const innerBoundary = generateRoundedRectPoints(innerX, innerY, innerW, innerH, innerCornerRadius);
+
+  if (!innerBoundary.length || !outerBoundary.length) {
+    throw new Error(`generateGreyOvalTrack: inner or outer boundary failed to generate points — check radius vs width/height`);
+  }
 
   const centerline: Point[] = [];
   for (let i = 0; i < Math.min(innerBoundary.length, outerBoundary.length); i++) {
@@ -49,6 +56,10 @@ export function generateGreyOvalTrack(
       x: (inner.x + outer.x) / 2,
       y: (inner.y + outer.y) / 2
     });
+  }
+
+  if (!centerline.length) {
+    throw new Error(`generateGreyOvalTrack: failed to generate centerline — no matching points`);
   }
 
   const startIndex = Math.floor(centerline.length * startAtPercent);

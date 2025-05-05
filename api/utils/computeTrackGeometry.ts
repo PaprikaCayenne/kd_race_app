@@ -1,55 +1,62 @@
 // File: api/utils/computeTrackGeometry.ts
-// Version: v0.1.0 — Adds distance and curvature arrays to a centerline path
+// Version: v0.3.0 — Rotates all boundaries from startAt and clamps length to avoid mismatch
 
-import { Point } from "../types";
+import { Point } from '../types';
 
-interface TrackGeometry {
-  centerline: Point[];
-  distance: number[];
-  curvature: number[];
+/**
+ * Rotates a path to start from a given index.
+ */
+function rotate<T>(arr: T[], startIdx: number): T[] {
+  return [...arr.slice(startIdx), ...arr.slice(0, startIdx)];
 }
 
 /**
- * Computes distance[] and curvature[] for a given centerline path.
- * - distance[i] = cumulative length from point 0 to i
- * - curvature[i] = angle difference (radians) between i-1→i and i→i+1
+ * Finds the closest index in a path to a target point.
  */
-export function computeTrackGeometry(centerline: Point[]): TrackGeometry {
-  const N = centerline.length;
-  const distance: number[] = new Array(N).fill(0);
-  const curvature: number[] = new Array(N).fill(0);
+function findClosestIndex(path: Point[], target: Point): number {
+  let closestIndex = 0;
+  let minDist = Infinity;
+  for (let i = 0; i < path.length; i++) {
+    const dx = path[i].x - target.x;
+    const dy = path[i].y - target.y;
+    const dist = dx * dx + dy * dy;
+    if (dist < minDist) {
+      minDist = dist;
+      closestIndex = i;
+    }
+  }
+  return closestIndex;
+}
 
-  let totalDist = 0;
-
-  for (let i = 1; i < N; i++) {
-    const dx = centerline[i].x - centerline[i - 1].x;
-    const dy = centerline[i].y - centerline[i - 1].y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    totalDist += dist;
-    distance[i] = totalDist;
+/**
+ * Aligns and rotates inner, outer, and centerline arrays to start from startAt.
+ */
+export function computeTrackGeometry(
+  inner: Point[],
+  outer: Point[],
+  centerline: Point[],
+  startAt: Point
+): {
+  rotatedInner: Point[];
+  rotatedOuter: Point[];
+  rotatedCenterline: Point[];
+  startIndex: number;
+} {
+  if (!Array.isArray(inner) || !Array.isArray(outer) || !Array.isArray(centerline)) {
+    throw new Error('computeTrackGeometry: Invalid inputs');
   }
 
-  for (let i = 1; i < N - 1; i++) {
-    const p0 = centerline[i - 1];
-    const p1 = centerline[i];
-    const p2 = centerline[i + 1];
+  const minLength = Math.min(inner.length, outer.length, centerline.length);
+  const slicedInner = inner.slice(0, minLength);
+  const slicedOuter = outer.slice(0, minLength);
+  const slicedCenterline = centerline.slice(0, minLength);
 
-    const v1 = { x: p1.x - p0.x, y: p1.y - p0.y };
-    const v2 = { x: p2.x - p1.x, y: p2.y - p1.y };
-
-    const dot = v1.x * v2.x + v1.y * v2.y;
-    const mag1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
-    const mag2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
-
-    const cosAngle = dot / (mag1 * mag2);
-    const angle = Math.acos(Math.max(-1, Math.min(1, cosAngle)));
-
-    curvature[i] = angle;
-  }
+  const startIndex = findClosestIndex(slicedCenterline, startAt);
 
   return {
-    centerline,
-    distance,
-    curvature
+    rotatedInner: rotate(slicedInner, startIndex),
+    rotatedOuter: rotate(slicedOuter, startIndex),
+    rotatedCenterline: rotate(slicedCenterline, startIndex),
+    startIndex,
   };
 }

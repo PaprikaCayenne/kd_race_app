@@ -1,9 +1,10 @@
 // File: api/routes/track.ts
-// Version: v0.1.4 — Adds distance[] and curvature[] to track geometry response
+// Version: v0.1.5 — Fixes computeTrackGeometry call to include all required boundaries and startAt
 
 import express, { Request, Response } from 'express';
 import { generateGreyOvalTrack } from '../utils/generateGreyOvalTrack';
 import { computeTrackGeometry } from '../utils/computeTrackGeometry';
+import { Point } from '../types';
 
 const router = express.Router();
 
@@ -28,7 +29,45 @@ router.get('/', (req: Request, res: Response) => {
 
   const track = generateGreyOvalTrack({ width, height }, startAtPercent);
 
-  const { distance, curvature } = computeTrackGeometry(track.centerline);
+  const {
+    rotatedCenterline,
+  } = computeTrackGeometry(
+    track.innerBounds.pointsArray,
+    track.outerBounds.pointsArray,
+    track.centerline,
+    track.startAt
+  );
+
+  const distance: number[] = [];
+  const curvature: number[] = [];
+
+  for (let i = 0; i < rotatedCenterline.length; i++) {
+    if (i > 0) {
+      const dx = rotatedCenterline[i].x - rotatedCenterline[i - 1].x;
+      const dy = rotatedCenterline[i].y - rotatedCenterline[i - 1].y;
+      distance[i] = distance[i - 1] + Math.sqrt(dx * dx + dy * dy);
+    } else {
+      distance[i] = 0;
+    }
+
+    if (i > 0 && i < rotatedCenterline.length - 1) {
+      const p0 = rotatedCenterline[i - 1];
+      const p1 = rotatedCenterline[i];
+      const p2 = rotatedCenterline[i + 1];
+
+      const v1 = { x: p1.x - p0.x, y: p1.y - p0.y };
+      const v2 = { x: p2.x - p1.x, y: p2.y - p1.y };
+
+      const dot = v1.x * v2.x + v1.y * v2.y;
+      const mag1 = Math.sqrt(v1.x ** 2 + v1.y ** 2);
+      const mag2 = Math.sqrt(v2.x ** 2 + v2.y ** 2);
+
+      const cos = dot / (mag1 * mag2);
+      curvature[i] = Math.acos(Math.max(-1, Math.min(1, cos)));
+    } else {
+      curvature[i] = 0;
+    }
+  }
 
   res.json({
     innerBoundary: track.innerBounds.pointsArray,
@@ -37,7 +76,7 @@ router.get('/', (req: Request, res: Response) => {
     startAt: track.startAt,
     startLineAt: track.startLineAt,
     distance,
-    curvature
+    curvature,
   });
 });
 
