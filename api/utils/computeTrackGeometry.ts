@@ -1,5 +1,5 @@
 // File: api/utils/computeTrackGeometry.ts
-// Version: v0.3.0 — Rotates all boundaries from startAt and clamps length to avoid mismatch
+// Version: v0.3.1 — Adds path closure after rotation to ensure continuity
 
 import { Point } from '../types';
 
@@ -8,6 +8,18 @@ import { Point } from '../types';
  */
 function rotate<T>(arr: T[], startIdx: number): T[] {
   return [...arr.slice(startIdx), ...arr.slice(0, startIdx)];
+}
+
+/**
+ * Ensures the path is closed (first and last points match).
+ */
+function closePath(path: Point[]): Point[] {
+  const first = path[0];
+  const last = path[path.length - 1];
+  if (first.x !== last.x || first.y !== last.y) {
+    return [...path, { ...first }];
+  }
+  return path;
 }
 
 /**
@@ -54,9 +66,9 @@ export function computeTrackGeometry(
   const startIndex = findClosestIndex(slicedCenterline, startAt);
 
   return {
-    rotatedInner: rotate(slicedInner, startIndex),
-    rotatedOuter: rotate(slicedOuter, startIndex),
-    rotatedCenterline: rotate(slicedCenterline, startIndex),
+    rotatedInner: closePath(rotate(slicedInner, startIndex)),
+    rotatedOuter: closePath(rotate(slicedOuter, startIndex)),
+    rotatedCenterline: closePath(rotate(slicedCenterline, startIndex)),
     startIndex,
   };
 }
