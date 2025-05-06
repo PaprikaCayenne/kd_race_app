@@ -1,5 +1,5 @@
 // File: api/routes/track.ts
-// Version: v0.1.5 — Fixes computeTrackGeometry call to include all required boundaries and startAt
+// Version: v0.1.6 — Adds rotatedCenterline to response to match frontend expectations
 
 import express, { Request, Response } from 'express';
 import { generateGreyOvalTrack } from '../utils/generateGreyOvalTrack';
@@ -30,7 +30,9 @@ router.get('/', (req: Request, res: Response) => {
   const track = generateGreyOvalTrack({ width, height }, startAtPercent);
 
   const {
-    rotatedCenterline,
+    rotatedInner,
+    rotatedOuter,
+    rotatedCenterline
   } = computeTrackGeometry(
     track.innerBounds.pointsArray,
     track.outerBounds.pointsArray,
@@ -73,10 +75,11 @@ router.get('/', (req: Request, res: Response) => {
     innerBoundary: track.innerBounds.pointsArray,
     outerBoundary: track.outerBounds.pointsArray,
     centerline: track.centerline,
+    rotatedCenterline, // ✅ this fixes the frontend crash
     startAt: track.startAt,
     startLineAt: track.startLineAt,
     distance,
-    curvature,
+    curvature
   });
 });
 

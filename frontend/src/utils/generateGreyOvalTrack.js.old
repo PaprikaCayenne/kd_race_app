@@ -1,12 +1,12 @@
 // File: api/utils/generateGreyOvalTrack.ts
-// Version: v0.6.1 — True parametric centerline with consistent inner/outer alignment
+// Version: v0.6.0 — Parametric race track with true rounded corners and consistent offsets
 
 import { Point } from '../types';
 
 const STRAIGHT_SEGMENT_STEP_PX = 10;
 const CORNER_SEGMENT_STEP_DEG = 2.5;
 const TRACK_WIDTH = 120;
-const CORNER_RADIUS = 100;
+const CORNER_RADIUS = 500;
 const START_LINE_OFFSET_PX = 30;
 
 export function generateGreyOvalTrack(
@@ -29,24 +29,22 @@ export function generateGreyOvalTrack(
   const outerW = width - 2 * paddingX;
   const outerH = height - 2 * paddingY;
 
-  const innerW = outerW - 2 * TRACK_WIDTH;
-  const innerH = outerH - 2 * TRACK_WIDTH;
-
   const outer = generateParametricOvalTrack(paddingX, paddingY, outerW, outerH, CORNER_RADIUS);
   const inner = generateParametricOvalTrack(
     paddingX + TRACK_WIDTH,
     paddingY + TRACK_WIDTH,
-    innerW,
-    innerH,
+    outerW - 2 * TRACK_WIDTH,
+    outerH - 2 * TRACK_WIDTH,
     CORNER_RADIUS
   );
-  const centerline = generateParametricOvalTrack(
-    paddingX + TRACK_WIDTH / 2,
-    paddingY + TRACK_WIDTH / 2,
-    outerW - TRACK_WIDTH,
-    outerH - TRACK_WIDTH,
-    CORNER_RADIUS
-  );
+
+  const centerline: Point[] = [];
+  for (let i = 0; i < Math.min(inner.length, outer.length); i++) {
+    centerline.push({
+      x: (inner[i].x + outer[i].x) / 2,
+      y: (inner[i].y + outer[i].y) / 2
+    });
+  }
 
   const startIndex = Math.floor(centerline.length * startAtPercent);
   const startAt = centerline[startIndex];
@@ -83,6 +81,7 @@ function generateParametricOvalTrack(
 ): Point[] {
   const points: Point[] = [];
 
+  // Top straight
   addStraight(points, x + r, y, x + w - r, y);
   addArc(points, x + w - r, y + r, r, 270, 360); // Top-right
   addStraight(points, x + w, y + r, x + w, y + h - r); // Right

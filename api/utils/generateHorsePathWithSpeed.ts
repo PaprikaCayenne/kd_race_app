@@ -1,5 +1,5 @@
 // File: api/utils/generateHorsePathWithSpeed.ts
-// Version: v0.7.14 — Adds per-horse curved path while keeping shared startPoint for stacking
+// Version: v0.7.16 — Expose rotatedCenterline for use in frontend debug overlay
 
 import { Point } from '@/types/geometry';
 import calculateLaneFraction from './calculateLaneFraction';
@@ -32,7 +32,7 @@ export function generateHorsePathWithSpeed({
   spacingPx = 6,
 }: HorsePathOptions) {
   const debug: Record<string, any> = {
-    version: 'v0.7.14',
+    version: 'v0.7.16',
     input: { id, placement, totalHorses, spriteRadius, spacingPx },
   };
 
@@ -42,7 +42,7 @@ export function generateHorsePathWithSpeed({
     !Array.isArray(centerline) ||
     innerBoundary.length !== outerBoundary.length
   ) {
-    throw new Error(`generateHorsePathWithSpeed: invalid input boundaries`);
+    throw new Error('generateHorsePathWithSpeed: invalid input boundaries');
   }
 
   const {
@@ -59,14 +59,14 @@ export function generateHorsePathWithSpeed({
     outerStart: rotatedOuter[0],
   };
 
-  // 1. Use shared center lane for starting alignment
+  // 1. Shared center lane for common tangent
   const centerLanePath: Point[] = rotatedInner.map((inner, i) =>
     interpolateLanePoint(inner, rotatedOuter[i], 0.5)
   );
   const dx = centerLanePath[1].x - centerLanePath[0].x;
   const dy = centerLanePath[1].y - centerLanePath[0].y;
   const len = Math.sqrt(dx * dx + dy * dy);
-  if (len === 0) throw new Error(`generateHorsePathWithSpeed: invalid tangent`);
+  if (len === 0) throw new Error('generateHorsePathWithSpeed: invalid tangent');
   const dirX = dx / len;
   const dirY = dy / len;
   const perpX = -dirY;
@@ -75,16 +75,16 @@ export function generateHorsePathWithSpeed({
   // 2. Shared base start point
   const baseStart = centerLanePath[0];
 
-  // 3. Staggered vertical start point from center
+  // 3. Offset vertically from center based on placement
   const offsetFromCenter = (placement - (totalHorses - 1) / 2) * (spriteRadius * 2 + spacingPx);
   const finalStartPoint = {
     x: baseStart.x + perpX * offsetFromCenter,
     y: baseStart.y + perpY * offsetFromCenter,
   };
 
-  // 4. Instead of offsetting from center lane, interpolate an actual lane path for each horse
+  // 4. Generate unique path per horse using interpolated lane
   let laneFrac = calculateLaneFraction(placement, totalHorses);
-  laneFrac = Math.max(0.05, Math.min(0.95, laneFrac));
+  laneFrac = Math.max(0.05, Math.min(0.95, laneFrac)); // Padding from edges
   const curvedLanePath: Point[] = rotatedInner.map((inner, i) =>
     interpolateLanePoint(inner, rotatedOuter[i], laneFrac)
   );
@@ -96,7 +96,7 @@ export function generateHorsePathWithSpeed({
     tangent: { dx, dy, len },
   };
 
-  console.log(`[KD] 🧪 generateHorsePathWithSpeed.ts version: v0.7.14 (id: ${id}, placement: ${placement})`);
+  console.log(`[KD] 🧪 generateHorsePathWithSpeed.ts version: v0.7.16 (id: ${id}, placement: ${placement})`);
   console.log(`[KD] 🐎 startPoint=(${finalStartPoint.x.toFixed(1)}, ${finalStartPoint.y.toFixed(1)})`);
   console.log(`[KD] ↕ laneFrac=${laneFrac.toFixed(3)} → direction=(${dirX.toFixed(3)}, ${dirY.toFixed(3)})`);
 
@@ -105,5 +105,6 @@ export function generateHorsePathWithSpeed({
     startPoint: finalStartPoint,
     direction: { x: dirX, y: dirY },
     debug,
+    rotatedCenterline, // Exposed for frontend visuals
   };
 }

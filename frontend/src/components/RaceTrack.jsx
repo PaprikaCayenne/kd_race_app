@@ -1,20 +1,17 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.9.74 — Start Race via socket + improved lane-following visuals
+// Version: v0.9.79 — Cleaned full file: correct debug visuals + race track rendering
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics } from 'pixi.js';
+import { io } from 'socket.io-client';
+import pako from 'pako';
 import { createHorseSprite } from '@/utils/createHorseSprite';
 import { renderPond } from '@/utils/renderPond';
 import { parseColorStringToHex } from '@/utils/parseColorStringToHex';
-import { io } from 'socket.io-client';
-import pako from 'pako';
 
 const socket = io('/race', { path: '/api/socket.io' });
-const startAtPercent = 0.67;
 const canvasHeight = 800;
-
-window.__KD_RACE_APP_VERSION__ = 'v0.9.74';
-console.log('[KD] 🔢 Frontend version:', window.__KD_RACE_APP_VERSION__);
+const startAtPercent = 0.67;
 
 const rotatePointBack = (pt, angle, origin) => {
   const cos = Math.cos(-angle);
@@ -23,7 +20,7 @@ const rotatePointBack = (pt, angle, origin) => {
   const dy = pt.y - origin.y;
   return {
     x: origin.x + dx * cos - dy * sin,
-    y: origin.y + dx * sin + dy * cos,
+    y: origin.y + dx * sin + dy * cos
   };
 };
 
@@ -32,13 +29,12 @@ const RaceTrack = () => {
   const canvasRef = useRef(null);
   const appRef = useRef(null);
   const horseSpritesRef = useRef(new Map());
-  const horsePathsRef = useRef({});
-  const horsesRef = useRef([]);
-
-  const startLineRef = useRef(null);
-  const trackDataRef = useRef(null);
   const debugDotsRef = useRef([]);
   const debugPathLinesRef = useRef([]);
+  const centerlineGraphicRef = useRef(null);
+  const trackDataRef = useRef(null);
+  const horsePathsRef = useRef({});
+  const horsesRef = useRef([]);
 
   const [debugVisible, setDebugVisible] = useState(false);
   const [raceReady, setRaceReady] = useState(false);
@@ -50,7 +46,7 @@ const RaceTrack = () => {
     return Math.atan2(dy, dx);
   };
 
-  const drawDerbyTrack = ({ innerBoundary, outerBoundary, centerline, startAt, startLineAt }) => {
+  const drawDerbyTrack = ({ innerBoundary, outerBoundary, rotatedCenterline, startLineAt }) => {
     if (!appRef.current) return;
     const app = appRef.current;
     app.stage.removeChildren();
@@ -69,25 +65,33 @@ const RaceTrack = () => {
     g.lineTo(innerBoundary[0].x, innerBoundary[0].y);
     app.stage.addChild(g);
 
-    if (startLineAt && centerline.length > 1) {
-      const idx = centerline.findIndex(p => p.x === startAt.x && p.y === startAt.y);
-      const next = centerline[(idx + 1) % centerline.length];
-      const dx = next.x - startAt.x;
-      const dy = next.y - startAt.y;
+    if (startLineAt && rotatedCenterline.length > 1) {
+      const start = rotatedCenterline[0];
+      const next = rotatedCenterline[1];
+      const dx = next.x - start.x;
+      const dy = next.y - start.y;
       const len = Math.sqrt(dx * dx + dy * dy);
       const normX = -dy / len;
       const normY = dx / len;
-      const halfLength = 60;
 
       const line = new Graphics();
       line.lineStyle(4, 0x00ff00);
-      line.moveTo(startLineAt.x + normX * halfLength, startLineAt.y + normY * halfLength);
-      line.lineTo(startLineAt.x - normX * halfLength, startLineAt.y - normY * halfLength);
+      line.moveTo(startLineAt.x + normX * 60, startLineAt.y + normY * 60);
+      line.lineTo(startLineAt.x - normX * 60, startLineAt.y - normY * 60);
       app.stage.addChild(line);
-      startLineRef.current = line;
     }
 
     renderPond(app, innerBoundary);
+
+    const centerlineG = new Graphics();
+    centerlineG.lineStyle(1, 0x00ff00);
+    centerlineG.moveTo(rotatedCenterline[0].x, rotatedCenterline[0].y);
+    for (let i = 1; i < rotatedCenterline.length; i++) {
+      centerlineG.lineTo(rotatedCenterline[i].x, rotatedCenterline[i].y);
+    }
+    centerlineG.zIndex = 0;
+    centerlineGraphicRef.current = centerlineG;
+    if (debugVisible) app.stage.addChild(centerlineG);
   };
 
   useEffect(() => {
@@ -121,41 +125,30 @@ const RaceTrack = () => {
     socket.on('race:init', (data) => {
       try {
         const inflated = pako.inflate(new Uint8Array(data), { to: 'string' });
-        const parsed = JSON.parse(inflated);
-        const { horses } = parsed;
-
+        const { horses } = JSON.parse(inflated);
         const track = trackDataRef.current;
-        const origin = track.centerline[0];
-        const trackAngle = computeTrackAngle(track.centerline);
-
-        horseSpritesRef.current.forEach(sprite => appRef.current.stage.removeChild(sprite));
-        horseSpritesRef.current.clear();
-        debugDotsRef.current.forEach(dot => appRef.current.stage.removeChild(dot));
-        debugDotsRef.current = [];
-        debugPathLinesRef.current.forEach(line => appRef.current.stage.removeChild(line));
-        debugPathLinesRef.current = [];
+        const origin = track.rotatedCenterline?.[0];
+        const angle = computeTrackAngle(track.rotatedCenterline);
 
         horsesRef.current = horses;
-        horsePathsRef.current = {};
+        horseSpritesRef.current.forEach(s => appRef.current.stage.removeChild(s));
+        horseSpritesRef.current.clear();
+        debugDotsRef.current.forEach(d => appRef.current.stage.removeChild(d));
+        debugPathLinesRef.current.forEach(l => appRef.current.stage.removeChild(l));
+        debugDotsRef.current = [];
+        debugPathLinesRef.current = [];
 
         horses.forEach(horse => {
-          const rotatedStart = rotatePointBack(horse.startPoint, trackAngle, origin);
-          const rotatedPath = horse.path.map(pt => rotatePointBack(pt, trackAngle, origin));
-
-          const pathStart = rotatedPath[0];
-          const pathNext = rotatedPath[1];
-          const dx = pathNext.x - pathStart.x;
-          const dy = pathNext.y - pathStart.y;
+          const rotatedStart = rotatePointBack(horse.startPoint, angle, origin);
+          const rotatedPath = horse.path.map(p => rotatePointBack(p, angle, origin));
 
           const sprite = createHorseSprite(horse.color, horse.id, appRef.current);
           sprite.anchor?.set?.(0.5);
           sprite.zIndex = 5;
           sprite.position.set(rotatedStart.x, rotatedStart.y);
-          sprite.rotation = Math.atan2(dy, dx);
-
+          sprite.rotation = Math.atan2(rotatedPath[1].y - rotatedPath[0].y, rotatedPath[1].x - rotatedPath[0].x);
           appRef.current.stage.addChild(sprite);
           horseSpritesRef.current.set(horse.id, sprite);
-          horsePathsRef.current[horse.id] = rotatedPath;
 
           const dot = new Graphics();
           dot.beginFill(0xffffff).drawCircle(0, 0, 4).endFill();
@@ -164,27 +157,25 @@ const RaceTrack = () => {
           debugDotsRef.current.push(dot);
           if (debugVisible) appRef.current.stage.addChild(dot);
 
-          const pathLine = new Graphics();
-          pathLine.lineStyle(1, parseColorStringToHex(horse.color, horse.id));
+          const line = new Graphics();
+          line.lineStyle(1, parseColorStringToHex(horse.color, horse.id));
           if (rotatedPath.length > 1) {
-            pathLine.moveTo(rotatedPath[0].x, rotatedPath[0].y);
+            line.moveTo(rotatedPath[0].x, rotatedPath[0].y);
             for (let i = 1; i < rotatedPath.length - 1; i++) {
               const p1 = rotatedPath[i];
               const p2 = rotatedPath[i + 1];
               const cx = (p1.x + p2.x) / 2;
               const cy = (p1.y + p2.y) / 2;
-              pathLine.quadraticCurveTo(p1.x, p1.y, cx, cy);
+              line.quadraticCurveTo(p1.x, p1.y, cx, cy);
             }
-            const last = rotatedPath[rotatedPath.length - 1];
-            pathLine.lineTo(last.x, last.y);
+            line.lineTo(rotatedPath.at(-1).x, rotatedPath.at(-1).y);
           }
-          pathLine.zIndex = 1;
-          debugPathLinesRef.current.push(pathLine);
-          if (debugVisible) appRef.current.stage.addChild(pathLine);
+          line.zIndex = 1;
+          debugPathLinesRef.current.push(line);
+          if (debugVisible) appRef.current.stage.addChild(line);
         });
 
         setRaceReady(true);
-        console.log('[KD] 🐎 Horses initialized');
       } catch (e) {
         console.error('[KD] ❌ Failed to decode race:init:', e);
       }
@@ -197,18 +188,26 @@ const RaceTrack = () => {
   }, []);
 
   useEffect(() => {
-    if (!appRef.current) return;
     const app = appRef.current;
+    if (!app) return;
 
-    debugDotsRef.current.forEach(dot => {
-      if (debugVisible && !app.stage.children.includes(dot)) app.stage.addChild(dot);
-      if (!debugVisible) app.stage.removeChild(dot);
-    });
+    const toggle = (items, visible) => {
+      items.forEach(item => {
+        if (visible && !app.stage.children.includes(item)) app.stage.addChild(item);
+        else if (!visible) app.stage.removeChild(item);
+      });
+    };
 
-    debugPathLinesRef.current.forEach(line => {
-      if (debugVisible && !app.stage.children.includes(line)) app.stage.addChild(line);
-      if (!debugVisible) app.stage.removeChild(line);
-    });
+    toggle(debugDotsRef.current, debugVisible);
+    toggle(debugPathLinesRef.current, debugVisible);
+
+    if (centerlineGraphicRef.current) {
+      if (debugVisible && !app.stage.children.includes(centerlineGraphicRef.current)) {
+        app.stage.addChild(centerlineGraphicRef.current);
+      } else if (!debugVisible) {
+        app.stage.removeChild(centerlineGraphicRef.current);
+      }
+    }
   }, [debugVisible]);
 
   const triggerGenerateHorses = async () => {

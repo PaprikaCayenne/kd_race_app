@@ -1,18 +1,12 @@
 // File: api/utils/computeTrackGeometry.ts
-// Version: v0.3.1 — Adds path closure after rotation to ensure continuity
+// Version: v0.3.2 — Adds debug log comparing startAt to rotated path start
 
 import { Point } from '../types';
 
-/**
- * Rotates a path to start from a given index.
- */
 function rotate<T>(arr: T[], startIdx: number): T[] {
   return [...arr.slice(startIdx), ...arr.slice(0, startIdx)];
 }
 
-/**
- * Ensures the path is closed (first and last points match).
- */
 function closePath(path: Point[]): Point[] {
   const first = path[0];
   const last = path[path.length - 1];
@@ -22,9 +16,6 @@ function closePath(path: Point[]): Point[] {
   return path;
 }
 
-/**
- * Finds the closest index in a path to a target point.
- */
 function findClosestIndex(path: Point[], target: Point): number {
   let closestIndex = 0;
   let minDist = Infinity;
@@ -40,9 +31,6 @@ function findClosestIndex(path: Point[], target: Point): number {
   return closestIndex;
 }
 
-/**
- * Aligns and rotates inner, outer, and centerline arrays to start from startAt.
- */
 export function computeTrackGeometry(
   inner: Point[],
   outer: Point[],
@@ -64,11 +52,19 @@ export function computeTrackGeometry(
   const slicedCenterline = centerline.slice(0, minLength);
 
   const startIndex = findClosestIndex(slicedCenterline, startAt);
+  const rotatedCenterline = closePath(rotate(slicedCenterline, startIndex));
+
+  const rotatedStart = rotatedCenterline[0];
+  const dx = rotatedStart.x - startAt.x;
+  const dy = rotatedStart.y - startAt.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  console.log(`[KD] 🧭 computeTrackGeometry.ts (v0.3.2): startAt=(${startAt.x.toFixed(1)}, ${startAt.y.toFixed(1)})`);
+  console.log(`[KD] 🔄 Closest centerline point = (${rotatedStart.x.toFixed(1)}, ${rotatedStart.y.toFixed(1)}), dist=${dist.toFixed(2)}`);
 
   return {
     rotatedInner: closePath(rotate(slicedInner, startIndex)),
     rotatedOuter: closePath(rotate(slicedOuter, startIndex)),
-    rotatedCenterline: closePath(rotate(slicedCenterline, startIndex)),
+    rotatedCenterline,
     startIndex,
   };
 }
