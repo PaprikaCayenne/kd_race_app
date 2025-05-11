@@ -1,8 +1,8 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.9.80 — Proper centerline toggle handling + rotated path alignment
+// Version: v0.9.82 — Horse labels centered in sprites, toggle visibility, version restored top-right
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Application, Graphics } from 'pixi.js';
+import { Application, Graphics, Text } from 'pixi.js';
 import { io } from 'socket.io-client';
 import pako from 'pako';
 import { createHorseSprite } from '@/utils/createHorseSprite';
@@ -29,6 +29,7 @@ const RaceTrack = () => {
   const canvasRef = useRef(null);
   const appRef = useRef(null);
   const horseSpritesRef = useRef(new Map());
+  const labelSpritesRef = useRef(new Map());
   const debugDotsRef = useRef([]);
   const debugPathLinesRef = useRef([]);
   const centerlineGraphicRef = useRef(null);
@@ -116,6 +117,15 @@ const RaceTrack = () => {
       .then(track => {
         trackDataRef.current = track;
         drawDerbyTrack(track);
+
+        const versionLabel = new Text('Loaded: Frontend v0.9.82', {
+          fontSize: 14,
+          fill: 0x000000,
+          fontWeight: 'bold'
+        });
+        versionLabel.position.set(app.screen.width - 220, 8);
+        versionLabel.zIndex = 999;
+        app.stage.addChild(versionLabel);
       })
       .catch(err => console.error('[KD] ❌ Track fetch failed:', err));
   }, []);
@@ -133,7 +143,9 @@ const RaceTrack = () => {
 
         horsesRef.current = horses;
         horseSpritesRef.current.forEach(s => appRef.current.stage.removeChild(s));
+        labelSpritesRef.current.forEach(t => appRef.current.stage.removeChild(t));
         horseSpritesRef.current.clear();
+        labelSpritesRef.current.clear();
         debugDotsRef.current.forEach(d => appRef.current.stage.removeChild(d));
         debugPathLinesRef.current.forEach(l => appRef.current.stage.removeChild(l));
         debugDotsRef.current = [];
@@ -150,6 +162,18 @@ const RaceTrack = () => {
           sprite.rotation = Math.atan2(rotatedPath[1].y - rotatedPath[0].y, rotatedPath[1].x - rotatedPath[0].x);
           appRef.current.stage.addChild(sprite);
           horseSpritesRef.current.set(horse.id, sprite);
+
+          const label = new Text(`${horse.placement}`, {
+            fontSize: 12,
+            fill: 0xffffff,
+            stroke: 0x000000,
+            strokeThickness: 2
+          });
+          label.anchor.set(0.5);
+          label.position.set(rotatedStart.x, rotatedStart.y);
+          label.zIndex = 6;
+          labelSpritesRef.current.set(horse.id, label);
+          if (debugVisible) appRef.current.stage.addChild(label);
 
           const dot = new Graphics();
           dot.beginFill(0xffffff).drawCircle(0, 0, 4).endFill();
@@ -174,6 +198,8 @@ const RaceTrack = () => {
           line.zIndex = 1;
           debugPathLinesRef.current.push(line);
           if (debugVisible) appRef.current.stage.addChild(line);
+
+          horsePathsRef.current[horse.id] = rotatedPath;
         });
 
         setRaceReady(true);
@@ -201,6 +227,11 @@ const RaceTrack = () => {
 
     toggle(debugDotsRef.current, debugVisible);
     toggle(debugPathLinesRef.current, debugVisible);
+
+    labelSpritesRef.current.forEach(label => {
+      if (debugVisible && !app.stage.children.includes(label)) app.stage.addChild(label);
+      else if (!debugVisible) app.stage.removeChild(label);
+    });
 
     if (centerlineGraphicRef.current) {
       if (debugVisible && !app.stage.children.includes(centerlineGraphicRef.current)) {

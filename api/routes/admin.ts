@@ -1,5 +1,5 @@
-// File: api/routes/admin.ts  
-// Version: v0.7.18 — Uses rotated geometry and centerline for accurate horse path generation  
+// File: api/routes/admin.ts
+// Version: v0.7.20 — Fixes key: uses horseId instead of id when generating horse paths
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
@@ -33,7 +33,7 @@ export function createAdminRoute(io: Server) {
 
   router.post("/start", express.json(), async (req: Request, res: Response) => {
     const timestamp = getTimestamp();
-    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.18`);
+    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.20`);
 
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {
@@ -93,8 +93,8 @@ export function createAdminRoute(io: Server) {
 
       const horsePathResults = selected.map((horse, i) =>
         generateHorsePathWithSpeed({
-          id: i,
-          placement: i,
+          horseId: horse.id,                         // ✅ FIXED: correct key
+          placement: i + 1,
           innerBoundary: rotatedInner,
           outerBoundary: rotatedOuter,
           rotatedCenterline,
@@ -111,9 +111,10 @@ export function createAdminRoute(io: Server) {
           id: h.id.toString(),
           name: h.name,
           color: h.color,
+          placement: i + 1,
           startPoint: horsePathResults[i].startPoint,
-          path: horsePathResults[i].path,
-          placement: i
+          direction: horsePathResults[i].direction,
+          path: horsePathResults[i].path
         }));
 
         const payload = {
