@@ -1,5 +1,5 @@
 // File: api/utils/generateHorsePathWithSpeed.ts
-// Version: v0.7.17 — Use rotatedCenterline directly from backend, no recomputation
+// Version: v0.7.18 — Adds pre-start padding to horse paths
 
 import { Point } from '@/types/geometry';
 import calculateLaneFraction from './calculateLaneFraction';
@@ -16,6 +16,7 @@ interface HorsePathOptions {
   placement: number;
   spriteRadius?: number;
   spacingPx?: number;
+  preStartPadding?: number; // NEW
 }
 
 export function generateHorsePathWithSpeed({
@@ -29,9 +30,10 @@ export function generateHorsePathWithSpeed({
   placement,
   spriteRadius = 12,
   spacingPx = 6,
+  preStartPadding = 8, // DEFAULT PADDING
 }: HorsePathOptions) {
   const debug: Record<string, any> = {
-    version: 'v0.7.17',
+    version: 'v0.7.18',
     input: { id, placement, totalHorses, spriteRadius, spacingPx },
   };
 
@@ -70,18 +72,27 @@ export function generateHorsePathWithSpeed({
   // 4. Generate unique path per horse using interpolated lane
   let laneFrac = calculateLaneFraction(placement, totalHorses);
   laneFrac = Math.max(0.05, Math.min(0.95, laneFrac));
-  const curvedLanePath: Point[] = innerBoundary.map((inner, i) =>
+  const fullLanePath: Point[] = innerBoundary.map((inner, i) =>
     interpolateLanePoint(inner, outerBoundary[i], laneFrac)
   );
+
+  // 5. Add pre-start padding so horse starts before the official start line
+  const pad = Math.min(preStartPadding, fullLanePath.length - 1);
+  const curvedLanePath: Point[] = [
+    ...fullLanePath.slice(-pad), // pre-start
+    ...fullLanePath,
+  ];
 
   debug.path = {
     laneFrac,
     offsetFromCenter,
     sharedStart: baseStart,
     tangent: { dx, dy, len },
+    pathPoints: curvedLanePath.length,
+    padded: pad,
   };
 
-  console.log(`[KD] 🧪 generateHorsePathWithSpeed.ts version: v0.7.17 (id: ${id}, placement: ${placement})`);
+  console.log(`[KD] 🧪 generateHorsePathWithSpeed.ts version: v0.7.18 (id: ${id}, placement: ${placement})`);
   console.log(`[KD] 🐎 startPoint=(${finalStartPoint.x.toFixed(1)}, ${finalStartPoint.y.toFixed(1)})`);
   console.log(`[KD] ↕ laneFrac=${laneFrac.toFixed(3)} → direction=(${dirX.toFixed(3)}, ${dirY.toFixed(3)})`);
 
@@ -90,6 +101,6 @@ export function generateHorsePathWithSpeed({
     startPoint: finalStartPoint,
     direction: { x: dirX, y: dirY },
     debug,
-    rotatedCenterline, // ✅ Passed-in version, no recompute
+    rotatedCenterline,
   };
 }
