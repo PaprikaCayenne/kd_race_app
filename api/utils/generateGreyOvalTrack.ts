@@ -1,12 +1,13 @@
 // File: api/utils/generateGreyOvalTrack.ts
-// Version: v0.6.1 — True parametric centerline with consistent inner/outer alignment
+// Version: v0.8.0 — Fixed alignment with uniform-length paths and reliable centerline
 
 import { Point } from '../types';
 
-const STRAIGHT_SEGMENT_STEP_PX = 10;
-const CORNER_SEGMENT_STEP_DEG = 2.5;
+const SEGMENTS_PER_SIDE = 20;
+const SEGMENTS_PER_CORNER = 10;
 const TRACK_WIDTH = 120;
-const CORNER_RADIUS = 100;
+const OUTER_RADIUS = 100;
+const INNER_RADIUS = 60;
 const START_LINE_OFFSET_PX = 30;
 
 export function generateGreyOvalTrack(
@@ -22,31 +23,44 @@ export function generateGreyOvalTrack(
   startOuterPoint: Point;
 } {
   const { width, height } = dimensions;
-
   const paddingX = width * 0.05;
   const paddingY = height * 0.05;
 
+  const outerX = paddingX;
+  const outerY = paddingY;
   const outerW = width - 2 * paddingX;
   const outerH = height - 2 * paddingY;
 
+  const innerX = outerX + TRACK_WIDTH;
+  const innerY = outerY + TRACK_WIDTH;
   const innerW = outerW - 2 * TRACK_WIDTH;
   const innerH = outerH - 2 * TRACK_WIDTH;
 
-  const outer = generateParametricOvalTrack(paddingX, paddingY, outerW, outerH, CORNER_RADIUS);
-  const inner = generateParametricOvalTrack(
-    paddingX + TRACK_WIDTH,
-    paddingY + TRACK_WIDTH,
-    innerW,
-    innerH,
-    CORNER_RADIUS
-  );
-  const centerline = generateParametricOvalTrack(
-    paddingX + TRACK_WIDTH / 2,
-    paddingY + TRACK_WIDTH / 2,
-    outerW - TRACK_WIDTH,
-    outerH - TRACK_WIDTH,
-    CORNER_RADIUS
-  );
+  const outer = generateRoundedRectFixed(outerX, outerY, outerW, outerH, OUTER_RADIUS);
+  const inner = generateRoundedRectFixed(innerX, innerY, innerW, innerH, INNER_RADIUS);
+
+  const pointCount = Math.min(inner.length, outer.length);
+  const innerAligned = inner.slice(0, pointCount);
+  const outerAligned = outer.slice(0, pointCount);
+
+  const centerline: Point[] = [];
+  for (let i = 0; i < pointCount; i++) {
+    centerline.push({
+      x: (innerAligned[i].x + outerAligned[i].x) / 2,
+      y: (innerAligned[i].y + outerAligned[i].y) / 2
+    });
+  }
+
+  // Ensure all paths are closed
+  if (centerline[0].x !== centerline.at(-1)?.x || centerline[0].y !== centerline.at(-1)?.y) {
+    centerline.push({ ...centerline[0] });
+  }
+  if (innerAligned[0].x !== innerAligned.at(-1)?.x || innerAligned[0].y !== innerAligned.at(-1)?.y) {
+    innerAligned.push({ ...innerAligned[0] });
+  }
+  if (outerAligned[0].x !== outerAligned.at(-1)?.x || outerAligned[0].y !== outerAligned.at(-1)?.y) {
+    outerAligned.push({ ...outerAligned[0] });
+  }
 
   const startIndex = Math.floor(centerline.length * startAtPercent);
   const startAt = centerline[startIndex];
@@ -58,23 +72,23 @@ export function generateGreyOvalTrack(
   const unitX = dx / len;
   const unitY = dy / len;
 
-  const startLineAt = {
+  const startLineAt: Point = {
     x: startAt.x + unitX * START_LINE_OFFSET_PX,
     y: startAt.y + unitY * START_LINE_OFFSET_PX
   };
 
   return {
-    innerBounds: { pointsArray: inner },
-    outerBounds: { pointsArray: outer },
+    innerBounds: { pointsArray: innerAligned },
+    outerBounds: { pointsArray: outerAligned },
     centerline,
     startAt,
     startLineAt,
-    startInnerPoint: inner[startIndex],
-    startOuterPoint: outer[startIndex]
+    startInnerPoint: innerAligned[startIndex],
+    startOuterPoint: outerAligned[startIndex]
   };
 }
 
-function generateParametricOvalTrack(
+function generateRoundedRectFixed(
   x: number,
   y: number,
   w: number,
@@ -83,31 +97,59 @@ function generateParametricOvalTrack(
 ): Point[] {
   const points: Point[] = [];
 
-  addStraight(points, x + r, y, x + w - r, y);
-  addArc(points, x + w - r, y + r, r, 270, 360); // Top-right
-  addStraight(points, x + w, y + r, x + w, y + h - r); // Right
-  addArc(points, x + w - r, y + h - r, r, 0, 90); // Bottom-right
-  addStraight(points, x + w - r, y + h, x + r, y + h); // Bottom
-  addArc(points, x + r, y + h - r, r, 90, 180); // Bottom-left
-  addStraight(points, x, y + h - r, x, y + r); // Left
-  addArc(points, x + r, y + r, r, 180, 270); // Top-left
+  // Top side
+  addStraightFixed(points, x + r, y, x + w - r, y, SEGMENTS_PER_SIDE);
+  addArcFixed(points, x + w - r, y + r, r, 270, 360, SEGMENTS_PER_CORNER);
+
+  // Right side
+  addStraightFixed(points, x + w, y + r, x + w, y + h - r, SEGMENTS_PER_SIDE);
+  addArcFixed(points, x + w - r, y + h - r, r, 0, 90, SEGMENTS_PER_CORNER);
+
+  // Bottom side
+  addStraightFixed(points, x + w - r, y + h, x + r, y + h, SEGMENTS_PER_SIDE);
+  addArcFixed(points, x + r, y + h - r, r, 90, 180, SEGMENTS_PER_CORNER);
+
+  // Left side
+  addStraightFixed(points, x, y + h - r, x, y + r, SEGMENTS_PER_SIDE);
+  addArcFixed(points, x + r, y + r, r, 180, 270, SEGMENTS_PER_CORNER);
 
   return points;
 }
 
-function addStraight(points: Point[], x1: number, y1: number, x2: number, y2: number) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const steps = Math.max(1, Math.ceil(dist / STRAIGHT_SEGMENT_STEP_PX));
-  for (let i = 0; i <= steps; i++) {
-    points.push({ x: x1 + (dx * i) / steps, y: y1 + (dy * i) / steps });
+function addStraightFixed(
+  points: Point[],
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  segments: number
+) {
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    points.push({
+      x: x1 + (x2 - x1) * t,
+      y: y1 + (y2 - y1) * t
+    });
   }
 }
 
-function addArc(points: Point[], cx: number, cy: number, r: number, startDeg: number, endDeg: number) {
-  for (let deg = startDeg; deg <= endDeg; deg += CORNER_SEGMENT_STEP_DEG) {
-    const rad = (deg * Math.PI) / 180;
-    points.push({ x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) });
+function addArcFixed(
+  points: Point[],
+  cx: number,
+  cy: number,
+  r: number,
+  startDeg: number,
+  endDeg: number,
+  segments: number
+) {
+  const startRad = (startDeg * Math.PI) / 180;
+  const endRad = (endDeg * Math.PI) / 180;
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const rad = startRad + (endRad - startRad) * t;
+    points.push({
+      x: cx + r * Math.cos(rad),
+      y: cy + r * Math.sin(rad)
+    });
   }
 }

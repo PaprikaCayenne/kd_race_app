@@ -1,5 +1,5 @@
 // File: api/routes/track.ts
-// Version: v0.1.6 — Adds rotatedCenterline to response to match frontend expectations
+// Version: v0.1.8 — Final aligned track route using stable centerline and geometry
 
 import express, { Request, Response } from 'express';
 import { generateGreyOvalTrack } from '../utils/generateGreyOvalTrack';
@@ -74,8 +74,8 @@ router.get('/', (req: Request, res: Response) => {
   res.json({
     innerBoundary: track.innerBounds.pointsArray,
     outerBoundary: track.outerBounds.pointsArray,
-    centerline: track.centerline,
-    rotatedCenterline, // ✅ this fixes the frontend crash
+    centerline: track.centerline,           // parametric unrotated centerline
+    rotatedCenterline,                      // used in frontend & race logic
     startAt: track.startAt,
     startLineAt: track.startLineAt,
     distance,

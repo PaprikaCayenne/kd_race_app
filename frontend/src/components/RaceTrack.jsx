@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.9.79 — Cleaned full file: correct debug visuals + race track rendering
+// Version: v0.9.80 — Proper centerline toggle handling + rotated path alignment
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics } from 'pixi.js';
@@ -11,7 +11,7 @@ import { parseColorStringToHex } from '@/utils/parseColorStringToHex';
 
 const socket = io('/race', { path: '/api/socket.io' });
 const canvasHeight = 800;
-const startAtPercent = 0.67;
+const startAtPercent = 0.58;
 
 const rotatePointBack = (pt, angle, origin) => {
   const cos = Math.cos(-angle);
@@ -91,6 +91,7 @@ const RaceTrack = () => {
     }
     centerlineG.zIndex = 0;
     centerlineGraphicRef.current = centerlineG;
+
     if (debugVisible) app.stage.addChild(centerlineG);
   };
 

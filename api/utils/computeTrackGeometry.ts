@@ -1,5 +1,5 @@
 // File: api/utils/computeTrackGeometry.ts
-// Version: v0.3.2 — Adds debug log comparing startAt to rotated path start
+// Version: v0.4.0 — Rotates precomputed centerline + aligns all boundaries
 
 import { Point } from '../types';
 
@@ -52,19 +52,22 @@ export function computeTrackGeometry(
   const slicedCenterline = centerline.slice(0, minLength);
 
   const startIndex = findClosestIndex(slicedCenterline, startAt);
+  const rotatedInner = closePath(rotate(slicedInner, startIndex));
+  const rotatedOuter = closePath(rotate(slicedOuter, startIndex));
   const rotatedCenterline = closePath(rotate(slicedCenterline, startIndex));
 
   const rotatedStart = rotatedCenterline[0];
   const dx = rotatedStart.x - startAt.x;
   const dy = rotatedStart.y - startAt.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
-  console.log(`[KD] 🧭 computeTrackGeometry.ts (v0.3.2): startAt=(${startAt.x.toFixed(1)}, ${startAt.y.toFixed(1)})`);
-  console.log(`[KD] 🔄 Closest centerline point = (${rotatedStart.x.toFixed(1)}, ${rotatedStart.y.toFixed(1)}), dist=${dist.toFixed(2)}`);
+
+  console.log(`[KD] 🧭 computeTrackGeometry.ts (v0.4.0): startAt=(${startAt.x.toFixed(1)}, ${startAt.y.toFixed(1)})`);
+  console.log(`[KD] 🔄 Rotated start = (${rotatedStart.x.toFixed(1)}, ${rotatedStart.y.toFixed(1)}), dist=${dist.toFixed(2)}`);
 
   return {
-    rotatedInner: closePath(rotate(slicedInner, startIndex)),
-    rotatedOuter: closePath(rotate(slicedOuter, startIndex)),
+    rotatedInner,
+    rotatedOuter,
     rotatedCenterline,
-    startIndex,
+    startIndex
   };
 }

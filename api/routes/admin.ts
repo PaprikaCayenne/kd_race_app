@@ -1,5 +1,5 @@
-// File: api/routes/admin.ts
-// Version: v0.7.13 — FIX: Passes placement into generateHorsePathWithSpeed to avoid NaN errors
+// File: api/routes/admin.ts  
+// Version: v0.7.18 — Uses rotated geometry and centerline for accurate horse path generation  
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
@@ -7,6 +7,7 @@ import prisma from "../lib/prisma.js";
 import pako from "pako";
 import { Point } from "../types";
 import { generateGreyOvalTrack } from "../utils/generateGreyOvalTrack";
+import { computeTrackGeometry } from "../utils/computeTrackGeometry";
 import { generateHorsePathWithSpeed } from "../utils/generateHorsePathWithSpeed";
 
 function getTimestamp() {
@@ -32,7 +33,7 @@ export function createAdminRoute(io: Server) {
 
   router.post("/start", express.json(), async (req: Request, res: Response) => {
     const timestamp = getTimestamp();
-    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.13`);
+    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.18`);
 
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {
@@ -77,33 +78,29 @@ export function createAdminRoute(io: Server) {
       const selected = unraced.sort(() => Math.random() - 0.5).slice(0, 4);
       const race = await prisma.race.create({ data: {} });
 
+      const track = generateGreyOvalTrack({ width: safeWidth, height: safeHeight }, clampedPercent);
+
       const {
-        innerBounds,
-        outerBounds,
-        centerline,
-        startAt,
-        startLineAt
-      } = generateGreyOvalTrack({ width: safeWidth, height: safeHeight }, clampedPercent);
-
-      const sharedLength = Math.min(
-        centerline.length,
-        innerBounds.pointsArray.length,
-        outerBounds.pointsArray.length
+        rotatedInner,
+        rotatedOuter,
+        rotatedCenterline
+      } = computeTrackGeometry(
+        track.innerBounds.pointsArray,
+        track.outerBounds.pointsArray,
+        track.centerline,
+        track.startAt
       );
-
-      const slicedCenterline = centerline.slice(0, sharedLength);
-      const slicedInner = innerBounds.pointsArray.slice(0, sharedLength);
-      const slicedOuter = outerBounds.pointsArray.slice(0, sharedLength);
 
       const horsePathResults = selected.map((horse, i) =>
         generateHorsePathWithSpeed({
-          id: i,                 // For debug and logging
-          placement: i,          // ✅ Now correctly passed in
-          innerBoundary: slicedInner,
-          outerBoundary: slicedOuter,
-          centerline: slicedCenterline,
-          startAt,
-          totalHorses: selected.length,
+          id: i,
+          placement: i,
+          innerBoundary: rotatedInner,
+          outerBoundary: rotatedOuter,
+          rotatedCenterline,
+          startAt: track.startAt,
+          startLineAt: track.startLineAt,
+          totalHorses: selected.length
         })
       );
 
@@ -121,12 +118,12 @@ export function createAdminRoute(io: Server) {
 
         const payload = {
           raceId: race.id.toString(),
-          centerline: slicedCenterline,
-          innerBoundary: slicedInner,
-          outerBoundary: slicedOuter,
-          startAt,
-          startLineAt,
-          horses,
+          centerline: rotatedCenterline,
+          innerBoundary: rotatedInner,
+          outerBoundary: rotatedOuter,
+          startAt: track.startAt,
+          startLineAt: track.startLineAt,
+          horses
         };
 
         const compressed = pako.deflate(JSON.stringify(payload));
