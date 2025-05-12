@@ -1,7 +1,8 @@
 // File: api/utils/generateGreyOvalTrack.ts
-// Version: v0.8.0 — Fixed alignment with uniform-length paths and reliable centerline
+// Version: v0.9.1 — Adds per-placement lane paths and start points
 
 import { Point } from '../types';
+import { generateOffsetLanes } from './generateOffsetLanes';
 
 const SEGMENTS_PER_SIDE = 20;
 const SEGMENTS_PER_CORNER = 10;
@@ -9,6 +10,12 @@ const TRACK_WIDTH = 120;
 const OUTER_RADIUS = 100;
 const INNER_RADIUS = 60;
 const START_LINE_OFFSET_PX = 30;
+const SPRITE_RADIUS = 12;
+const SPACING_PX = 6;
+const START_BEHIND_PX = 60;
+
+const LANE_COUNT = 4;
+const LANE_SPACING = 30;
 
 export function generateGreyOvalTrack(
   dimensions: { width: number; height: number },
@@ -17,6 +24,12 @@ export function generateGreyOvalTrack(
   innerBounds: { pointsArray: Point[] };
   outerBounds: { pointsArray: Point[] };
   centerline: Point[];
+  lanes: Point[][];
+  perPlacement: Record<number, {
+    startPoint: Point;
+    path: Point[];
+    direction: { x: number; y: number };
+  }>;
   startAt: Point;
   startLineAt: Point;
   startInnerPoint: Point;
@@ -51,7 +64,6 @@ export function generateGreyOvalTrack(
     });
   }
 
-  // Ensure all paths are closed
   if (centerline[0].x !== centerline.at(-1)?.x || centerline[0].y !== centerline.at(-1)?.y) {
     centerline.push({ ...centerline[0] });
   }
@@ -77,10 +89,34 @@ export function generateGreyOvalTrack(
     y: startAt.y + unitY * START_LINE_OFFSET_PX
   };
 
+  const laneOffsets = Array.from({ length: LANE_COUNT }, (_, i) => {
+    const centerIndex = (LANE_COUNT - 1) / 2;
+    return (i - centerIndex) * LANE_SPACING;
+  });
+
+  const lanes = generateOffsetLanes(centerline, laneOffsets);
+
+  const perPlacement: Record<number, any> = {};
+  for (let i = 0; i < lanes.length; i++) {
+    const lane = lanes[i];
+    const startPt = lane[startIndex];
+    const behindStart: Point = {
+      x: startPt.x - unitX * START_BEHIND_PX,
+      y: startPt.y - unitY * START_BEHIND_PX
+    };
+    perPlacement[i + 1] = {
+      startPoint: behindStart,
+      path: lane,
+      direction: { x: unitX, y: unitY }
+    };
+  }
+
   return {
     innerBounds: { pointsArray: innerAligned },
     outerBounds: { pointsArray: outerAligned },
     centerline,
+    lanes,
+    perPlacement,
     startAt,
     startLineAt,
     startInnerPoint: innerAligned[startIndex],
@@ -97,19 +133,12 @@ function generateRoundedRectFixed(
 ): Point[] {
   const points: Point[] = [];
 
-  // Top side
   addStraightFixed(points, x + r, y, x + w - r, y, SEGMENTS_PER_SIDE);
   addArcFixed(points, x + w - r, y + r, r, 270, 360, SEGMENTS_PER_CORNER);
-
-  // Right side
   addStraightFixed(points, x + w, y + r, x + w, y + h - r, SEGMENTS_PER_SIDE);
   addArcFixed(points, x + w - r, y + h - r, r, 0, 90, SEGMENTS_PER_CORNER);
-
-  // Bottom side
   addStraightFixed(points, x + w - r, y + h, x + r, y + h, SEGMENTS_PER_SIDE);
   addArcFixed(points, x + r, y + h - r, r, 90, 180, SEGMENTS_PER_CORNER);
-
-  // Left side
   addStraightFixed(points, x, y + h - r, x, y + r, SEGMENTS_PER_SIDE);
   addArcFixed(points, x + r, y + r, r, 180, 270, SEGMENTS_PER_CORNER);
 

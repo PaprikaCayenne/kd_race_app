@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.9.89 — Smooth pond, curved dynamic path lines, correct version logs, arrow debug retained
+// Version: v0.9.95 — Separates race:init and race:start; ensures correct starting positions and direction
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics, Text } from 'pixi.js';
@@ -9,21 +9,10 @@ import { createHorseSprite } from '@/utils/createHorseSprite';
 import { renderPond } from '@/utils/renderPond';
 import { parseColorStringToHex } from '@/utils/parseColorStringToHex';
 
-const VERSION = 'v0.9.89';
+const VERSION = 'v0.9.95';
 const socket = io('/race', { path: '/api/socket.io' });
 const canvasHeight = 800;
 const startAtPercent = 0.58;
-
-const rotatePointBack = (pt, angle, origin) => {
-  const cos = Math.cos(-angle);
-  const sin = Math.sin(-angle);
-  const dx = pt.x - origin.x;
-  const dy = pt.y - origin.y;
-  return {
-    x: origin.x + dx * cos - dy * sin,
-    y: origin.y + dx * sin + dy * cos
-  };
-};
 
 const RaceTrack = () => {
   const containerRef = useRef(null);
@@ -37,16 +26,9 @@ const RaceTrack = () => {
   const trackDataRef = useRef(null);
   const horsePathsRef = useRef({});
   const horsesRef = useRef([]);
-
+  const animationTickerRef = useRef(null);
   const [debugVisible, setDebugVisible] = useState(false);
   const [raceReady, setRaceReady] = useState(false);
-
-  const computeTrackAngle = (centerline) => {
-    if (!centerline || centerline.length < 2) return 0;
-    const dx = centerline[1].x - centerline[0].x;
-    const dy = centerline[1].y - centerline[0].y;
-    return Math.atan2(dy, dx);
-  };
 
   const drawDerbyTrack = ({ innerBoundary, outerBoundary, rotatedCenterline, startLineAt }) => {
     if (!appRef.current) return;
@@ -133,9 +115,6 @@ const RaceTrack = () => {
       try {
         const inflated = pako.inflate(new Uint8Array(data), { to: 'string' });
         const { horses } = JSON.parse(inflated);
-        const track = trackDataRef.current;
-        const origin = track.rotatedCenterline?.[0];
-        const angle = computeTrackAngle(track.rotatedCenterline);
 
         horsesRef.current = horses;
         horseSpritesRef.current.forEach(s => appRef.current.stage.removeChild(s));
@@ -148,52 +127,51 @@ const RaceTrack = () => {
         debugPathLinesRef.current = [];
 
         horses.forEach(horse => {
-          const rotatedStart = rotatePointBack(horse.startPoint, angle, origin);
-          const rotatedPath = horse.path.map(p => rotatePointBack(p, angle, origin));
-
-          const sprite = createHorseSprite(horse.color, horse.id, appRef.current);
+          const { id, path, startPoint, placement, color } = horse;
+          const sprite = createHorseSprite(color, id, appRef.current);
           sprite.anchor?.set?.(0.5);
           sprite.zIndex = 5;
-          sprite.position.set(rotatedStart.x, rotatedStart.y);
-          sprite.rotation = Math.atan2(rotatedPath[1].y - rotatedPath[0].y, rotatedPath[1].x - rotatedPath[0].x);
+          sprite.position.set(startPoint.x, startPoint.y);
+          sprite.rotation = Math.atan2(path[1].y - path[0].y, path[1].x - path[0].x);
+          sprite.__progress = 0;
           appRef.current.stage.addChild(sprite);
-          horseSpritesRef.current.set(horse.id, sprite);
+          horseSpritesRef.current.set(id, sprite);
 
-          const label = new Text(`${horse.placement}`, {
+          const label = new Text(`${placement}`, {
             fontSize: 12,
             fill: 0xffffff,
             stroke: 0x000000,
             strokeThickness: 2
           });
           label.anchor.set(0.5);
-          label.position.set(rotatedStart.x, rotatedStart.y);
+          label.position.set(startPoint.x, startPoint.y);
           label.zIndex = 6;
-          labelSpritesRef.current.set(horse.id, label);
+          labelSpritesRef.current.set(id, label);
           if (debugVisible) appRef.current.stage.addChild(label);
 
           const dot = new Graphics();
           dot.beginFill(0x00ff00).drawCircle(0, 0, 4).endFill();
           dot.zIndex = 99;
-          dot.position.set(rotatedStart.x, rotatedStart.y);
+          dot.position.set(startPoint.x, startPoint.y);
           debugDotsRef.current.push(dot);
           if (debugVisible) appRef.current.stage.addChild(dot);
 
           const pathLine = new Graphics();
-          pathLine.lineStyle(1, parseColorStringToHex(horse.color, horse.id));
-          pathLine.moveTo(rotatedPath[0].x, rotatedPath[0].y);
-          for (let i = 1; i < rotatedPath.length - 1; i++) {
-            const p1 = rotatedPath[i];
-            const p2 = rotatedPath[i + 1];
+          pathLine.lineStyle(1, parseColorStringToHex(color, id));
+          pathLine.moveTo(path[0].x, path[0].y);
+          for (let i = 1; i < path.length - 1; i++) {
+            const p1 = path[i];
+            const p2 = path[i + 1];
             const cx = (p1.x + p2.x) / 2;
             const cy = (p1.y + p2.y) / 2;
             pathLine.quadraticCurveTo(p1.x, p1.y, cx, cy);
           }
-          pathLine.lineTo(rotatedPath.at(-1).x, rotatedPath.at(-1).y);
+          pathLine.lineTo(path.at(-1).x, path.at(-1).y);
           pathLine.zIndex = 1;
           debugPathLinesRef.current.push(pathLine);
           if (debugVisible) appRef.current.stage.addChild(pathLine);
 
-          horsePathsRef.current[horse.id] = rotatedPath;
+          horsePathsRef.current[id] = path;
         });
 
         setRaceReady(true);
@@ -202,9 +180,38 @@ const RaceTrack = () => {
       }
     });
 
+    socket.on('race:start', () => {
+      if (animationTickerRef.current) return;
+
+      const ticker = (delta) => {
+        horseSpritesRef.current.forEach((sprite, id) => {
+          const path = horsePathsRef.current[id];
+          if (!path || path.length < 2) return;
+
+          sprite.__progress = (sprite.__progress ?? 0) + 0.002 * delta;
+          const idx = Math.floor(sprite.__progress * path.length);
+          const cappedIdx = Math.min(idx, path.length - 2);
+          const next = path[cappedIdx + 1];
+          const curr = path[cappedIdx];
+          const lerpT = (sprite.__progress * path.length) - cappedIdx;
+          const x = curr.x + (next.x - curr.x) * lerpT;
+          const y = curr.y + (next.y - curr.y) * lerpT;
+          sprite.position.set(x, y);
+          sprite.rotation = Math.atan2(next.y - curr.y, next.x - curr.x);
+
+          const label = labelSpritesRef.current.get(id);
+          if (label) label.position.set(x, y);
+        });
+      };
+
+      appRef.current.ticker.add(ticker);
+      animationTickerRef.current = ticker;
+    });
+
     return () => {
       socket.off('connect');
       socket.off('race:init');
+      socket.off('race:start');
     };
   }, []);
 

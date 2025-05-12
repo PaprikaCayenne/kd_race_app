@@ -1,14 +1,14 @@
 // File: api/routes/admin.ts
-// Version: v0.7.20 — Fixes key: uses horseId instead of id when generating horse paths
+// Version: v0.7.25 — Emits race:start after race:init to trigger frontend animation
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
 import prisma from "../lib/prisma.js";
 import pako from "pako";
-import { Point } from "../types";
 import { generateGreyOvalTrack } from "../utils/generateGreyOvalTrack";
 import { computeTrackGeometry } from "../utils/computeTrackGeometry";
-import { generateHorsePathWithSpeed } from "../utils/generateHorsePathWithSpeed";
+
+const START_LINE_OFFSET_PX = 30;
 
 function getTimestamp() {
   const now = new Date();
@@ -25,7 +25,7 @@ function getTimestamp() {
     acc[part.type] = part.value;
     return acc;
   }, {} as Record<string, string>);
-  return `${parts.month}-${parts.day}-${parts.year}_${parts.hour.padStart(2, "0")}-${parts.minute}${parts.dayPeriod}`;
+  return `${parts.month}-${parts.day}_${parts.year}_${parts.hour.padStart(2, "0")}-${parts.minute}${parts.dayPeriod}`;
 }
 
 export function createAdminRoute(io: Server) {
@@ -33,7 +33,7 @@ export function createAdminRoute(io: Server) {
 
   router.post("/start", express.json(), async (req: Request, res: Response) => {
     const timestamp = getTimestamp();
-    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.20`);
+    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.25`);
 
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {
@@ -91,31 +91,26 @@ export function createAdminRoute(io: Server) {
         track.startAt
       );
 
-      const horsePathResults = selected.map((horse, i) =>
-        generateHorsePathWithSpeed({
-          horseId: horse.id,                         // ✅ FIXED: correct key
-          placement: i + 1,
-          innerBoundary: rotatedInner,
-          outerBoundary: rotatedOuter,
-          rotatedCenterline,
-          startAt: track.startAt,
-          startLineAt: track.startLineAt,
-          totalHorses: selected.length
-        })
-      );
+      const dx = rotatedCenterline[1].x - rotatedCenterline[0].x;
+      const dy = rotatedCenterline[1].y - rotatedCenterline[0].y;
+      const startAngle = Math.atan2(dy, dx);
 
       const raceNamespace = io.of("/race");
 
       if (raceNamespace.sockets.size > 0) {
-        const horses = selected.map((h, i) => ({
-          id: h.id.toString(),
-          name: h.name,
-          color: h.color,
-          placement: i + 1,
-          startPoint: horsePathResults[i].startPoint,
-          direction: horsePathResults[i].direction,
-          path: horsePathResults[i].path
-        }));
+        const horses = selected.map((h, i) => {
+          const p = i + 1;
+          const pathData = track.perPlacement[p];
+          return {
+            id: h.id.toString(),
+            name: h.name,
+            color: h.color,
+            placement: p,
+            startPoint: pathData.startPoint,
+            direction: pathData.direction,
+            path: pathData.path
+          };
+        });
 
         const payload = {
           raceId: race.id.toString(),
@@ -124,6 +119,8 @@ export function createAdminRoute(io: Server) {
           outerBoundary: rotatedOuter,
           startAt: track.startAt,
           startLineAt: track.startLineAt,
+          startAngle,
+          startLineOffsetPx: START_LINE_OFFSET_PX,
           horses
         };
 
@@ -133,6 +130,12 @@ export function createAdminRoute(io: Server) {
         console.log(`[${timestamp}] 📦 Emitting race:init (before: ${sizeBefore.toFixed(2)} KB, after: ${sizeAfter.toFixed(2)} KB)`);
 
         raceNamespace.emit("race:init", compressed);
+
+        // Trigger race:start after brief delay
+        setTimeout(() => {
+          raceNamespace.emit("race:start");
+          console.log(`[${timestamp}] 🏇 race:start event emitted to /race clients`);
+        }, 500);
       } else {
         console.warn(`[${timestamp}] ⚠️ No clients connected to /race`);
       }
