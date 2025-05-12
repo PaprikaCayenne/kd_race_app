@@ -1,39 +1,29 @@
 // File: frontend/src/utils/renderPond.js
-// Version: v0.2.0 — Position pond left-inside inner boundary using layout-aware anchor
+// Version: v0.4.1 — Uses smooth ellipse with dynamic size and smart boundary padding
 
 import { Graphics } from 'pixi.js';
-import { generatePondShape } from './generatePondShape';
 
 /**
- * Renders the pond inside the inner boundary near top-left with padding.
- * @param {PIXI.Application} app
- * @param {Point[]} innerBoundary
+ * Renders a rounded, padded pond inside the inner boundary area.
+ * Calculates shape based on base size, but adapts with internal padding
+ * so the pond stays well within the inner boundary visually.
+ *
+ * @param {PIXI.Application} app - The PIXI app
+ * @param {{x: number, y: number}} center - Center point for the pond
+ * @param {number} baseSize - Approximate base width of the pond
  */
-export function renderPond(app, innerBoundary) {
-  if (!innerBoundary || innerBoundary.length < 1) return;
+export function renderPond(app, center, baseSize = 60) {
+  if (!center || typeof center.x !== 'number' || typeof center.y !== 'number') return;
 
-  // Compute bounding box of innerBoundary
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  innerBoundary.forEach(p => {
-    if (p.x < minX) minX = p.x;
-    if (p.x > maxX) maxX = p.x;
-    if (p.y < minY) minY = p.y;
-    if (p.y > maxY) maxY = p.y;
-  });
-
-  // Position pond offset slightly inside left and upward from center
-  const pondOffsetX = 40;
-  const pondOffsetY = 60;
-
-  const anchorX = minX + pondOffsetX;
-  const anchorY = minY + (maxY - minY) / 2 - pondOffsetY;
+  const padding = baseSize * 0.2; // 20% internal padding
+  const pondWidth = baseSize * 2 - padding;
+  const pondHeight = baseSize * 1.3 - padding;
 
   const pond = new Graphics();
-  const pondPoints = generatePondShape(anchorX, anchorY, 120, 80);
-
-  pond.beginFill(0x66ccff).moveTo(pondPoints[0].x, pondPoints[0].y);
-  pondPoints.forEach(p => pond.lineTo(p.x, p.y));
+  pond.beginFill(0x66ccff);
+  pond.drawEllipse(center.x, center.y, pondWidth / 2, pondHeight / 2);
   pond.endFill();
 
+  pond.zIndex = 0.5;
   app.stage.addChild(pond);
 }

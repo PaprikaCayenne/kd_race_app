@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v0.9.82 — Horse labels centered in sprites, toggle visibility, version restored top-right
+// Version: v0.9.89 — Smooth pond, curved dynamic path lines, correct version logs, arrow debug retained
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics, Text } from 'pixi.js';
@@ -9,6 +9,7 @@ import { createHorseSprite } from '@/utils/createHorseSprite';
 import { renderPond } from '@/utils/renderPond';
 import { parseColorStringToHex } from '@/utils/parseColorStringToHex';
 
+const VERSION = 'v0.9.89';
 const socket = io('/race', { path: '/api/socket.io' });
 const canvasHeight = 800;
 const startAtPercent = 0.58;
@@ -82,7 +83,10 @@ const RaceTrack = () => {
       app.stage.addChild(line);
     }
 
-    renderPond(app, innerBoundary);
+    const center = innerBoundary.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+    center.x /= innerBoundary.length;
+    center.y /= innerBoundary.length;
+    renderPond(app, center, 60);
 
     const centerlineG = new Graphics();
     centerlineG.lineStyle(1, 0x00ff00);
@@ -92,11 +96,12 @@ const RaceTrack = () => {
     }
     centerlineG.zIndex = 0;
     centerlineGraphicRef.current = centerlineG;
-
     if (debugVisible) app.stage.addChild(centerlineG);
   };
 
   useEffect(() => {
+    console.log(`[KD] ✅ Loaded: RaceTrack version ${VERSION}`);
+    console.log(`[KD] ✅ Loaded: Frontend version ${window.__KD_RACE_APP_VERSION__}`);
     if (!containerRef.current || appRef.current) return;
 
     const width = containerRef.current.offsetWidth;
@@ -117,15 +122,6 @@ const RaceTrack = () => {
       .then(track => {
         trackDataRef.current = track;
         drawDerbyTrack(track);
-
-        const versionLabel = new Text('Loaded: Frontend v0.9.82', {
-          fontSize: 14,
-          fill: 0x000000,
-          fontWeight: 'bold'
-        });
-        versionLabel.position.set(app.screen.width - 220, 8);
-        versionLabel.zIndex = 999;
-        app.stage.addChild(versionLabel);
       })
       .catch(err => console.error('[KD] ❌ Track fetch failed:', err));
   }, []);
@@ -176,28 +172,26 @@ const RaceTrack = () => {
           if (debugVisible) appRef.current.stage.addChild(label);
 
           const dot = new Graphics();
-          dot.beginFill(0xffffff).drawCircle(0, 0, 4).endFill();
+          dot.beginFill(0x00ff00).drawCircle(0, 0, 4).endFill();
           dot.zIndex = 99;
           dot.position.set(rotatedStart.x, rotatedStart.y);
           debugDotsRef.current.push(dot);
           if (debugVisible) appRef.current.stage.addChild(dot);
 
-          const line = new Graphics();
-          line.lineStyle(1, parseColorStringToHex(horse.color, horse.id));
-          if (rotatedPath.length > 1) {
-            line.moveTo(rotatedPath[0].x, rotatedPath[0].y);
-            for (let i = 1; i < rotatedPath.length - 1; i++) {
-              const p1 = rotatedPath[i];
-              const p2 = rotatedPath[i + 1];
-              const cx = (p1.x + p2.x) / 2;
-              const cy = (p1.y + p2.y) / 2;
-              line.quadraticCurveTo(p1.x, p1.y, cx, cy);
-            }
-            line.lineTo(rotatedPath.at(-1).x, rotatedPath.at(-1).y);
+          const pathLine = new Graphics();
+          pathLine.lineStyle(1, parseColorStringToHex(horse.color, horse.id));
+          pathLine.moveTo(rotatedPath[0].x, rotatedPath[0].y);
+          for (let i = 1; i < rotatedPath.length - 1; i++) {
+            const p1 = rotatedPath[i];
+            const p2 = rotatedPath[i + 1];
+            const cx = (p1.x + p2.x) / 2;
+            const cy = (p1.y + p2.y) / 2;
+            pathLine.quadraticCurveTo(p1.x, p1.y, cx, cy);
           }
-          line.zIndex = 1;
-          debugPathLinesRef.current.push(line);
-          if (debugVisible) appRef.current.stage.addChild(line);
+          pathLine.lineTo(rotatedPath.at(-1).x, rotatedPath.at(-1).y);
+          pathLine.zIndex = 1;
+          debugPathLinesRef.current.push(pathLine);
+          if (debugVisible) appRef.current.stage.addChild(pathLine);
 
           horsePathsRef.current[horse.id] = rotatedPath;
         });

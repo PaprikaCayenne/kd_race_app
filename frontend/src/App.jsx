@@ -1,4 +1,6 @@
 // File: frontend/src/App.jsx
+// Version: v0.3.0 — Uses global version constants from Vite define
+
 import React from 'react';
 import RaceTrack from './components/RaceTrack';
 
@@ -8,8 +10,8 @@ function App() {
       <div className="relative">
         {/* Top-right version info */}
         <div className="absolute top-2 right-4 text-right text-xs">
-          <div className="text-green-600">✅ Loaded: {window.__KD_RACE_APP_VERSION__}</div>
-          <div className="text-gray-400">Frontend {window.__KD_RACE_APP_VERSION__}</div>
+          <div className="text-green-600">✅ Loaded: {__KD_RACE_APP_VERSION__}</div>
+          <div className="text-gray-400">Frontend {__KD_RACE_APP_VERSION__}</div>
         </div>
 
         {/* App Title */}
