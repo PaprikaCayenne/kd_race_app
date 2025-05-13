@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v1.0.0 — Aligns horse nose to start line using dynamic sprite width
+// Version: v1.1.1 — Adds debug logging to track button execution and app state transitions
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Graphics, Text } from 'pixi.js';
@@ -10,7 +10,7 @@ import { renderPond } from '@/utils/renderPond';
 import { parseColorStringToHex } from '@/utils/parseColorStringToHex';
 import { playRace } from '@/utils/playRace';
 
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.1.1';
 const socket = io('/race', { path: '/api/socket.io' });
 const canvasHeight = 800;
 const startAtPercent = 0.55;
@@ -114,9 +114,13 @@ const RaceTrack = () => {
     socket.on('connect', () => console.log('[KD] ✅ Connected to race socket'));
 
     socket.on('race:init', (data) => {
+      console.log('[KD] 🧩 Received race:init payload');
       try {
+        setRaceReady(false);
+
         const inflated = pako.inflate(new Uint8Array(data), { to: 'string' });
         const { horses } = JSON.parse(inflated);
+        console.log('[KD] 🧩 Decoded horses:', horses.map(h => h.id));
 
         horsesRef.current = horses;
         finishedHorsesRef.current.clear();
@@ -184,10 +188,11 @@ const RaceTrack = () => {
           debugPathLinesRef.current.push(pathLine);
           if (debugVisible) appRef.current.stage.addChild(pathLine);
 
-          horsePathsRef.current[id] = path;
+          horsePathsRef.current[id] = horse;
         });
 
         setRaceReady(true);
+        console.log('[KD] ✅ Race is ready. You can now press Start Race.');
       } catch (e) {
         console.error('[KD] ❌ Failed to decode race:init:', e);
       }
@@ -228,6 +233,8 @@ const RaceTrack = () => {
   }, [debugVisible]);
 
   const triggerGenerateHorses = async () => {
+    console.log('[KD] 🛠 Triggering generate horses');
+    setRaceReady(false);
     const width = containerRef.current.offsetWidth;
     try {
       await fetch('/api/admin/start', {
@@ -244,6 +251,8 @@ const RaceTrack = () => {
   };
 
   const triggerStartRace = () => {
+    console.log('[KD] 🟢 Start Race button clicked — raceReady:', raceReady);
+    if (!raceReady) return;
     playRace({
       app: appRef.current,
       horseSprites: horseSpritesRef.current,

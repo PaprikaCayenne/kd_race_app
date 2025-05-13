@@ -1,13 +1,37 @@
-// Version: v0.4.0 — Adds MAX_ROTATION_DELTA to smooth sharp turns
+// File: frontend/src/utils/playRace.js
+// Version: v0.6.0 — Uses speedMap for per-horse realism
 
-const SPEED_MULTIPLIER = 0.0008;
-const MAX_ROTATION_DELTA = 0.05; // radians/frame
+const SPEED_MULTIPLIER = 0.001;
+const MAX_ROTATION_DELTA = 0.05;
 
 export function playRace({ app, horseSprites, horsePaths, labelSprites, finishedHorses, horses }) {
+  const lapFinished = new Set();
+  let winnerDeclared = false;
+
+  console.log('[KD] 🎬 Starting race via playRace');
+  console.log('[KD] 🚩 Horses in race:', [...horseSprites.keys()]);
+
+  if (app.__raceTicker) {
+    console.log('[KD] 🔄 Removing previous ticker');
+    app.ticker.remove(app.__raceTicker);
+    app.__raceTicker = null;
+  }
+
   const ticker = (delta) => {
     horseSprites.forEach((sprite, id) => {
-      const path = horsePaths[id];
-      if (!path || path.length < 2 || finishedHorses.has(id)) return;
+      const pathData = horsePaths[id];
+      if (!pathData?.path || pathData.path.length < 2 || finishedHorses.has(id)) {
+        if (!pathData) console.warn(`[KD] ⚠️ Missing pathData for horse ${id}`);
+        return;
+      }
+
+      const path = pathData.path;
+      const speedMap = pathData.speedMap || [];
+      const finishIndex = pathData.debug?.finishIndex;
+      if (finishIndex == null) {
+        console.warn(`[KD] ⚠️ No finishIndex for horse ${id}`);
+        return;
+      }
 
       if (!sprite.__started) {
         sprite.__started = true;
@@ -22,23 +46,27 @@ export function playRace({ app, horseSprites, horsePaths, labelSprites, finished
         const label = labelSprites.get(id);
         if (label) label.position.set(curr.x, curr.y);
 
-        const expected = horses.find(h => h.id === id)?.startPoint;
-        console.log(`[KD] 🐴 Start Verification — Horse ${id} expected: (${expected?.x?.toFixed(1)}, ${expected?.y?.toFixed(1)}), actual: (${curr.x.toFixed(1)}, ${curr.y.toFixed(1)})`);
-        console.log(`[KD] 🧪 Horse ${id} path[0]: (${path[0].x.toFixed(1)}, ${path[0].y.toFixed(1)}), path[1]: (${path[1].x.toFixed(1)}, ${path[1].y.toFixed(1)})`);
+        console.log(`[KD] 🐎 Initialized sprite ${id} at (${curr.x.toFixed(1)}, ${curr.y.toFixed(1)})`);
         return;
       }
 
-      sprite.__progress = (sprite.__progress ?? 0) + SPEED_MULTIPLIER * delta;
+      const currentIdx = Math.floor(sprite.__progress * path.length);
+      const speedFactor = speedMap[currentIdx] ?? 1;
+      sprite.__progress = (sprite.__progress ?? 0) + SPEED_MULTIPLIER * speedFactor * delta;
 
-      if (sprite.__progress >= 1) {
-        sprite.__progress = 1;
+      if (!lapFinished.has(id) && currentIdx >= finishIndex) {
+        lapFinished.add(id);
         finishedHorses.add(id);
-        if (finishedHorses.size === horses.length) {
-          console.log('[KD] 🏁 All horses finished!');
-          const winner = horses.find(h => h.placement === 1);
+
+        if (!winnerDeclared) {
+          const winner = horses.find(h => h.id === id);
           console.log(`[KD] 🏆 Winner: Horse ${winner.name} (ID: ${winner.id})`);
+          winnerDeclared = true;
         }
-        return;
+
+        if (lapFinished.size === horses.length) {
+          console.log('[KD] 🏁 All horses finished!');
+        }
       }
 
       const idx = Math.floor(sprite.__progress * path.length);
@@ -50,7 +78,6 @@ export function playRace({ app, horseSprites, horsePaths, labelSprites, finished
       const x = curr.x + (next.x - curr.x) * lerpT;
       const y = curr.y + (next.y - curr.y) * lerpT;
 
-      // Prevent movement if path segment is too small
       const dx = next.x - curr.x;
       const dy = next.y - curr.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
@@ -58,7 +85,6 @@ export function playRace({ app, horseSprites, horsePaths, labelSprites, finished
 
       sprite.position.set(x, y);
 
-      // Rotation easing
       const desired = Math.atan2(dy, dx);
       let current = sprite.__rotation ?? 0;
       let deltaRot = desired - current;
@@ -66,13 +92,9 @@ export function playRace({ app, horseSprites, horsePaths, labelSprites, finished
       while (deltaRot > Math.PI) deltaRot -= 2 * Math.PI;
       while (deltaRot < -Math.PI) deltaRot += 2 * Math.PI;
 
-      // Clamp delta to prevent sharp flipping
-      if (deltaRot > MAX_ROTATION_DELTA) deltaRot = MAX_ROTATION_DELTA;
-      if (deltaRot < -MAX_ROTATION_DELTA) deltaRot = -MAX_ROTATION_DELTA;
-
-      current += deltaRot;
-      sprite.__rotation = current;
-      sprite.rotation = current;
+      deltaRot = Math.max(-MAX_ROTATION_DELTA, Math.min(MAX_ROTATION_DELTA, deltaRot));
+      sprite.__rotation = current + deltaRot;
+      sprite.rotation = sprite.__rotation;
 
       const label = labelSprites.get(id);
       if (label) label.position.set(x, y);
@@ -80,4 +102,5 @@ export function playRace({ app, horseSprites, horsePaths, labelSprites, finished
   };
 
   app.ticker.add(ticker);
+  app.__raceTicker = ticker;
 }

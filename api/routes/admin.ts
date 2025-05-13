@@ -1,5 +1,5 @@
 // File: api/routes/admin.ts
-// Version: v0.7.26 — Calls generateHorsePathWithSpeed to rotate path from proper start point
+// Version: v0.7.30 — Updates finishIndex logic to ensure 1-lap races
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
@@ -9,7 +9,7 @@ import { generateGreyOvalTrack } from "../utils/generateGreyOvalTrack";
 import { computeTrackGeometry } from "../utils/computeTrackGeometry";
 import { generateHorsePathWithSpeed } from "../utils/generateHorsePathWithSpeed";
 
-const START_LINE_OFFSET_PX = 30;
+const START_LINE_OFFSET_PX = 10;
 
 function getTimestamp() {
   const now = new Date();
@@ -34,7 +34,7 @@ export function createAdminRoute(io: Server) {
 
   router.post("/start", express.json(), async (req: Request, res: Response) => {
     const timestamp = getTimestamp();
-    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.26`);
+    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.30`);
 
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {
@@ -115,9 +115,7 @@ export function createAdminRoute(io: Server) {
             name: h.name,
             color: h.color,
             placement,
-            startPoint: result.startPoint,
-            direction: result.direction,
-            path: result.path
+            ...result
           };
         });
 
