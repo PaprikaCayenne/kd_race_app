@@ -14,7 +14,7 @@ export function createHorseSprite(colorInput, horseId = null, appInstance = null
   if (!isValid) {
     console.warn(`[KD] ⚠️ Invalid color value for horse ${horseId ?? 'unknown'}:`, colorInput);
   } else {
-    console.log(`[KD] 🧪 Sprite color for horse ${horseId}: #${paddedHex}`);
+    //console.log(`[KD] 🧪 Sprite color for horse ${horseId}: #${paddedHex}`);
   }
 
   const size = 20;

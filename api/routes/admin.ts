@@ -1,5 +1,5 @@
 // File: api/routes/admin.ts
-// Version: v0.7.30 — Updates finishIndex logic to ensure 1-lap races
+// Version: v0.7.31 — Always selects 4 random horses and generates proper paths
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
@@ -34,7 +34,7 @@ export function createAdminRoute(io: Server) {
 
   router.post("/start", express.json(), async (req: Request, res: Response) => {
     const timestamp = getTimestamp();
-    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.30`);
+    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.31`);
 
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {
@@ -60,32 +60,13 @@ export function createAdminRoute(io: Server) {
     const safeHeight = Math.max(height, 400);
 
     try {
-      const racedIds = (
-        await prisma.result.findMany({
-          distinct: ["horseId"],
-          select: { horseId: true }
-        })
-      ).map(r => r.horseId);
-
-      const unraced = await prisma.horse.findMany({
-        where: { id: { notIn: racedIds } }
-      });
-
-      if (unraced.length < 4) {
-        console.warn(`[${timestamp}] 🚫 Not enough unraced horses`);
-        return res.status(400).json({ error: "Not enough unraced horses" });
-      }
-
-      const selected = unraced.sort(() => Math.random() - 0.5).slice(0, 4);
+      const allHorses = await prisma.horse.findMany();
+      const selected = allHorses.sort(() => 0.5 - Math.random()).slice(0, 4);
       const race = await prisma.race.create({ data: {} });
 
       const track = generateGreyOvalTrack({ width: safeWidth, height: safeHeight }, clampedPercent);
 
-      const {
-        rotatedInner,
-        rotatedOuter,
-        rotatedCenterline
-      } = computeTrackGeometry(
+      const { rotatedInner, rotatedOuter, rotatedCenterline } = computeTrackGeometry(
         track.innerBounds.pointsArray,
         track.outerBounds.pointsArray,
         track.centerline,
