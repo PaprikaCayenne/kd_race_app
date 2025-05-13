@@ -1,35 +1,44 @@
-// File: api/routes/races.ts
-// Version: v0.2.1 — Cleaned, confirmed, and aligned with current race fetch logic
+// File: frontend/src/utils/playRace.js
+// Version: v0.2.2 — Triggered by frontend Start Race button, not race:start socket
 
-import express, { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-import { format } from 'date-fns';
+export function playRace({ app, horseSprites, horsePaths, labelSprites, finishedHorses, horses }) {
+  // Stop any existing ticker first
+  app.ticker.stop();
+  app.ticker.removeAll();
+  
+  const ticker = (delta) => {
+    horseSprites.forEach((sprite, id) => {
+      const path = horsePaths[id];
+      if (!path || path.length < 2 || finishedHorses.has(id)) return;
 
-const router = express.Router();
-const prisma = new PrismaClient();
+      sprite.__progress = (sprite.__progress ?? 0) + 0.002 * delta;
 
-// GET /api/races
-// Returns the 10 most recent races with formatted display names
-router.get('/races', async (_req: Request, res: Response) => {
-  try {
-    const races = await prisma.race.findMany({
-      orderBy: { startedAt: 'desc' },
-      take: 10,
+      if (sprite.__progress >= 1) {
+        sprite.__progress = 1;
+        finishedHorses.add(id);
+        if (finishedHorses.size === horses.length) {
+          console.log('[KD] 🏁 All horses finished!');
+          const winner = horses.find(h => h.placement === 1);
+          console.log(`[KD] 🏆 Winner: Horse ${winner.name} (ID: ${winner.id})`);
+        }
+        return;
+      }
+
+      const idx = Math.floor(sprite.__progress * path.length);
+      const cappedIdx = Math.min(idx, path.length - 2);
+      const next = path[cappedIdx + 1];
+      const curr = path[cappedIdx];
+      const lerpT = (sprite.__progress * path.length) - cappedIdx;
+      const x = curr.x + (next.x - curr.x) * lerpT;
+      const y = curr.y + (next.y - curr.y) * lerpT;
+      sprite.position.set(x, y);
+      sprite.rotation = Math.atan2(next.y - curr.y, next.x - curr.x);
+
+      const label = labelSprites.get(id);
+      if (label) label.position.set(x, y);
     });
+  };
 
-    const response = races.map((race, index) => {
-      const dateStr = format(race.startedAt ?? new Date(), 'MM-dd-yy hh:mm a');
-      return {
-        raceId: race.id.toString(),
-        name: `Race: ${index + 1} (${dateStr})`,
-      };
-    });
-
-    res.json(response);
-  } catch (error) {
-    console.error('❌ [API] Failed to fetch races:', error);
-    res.status(500).json({ error: 'Failed to fetch races' });
-  }
-});
-
-export default router;
+  app.ticker.add(ticker);
+  app.ticker.start();
+}

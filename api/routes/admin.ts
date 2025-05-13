@@ -1,5 +1,5 @@
 // File: api/routes/admin.ts
-// Version: v0.7.25 — Emits race:start after race:init to trigger frontend animation
+// Version: v0.7.26 — Calls generateHorsePathWithSpeed to rotate path from proper start point
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
@@ -7,6 +7,7 @@ import prisma from "../lib/prisma.js";
 import pako from "pako";
 import { generateGreyOvalTrack } from "../utils/generateGreyOvalTrack";
 import { computeTrackGeometry } from "../utils/computeTrackGeometry";
+import { generateHorsePathWithSpeed } from "../utils/generateHorsePathWithSpeed";
 
 const START_LINE_OFFSET_PX = 30;
 
@@ -33,7 +34,7 @@ export function createAdminRoute(io: Server) {
 
   router.post("/start", express.json(), async (req: Request, res: Response) => {
     const timestamp = getTimestamp();
-    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.25`);
+    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.26`);
 
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {
@@ -99,16 +100,24 @@ export function createAdminRoute(io: Server) {
 
       if (raceNamespace.sockets.size > 0) {
         const horses = selected.map((h, i) => {
-          const p = i + 1;
-          const pathData = track.perPlacement[p];
+          const placement = i + 1;
+          const pathData = track.perPlacement[placement];
+
+          const result = generateHorsePathWithSpeed({
+            horseId: h.id.toString(),
+            placement,
+            totalHorses: selected.length,
+            pathData
+          });
+
           return {
             id: h.id.toString(),
             name: h.name,
             color: h.color,
-            placement: p,
-            startPoint: pathData.startPoint,
-            direction: pathData.direction,
-            path: pathData.path
+            placement,
+            startPoint: result.startPoint,
+            direction: result.direction,
+            path: result.path
           };
         });
 
@@ -130,8 +139,6 @@ export function createAdminRoute(io: Server) {
         console.log(`[${timestamp}] 📦 Emitting race:init (before: ${sizeBefore.toFixed(2)} KB, after: ${sizeAfter.toFixed(2)} KB)`);
 
         raceNamespace.emit("race:init", compressed);
-
-        // Trigger race:start after brief delay
         setTimeout(() => {
           raceNamespace.emit("race:start");
           console.log(`[${timestamp}] 🏇 race:start event emitted to /race clients`);

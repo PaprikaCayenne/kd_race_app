@@ -5,14 +5,14 @@ import { Point } from '../types';
 import { generateOffsetLanes } from './generateOffsetLanes';
 
 const SEGMENTS_PER_SIDE = 20;
-const SEGMENTS_PER_CORNER = 10;
+const SEGMENTS_PER_CORNER = 30;
 const TRACK_WIDTH = 120;
 const OUTER_RADIUS = 100;
 const INNER_RADIUS = 60;
 const START_LINE_OFFSET_PX = 30;
 const SPRITE_RADIUS = 12;
 const SPACING_PX = 6;
-const START_BEHIND_PX = 60;
+const START_BEHIND_PX = 0;
 
 const LANE_COUNT = 4;
 const LANE_SPACING = 30;

@@ -1,5 +1,5 @@
 // File: api/utils/generateOffsetLanes.ts
-// Version: v0.1.0 — Generate offset lanes from centerline using tangent normals
+// Version: v0.1.2 — Logs first 150 points of Lane 1 & 2 to debug curve flip
 
 import { Point } from '../types';
 
