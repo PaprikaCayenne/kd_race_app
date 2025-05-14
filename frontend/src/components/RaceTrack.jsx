@@ -16,7 +16,7 @@ import ReplayControls from './ReplayControls';
 const VERSION = 'v1.6.4';
 const socket = io('/race', { path: '/api/socket.io' });
 const canvasHeight = 800;
-const startAtPercent = 0.55;
+const startAtPercent = 0.00;
 
 const TRACK_WIDTH = window.innerWidth - 200;
 const TRACK_HEIGHT = 600;
