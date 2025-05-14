@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.0.1 — Adds __horseId and __localIndex to sprite; keys all refs by local index
+// Version: v1.2.3 — Restores original placement at path[0] without slicing or shifting progress
 
 import { Graphics, Text } from 'pixi.js';
 import { createHorseSprite } from '@/utils/createHorseSprite';
@@ -8,41 +8,51 @@ import { parseColorStringToHex } from '@/utils/parseColorStringToHex';
 export function setupHorses({
   app,
   horses,
-  debugVisible,
+  horsePaths,
   horseSpritesRef,
   labelSpritesRef,
-  debugDotsRef,
+  finishedHorsesRef,
   debugPathLinesRef,
+  debugDotsRef,
   finishDotsRef,
   startDotsRef,
-  horsePathsRef
+  horsePathsRef,
+  lanes,
+  debugVisible,
 }) {
   horses.forEach((horse, index) => {
-    const { id, path, startPoint, placement, color } = horse;
+    const { path } = horsePaths[horse.id];
+    const totalPoints = path.length;
 
-    const sprite = createHorseSprite(color, id, app);
+    const sprite = createHorseSprite(horse.color, horse.id, app);
     sprite.anchor?.set?.(0.5);
     sprite.zIndex = 5;
-    sprite.__progress = 0;
-    sprite.__horseId = id;        // DB ID
-    sprite.__localIndex = index;  // 0-based index used in race
+    sprite.__progress = 0.0;
+    sprite.__horseId = horse.id;
+    sprite.__localIndex = index;
 
-    const dx = path[1].x - path[0].x;
-    const dy = path[1].y - path[0].y;
-    const len = Math.sqrt(dx ** 2 + dy ** 2);
+    const startPoint = path[0];
+    const nextPoint = path[1];
+    const dx = nextPoint.x - startPoint.x;
+    const dy = nextPoint.y - startPoint.y;
+    const len = Math.sqrt(dx ** 2 + dy ** 2) || 1;
     const dirX = dx / len;
     const dirY = dy / len;
 
-    const adjustedX = startPoint.x + dirX * (sprite.width / 2);
-    const adjustedY = startPoint.y + dirY * (sprite.height / 2);
+    const padding = Math.max(sprite.width, sprite.height) / 2;
+    const adjustedX = startPoint.x - dirX * padding;
+    const adjustedY = startPoint.y - dirY * padding;
     sprite.position.set(adjustedX, adjustedY);
     sprite.rotation = Math.atan2(dy, dx);
 
     app.stage.addChild(sprite);
-    horseSpritesRef.current.set(index, sprite);          // Keyed by index
-    horsePathsRef.current[index] = horse;
+    horseSpritesRef.current.set(horse.id, sprite);
 
-    const label = new Text(`${placement}`, {
+    if (horsePathsRef?.current) {
+      horsePathsRef.current[horse.id] = { path, debug: { finishIndex: totalPoints - 1 } };
+    }
+
+    const label = new Text(`${index + 1}`, {
       fontSize: 12,
       fill: 0xffffff,
       stroke: 0x000000,
@@ -51,7 +61,7 @@ export function setupHorses({
     label.anchor.set(0.5);
     label.position.set(adjustedX, adjustedY);
     label.zIndex = 6;
-    labelSpritesRef.current.set(index, label);           // Keyed by index
+    labelSpritesRef.current.set(horse.id, label);
     if (debugVisible) app.stage.addChild(label);
 
     const dot = new Graphics();
@@ -62,18 +72,16 @@ export function setupHorses({
     if (debugVisible) app.stage.addChild(dot);
 
     const pathLine = new Graphics();
-    pathLine.lineStyle(1, parseColorStringToHex(color, id));
+    pathLine.lineStyle(1, parseColorStringToHex(horse.color, horse.id));
     pathLine.moveTo(path[0].x, path[0].y);
-    for (let i = 1; i < path.length - 1; i++) {
-      const p1 = path[i];
-      const p2 = path[i + 1];
-      const cx = (p1.x + p2.x) / 2;
-      const cy = (p1.y + p2.y) / 2;
-      pathLine.quadraticCurveTo(p1.x, p1.y, cx, cy);
+    for (let i = 1; i < path.length; i++) {
+      pathLine.lineTo(path[i].x, path[i].y);
     }
-    pathLine.lineTo(path.at(-1).x, path.at(-1).y);
     pathLine.zIndex = 1;
     debugPathLinesRef.current.push(pathLine);
     if (debugVisible) app.stage.addChild(pathLine);
+
+    console.log(`[KD] 🐎 Restored horse ${horse.id} at path[0] (index 0)`);
   });
 }
+`

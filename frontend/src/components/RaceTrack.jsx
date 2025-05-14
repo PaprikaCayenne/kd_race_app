@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v1.5.1 — Hooks up playReplay for stored replays
+// Version: v1.6.4 — Passes all debug and path refs to triggerGenerateHorses
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from 'pixi.js';
@@ -13,10 +13,16 @@ import { initRaceListeners } from './track/initRaceListeners';
 import { logInfo } from './track/debugConsole';
 import ReplayControls from './ReplayControls';
 
-const VERSION = 'v1.5.1';
+const VERSION = 'v1.6.4';
 const socket = io('/race', { path: '/api/socket.io' });
 const canvasHeight = 800;
 const startAtPercent = 0.55;
+
+const TRACK_WIDTH = window.innerWidth - 200;
+const TRACK_HEIGHT = 600;
+const CORNER_RADIUS = 200;
+const LANE_WIDTH = 30;
+const LANE_COUNT = 4;
 
 const RaceTrack = () => {
   const containerRef = useRef(null);
@@ -44,6 +50,9 @@ const RaceTrack = () => {
   const [replayHistory, setReplayHistory] = useState([]);
   const [replayToPlay, setReplayToPlay] = useState(null);
 
+  const lanesRef = useRef(null);
+  const centerlineRef = useRef(null);
+
   useEffect(() => {
     const app = new Application({
       view: canvasRef.current,
@@ -56,12 +65,19 @@ const RaceTrack = () => {
     app.stage.sortableChildren = true;
     appRef.current = app;
 
-    fetch(`/api/track?startAtPercent=${startAtPercent}&width=${app.view.width}&height=${canvasHeight}`)
-      .then(res => res.json())
-      .then(track => {
-        trackDataRef.current = track;
-        drawDerbyTrack(app, track);
-      });
+    const { lanes, centerline } = drawDerbyTrack({
+      app,
+      width: TRACK_WIDTH,
+      height: TRACK_HEIGHT,
+      cornerRadius: CORNER_RADIUS,
+      laneWidth: LANE_WIDTH,
+      laneCount: LANE_COUNT,
+      debug: debugVisible
+    });
+
+    lanesRef.current = lanes;
+    centerlineRef.current = centerline;
+    trackDataRef.current = { lanes, centerline, laneWidth: LANE_WIDTH, laneCount: LANE_COUNT };
 
     initRaceListeners({
       socket,
@@ -111,11 +127,24 @@ const RaceTrack = () => {
 
   const handleGenerate = () => {
     triggerGenerateHorses({
-      width: containerRef.current.offsetWidth,
-      height: canvasHeight,
+      app: appRef.current,
+      trackData: trackDataRef.current,
+      horsesRef,
+      horseSpritesRef,
+      labelSpritesRef,
+      finishedHorsesRef,
+      debugPathLinesRef,
+      debugDotsRef,
+      finishDotsRef,
+      startDotsRef,
+      horsePathsRef,
+      width: TRACK_WIDTH,
+      height: TRACK_HEIGHT,
       startAtPercent,
       setRaceReady,
-      setCanGenerate
+      setCanGenerate,
+      usedHorseIdsRef,
+      debugVisible,
     });
   };
 

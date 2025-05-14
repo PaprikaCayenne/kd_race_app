@@ -1,56 +1,63 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v1.0.3 — Pond positioning fixed with buffered offset from inner boundary
+// Version: v1.0.6 — Reduces track width to ~150px, updates to light brown fill
 
 import { Graphics } from 'pixi.js';
-import { renderPond } from '@/utils/renderPond';
+import { generateOffsetLanes } from '@/utils/generateOffsetLanes';
 
-export function drawDerbyTrack(app, { innerBoundary, outerBoundary, rotatedCenterline, startLineAt }) {
-  app.stage.removeChildren();
-  app.stage.sortableChildren = true;
+export function drawDerbyTrack({ app, width, height, cornerRadius, laneWidth, laneCount, debug = false }) {
+  const trackContainer = new Graphics();
 
-  const g = new Graphics();
-  g.beginFill(0x996633);
-  outerBoundary.forEach((p, i) => i === 0 ? g.moveTo(p.x, p.y) : g.lineTo(p.x, p.y));
-  for (let i = innerBoundary.length - 1; i >= 0; i--) g.lineTo(innerBoundary[i].x, innerBoundary[i].y);
-  g.endFill();
+  const offsetX = (app.view.width - width) / 2;
+  const offsetY = (app.view.height - height) / 2;
 
-  g.lineStyle(2, 0x999999);
-  outerBoundary.forEach((p, i) => i === 0 ? g.moveTo(p.x, p.y) : g.lineTo(p.x, p.y));
-  g.lineTo(outerBoundary[0].x, outerBoundary[0].y);
-  innerBoundary.forEach((p, i) => i === 0 ? g.moveTo(p.x, p.y) : g.lineTo(p.x, p.y));
-  g.lineTo(innerBoundary[0].x, innerBoundary[0].y);
-  app.stage.addChild(g);
+  // Override lane width to get approximately 150px track thickness
+  const adjustedLaneWidth = 37.5; // 4 lanes * 37.5 = 150px
 
-  if (startLineAt && rotatedCenterline.length > 1) {
-    const start = rotatedCenterline[0];
-    const next = rotatedCenterline[1];
-    const dx = next.x - start.x;
-    const dy = next.y - start.y;
-    const len = Math.sqrt(dx * dx + dy * dy);
-    const normX = -dy / len;
-    const normY = dx / len;
+  const { lanes, centerline } = generateOffsetLanes({
+    width,
+    height,
+    cornerRadius,
+    laneWidth: adjustedLaneWidth,
+    laneCount,
+    offsetX,
+    offsetY
+  });
 
-    const line = new Graphics();
-    line.lineStyle(4, 0x00ff00);
-    line.moveTo(startLineAt.x + normX * 60, startLineAt.y + normY * 60);
-    line.lineTo(startLineAt.x - normX * 60, startLineAt.y - normY * 60);
-    app.stage.addChild(line);
+  const outer = lanes[0];
+  const inner = lanes[lanes.length - 1];
+
+  // Fill area between outer and inner boundaries
+  trackContainer.beginFill(0xc49a6c); // light brown (matches earlier track color)
+  trackContainer.moveTo(outer[0].x, outer[0].y);
+  outer.forEach(pt => trackContainer.lineTo(pt.x, pt.y));
+  inner.slice().reverse().forEach(pt => trackContainer.lineTo(pt.x, pt.y));
+  trackContainer.lineTo(outer[0].x, outer[0].y);
+  trackContainer.endFill();
+
+  // Outer boundary
+  trackContainer.lineStyle(4, 0x888888);
+  trackContainer.moveTo(outer[0].x, outer[0].y);
+  outer.forEach((pt, i) => {
+    if (i > 0) trackContainer.lineTo(pt.x, pt.y);
+  });
+  trackContainer.lineTo(outer[0].x, outer[0].y);
+
+  // Inner boundary
+  trackContainer.moveTo(inner[0].x, inner[0].y);
+  inner.forEach((pt, i) => {
+    if (i > 0) trackContainer.lineTo(pt.x, pt.y);
+  });
+  trackContainer.lineTo(inner[0].x, inner[0].y);
+
+  if (debug) {
+    trackContainer.lineStyle(1, 0x00ff00, 0.6);
+    trackContainer.moveTo(centerline[0].x, centerline[0].y);
+    for (let i = 1; i < centerline.length; i++) {
+      trackContainer.lineTo(centerline[i].x, centerline[i].y);
+    }
+    trackContainer.lineTo(centerline[0].x, centerline[0].y);
   }
 
-  const bounds = innerBoundary.reduce(
-    (acc, p) => ({
-      minX: Math.min(acc.minX, p.x),
-      maxX: Math.max(acc.maxX, p.x),
-      minY: Math.min(acc.minY, p.y),
-      maxY: Math.max(acc.maxY, p.y)
-    }),
-    { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
-  );
-
-  const pondRadius = 60;
-  const buffer = 10;
-  const pondX = bounds.minX + pondRadius + buffer;
-  const pondY = bounds.minY + pondRadius + buffer;
-
-  renderPond(app, { x: pondX, y: pondY }, pondRadius);
+  app.stage.addChild(trackContainer);
+  return { lanes, centerline };
 }

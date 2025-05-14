@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/triggerStartRace.js
-// Version: v1.0.2 — Assumes horseSprites and related refs are keyed by race-time index (0,1,2,...)
+// Version: v1.0.2 — Passes updated lane paths to playRace from setup
 
 import { playRace } from '@/utils/playRace';
 
