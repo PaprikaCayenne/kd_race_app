@@ -1,33 +1,38 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v1.0.6 — Reduces track width to ~150px, updates to light brown fill
+// Version: v1.1.0 — Accepts spriteWidth and startAtPercent to support precise lane spacing and path alignment
 
 import { Graphics } from 'pixi.js';
-import { generateOffsetLanes } from '@/utils/generateOffsetLanes';
+import { generateTrackPathWithRoundedCorners } from '@/utils/generateTrackPathWithRoundedCorners';
+import { generateAllLanes } from '@/utils/generateOffsetLane';
 
-export function drawDerbyTrack({ app, width, height, cornerRadius, laneWidth, laneCount, debug = false }) {
+export function drawDerbyTrack({ app, width, height, cornerRadius, laneWidth, laneCount, spriteWidth = 40, startAtPercent = 0, debug = false }) {
   const trackContainer = new Graphics();
 
   const offsetX = (app.view.width - width) / 2;
   const offsetY = (app.view.height - height) / 2;
 
-  // Override lane width to get approximately 150px track thickness
-  const adjustedLaneWidth = 37.5; // 4 lanes * 37.5 = 150px
+  // Use spriteWidth + padding to calculate spacing between lanes
+  const adjustedLaneWidth = spriteWidth + 2;
 
-  const { lanes, centerline } = generateOffsetLanes({
+  // Generate the master centerline path
+  const centerline = generateTrackPathWithRoundedCorners({
     width,
     height,
     cornerRadius,
-    laneWidth: adjustedLaneWidth,
-    laneCount,
+    segmentsPerCurve: 24,
     offsetX,
     offsetY
   });
 
-  const outer = lanes[0];
-  const inner = lanes[lanes.length - 1];
+  // Generate lane paths offset from centerline
+  const lanes = generateAllLanes(centerline, laneCount, adjustedLaneWidth);
+
+  // lanes[0] = innermost lane, lanes[lanes.length - 1] = outermost lane
+  const inner = lanes[0];
+  const outer = lanes[lanes.length - 1];
 
   // Fill area between outer and inner boundaries
-  trackContainer.beginFill(0xc49a6c); // light brown (matches earlier track color)
+  trackContainer.beginFill(0xc49a6c); // light brown
   trackContainer.moveTo(outer[0].x, outer[0].y);
   outer.forEach(pt => trackContainer.lineTo(pt.x, pt.y));
   inner.slice().reverse().forEach(pt => trackContainer.lineTo(pt.x, pt.y));
@@ -59,5 +64,7 @@ export function drawDerbyTrack({ app, width, height, cornerRadius, laneWidth, la
   }
 
   app.stage.addChild(trackContainer);
+
+  // Return geometry for later use
   return { lanes, centerline };
 }

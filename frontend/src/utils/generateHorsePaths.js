@@ -1,37 +1,23 @@
 // File: frontend/src/utils/generateHorsePaths.js
-// Version: v1.3.4 — Ensures horses are offset correctly and lanes fall within visible track boundaries
-
-import { generateOffsetLanes } from './generateOffsetLanes';
+// Version: v1.3.7 — Uses lanes from trackData to align with visual track boundaries
 
 /**
- * Generate full-length visible paths per horse. No slicing. All paths fall within visible track bounds.
+ * Generate full-length visible paths per horse using passed-in lanes.
+ * All paths align with pre-rendered track geometry.
  */
 export function generateHorsePaths({
   horses,
-  width = 1000,
-  height = 600,
-  laneWidth = 30,
-  laneCount = 4,
-  cornerRadius = 200,
-  spriteWidth = 40,
+  lanes,
+  spriteWidth = 40
 }) {
-  const { lanes } = generateOffsetLanes({
-    width,
-    height,
-    cornerRadius,
-    laneWidth,
-    laneCount,
-    offsetX: 0,
-    offsetY: 0
-  });
-
   const horsePaths = {};
 
   horses.forEach((horse, i) => {
     const laneIndex = i % lanes.length;
     const path = lanes[laneIndex];
+    if (!path || path.length < 2) return;
 
-    // Apply directional offset to path[0] only
+    // Offset start slightly backward to center the sprite
     const offsetDistance = spriteWidth * 0.5;
     const p0 = path[0];
     const p1 = path[1];
@@ -43,14 +29,14 @@ export function generateHorsePaths({
 
     const adjustedStart = {
       x: p0.x - dirX * offsetDistance,
-      y: p0.y - dirY * offsetDistance,
+      y: p0.y - dirY * offsetDistance
     };
 
     const adjustedPath = [adjustedStart, ...path];
 
     horsePaths[horse.id] = {
       path: adjustedPath,
-      laneIndex,
+      laneIndex
     };
   });
 

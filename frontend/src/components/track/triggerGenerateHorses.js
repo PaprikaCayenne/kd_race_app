@@ -1,7 +1,7 @@
 // File: frontend/src/components/track/triggerGenerateHorses.js
-// Version: v1.2.4 — Passes spriteWidth to generateHorsePaths to ensure correct track placement
+// Version: v1.3.0 — Uses lanes from trackData for accurate horse pathing
 
-import { generateHorsePaths } from '../../utils/generateHorsePaths';
+import { generateHorsePaths } from '@/utils/generateHorsePaths';
 import { setupHorses } from './setupHorses';
 import { logInfo } from './debugConsole';
 
@@ -23,23 +23,23 @@ export async function triggerGenerateHorses({
   setRaceReady,
   setCanGenerate,
   usedHorseIdsRef,
-  debugVisible,
+  debugVisible
 }) {
   try {
     await fetch('/api/admin/start', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-admin-pass': '6a2e8819c6fb4c15',
+        'x-admin-pass': '6a2e8819c6fb4c15'
       },
-      body: JSON.stringify({ startAtPercent, width, height }),
+      body: JSON.stringify({ startAtPercent, width, height })
     });
   } catch (err) {
     console.error('[KD] ❌ Error triggering race:', err);
     return;
   }
 
-  const { laneWidth, laneCount, cornerRadius } = trackData;
+  const { laneCount, lanes, spriteWidth } = trackData;
 
   let horses = [];
   try {
@@ -65,17 +65,10 @@ export async function triggerGenerateHorses({
 
   logInfo('[KD] 🐴 Generating horse paths for', horses.length, 'horses');
 
-  const SPRITE_WIDTH = 40;
-
   const horsePaths = generateHorsePaths({
     horses,
-    startAtPercent,
-    width,
-    height,
-    laneWidth,
-    laneCount,
-    cornerRadius,
-    spriteWidth: SPRITE_WIDTH,
+    lanes,
+    spriteWidth
   });
 
   setupHorses({
@@ -91,7 +84,7 @@ export async function triggerGenerateHorses({
     startDotsRef,
     horsePathsRef,
     lanes: Object.values(horsePaths).map(p => p.path),
-    debugVisible,
+    debugVisible
   });
 
   logInfo('[KD] ✅ Horses placed and rendered');

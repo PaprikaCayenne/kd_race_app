@@ -1,5 +1,5 @@
 // File: frontend/src/utils/generateOffsetLane.js
-// Version: v0.1.2 – Adds internal padding so lanes fall inside visual track boundaries
+// Version: v0.1.4 — Removes padding; centers lanes inside brown track boundary
 
 /**
  * Compute an offset version of a centerline for a given lane.
@@ -33,7 +33,7 @@ export function generateOffsetLane(centerline, offset) {
 
 /**
  * Generate multiple offset lanes from a centerline.
- * Applies slight inward padding so all lanes are inside track boundary
+ * Removes padding to properly center all lanes inside visible track
  * @param {Array<{x: number, y: number}>} centerline
  * @param {number} laneCount - Number of total lanes
  * @param {number} laneWidth - Pixels between lanes
@@ -41,12 +41,11 @@ export function generateOffsetLane(centerline, offset) {
  */
 export function generateAllLanes(centerline, laneCount = 4, laneWidth = 30) {
   const mid = (laneCount - 1) / 2;
-  const padding = 5; // small inward buffer
   const lanes = [];
 
   for (let i = 0; i < laneCount; i++) {
-    const offset = (i - mid) * laneWidth;
-    lanes.push(generateOffsetLane(centerline, offset - Math.sign(offset) * padding));
+    const baseOffset = (i - mid) * laneWidth;
+    lanes.push(generateOffsetLane(centerline, baseOffset));
   }
 
   return lanes;

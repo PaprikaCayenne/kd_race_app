@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.0.1 — Adds __horseId and __localIndex to sprite; keys all refs by local index
+// Version: v1.1.1 — Adds debug logs for sprite placement failures and shows missing lane/path info
 
 import { Graphics, Text } from 'pixi.js';
 import { createHorseSprite } from '@/utils/createHorseSprite';
@@ -8,41 +8,61 @@ import { parseColorStringToHex } from '@/utils/parseColorStringToHex';
 export function setupHorses({
   app,
   horses,
-  debugVisible,
+  horsePaths,
   horseSpritesRef,
   labelSpritesRef,
-  debugDotsRef,
+  finishedHorsesRef,
   debugPathLinesRef,
+  debugDotsRef,
   finishDotsRef,
   startDotsRef,
-  horsePathsRef
+  horsePathsRef,
+  lanes,
+  debugVisible
 }) {
   horses.forEach((horse, index) => {
-    const { id, path, startPoint, placement, color } = horse;
+    const { id, color } = horse;
+    const horseData = horsePaths[id];
+
+    if (!horseData || !horseData.path || horseData.path.length < 2) {
+      console.warn(`[KD] ⚠️ Skipping horse ID ${id} — invalid path`, horseData);
+      return;
+    }
+
+    const path = horseData.path;
+    const laneIndex = horseData.laneIndex;
 
     const sprite = createHorseSprite(color, id, app);
     sprite.anchor?.set?.(0.5);
     sprite.zIndex = 5;
     sprite.__progress = 0;
-    sprite.__horseId = id;        // DB ID
-    sprite.__localIndex = index;  // 0-based index used in race
+    sprite.__horseId = id;
+    sprite.__localIndex = index;
 
     const dx = path[1].x - path[0].x;
     const dy = path[1].y - path[0].y;
     const len = Math.sqrt(dx ** 2 + dy ** 2);
+    if (len === 0 || isNaN(len)) {
+      console.warn(`[KD] ⚠️ Invalid direction vector for horse ${id}`, { p0: path[0], p1: path[1] });
+      return;
+    }
+
     const dirX = dx / len;
     const dirY = dy / len;
 
-    const adjustedX = startPoint.x + dirX * (sprite.width / 2);
-    const adjustedY = startPoint.y + dirY * (sprite.height / 2);
+    const adjustedX = path[0].x - dirX * (sprite.width / 2);
+    const adjustedY = path[0].y - dirY * (sprite.height / 2);
+
+    console.log(`[KD] 🐎 Placing horse ${id} at (${adjustedX.toFixed(1)}, ${adjustedY.toFixed(1)}) in lane ${laneIndex}`);
+
     sprite.position.set(adjustedX, adjustedY);
     sprite.rotation = Math.atan2(dy, dx);
 
     app.stage.addChild(sprite);
-    horseSpritesRef.current.set(index, sprite);          // Keyed by index
+    horseSpritesRef.current.set(index, sprite);
     horsePathsRef.current[index] = horse;
 
-    const label = new Text(`${placement}`, {
+    const label = new Text(`${index + 1}`, {
       fontSize: 12,
       fill: 0xffffff,
       stroke: 0x000000,
@@ -51,7 +71,7 @@ export function setupHorses({
     label.anchor.set(0.5);
     label.position.set(adjustedX, adjustedY);
     label.zIndex = 6;
-    labelSpritesRef.current.set(index, label);           // Keyed by index
+    labelSpritesRef.current.set(index, label);
     if (debugVisible) app.stage.addChild(label);
 
     const dot = new Graphics();
