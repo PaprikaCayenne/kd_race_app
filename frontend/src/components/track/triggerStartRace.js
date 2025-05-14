@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/triggerStartRace.js
-// Version: v1.0.1 — Validates input and calls playRace with full context
+// Version: v1.0.2 — Assumes horseSprites and related refs are keyed by race-time index (0,1,2,...)
 
 import { playRace } from '@/utils/playRace';
 
@@ -22,7 +22,7 @@ export function triggerStartRace({
     return;
   }
 
-  const allValid = horsesRef.current.every(h => horsePathsRef.current[h.id]?.path?.length > 1);
+  const allValid = horsesRef.current.every((_, index) => horsePathsRef.current[index]?.path?.length > 1);
   if (!allValid) {
     console.warn('[KD] ⚠️ Some horses are missing path data — race not started.');
     return;

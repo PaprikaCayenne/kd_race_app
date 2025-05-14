@@ -1,11 +1,11 @@
 // File: api/utils/generateGreyOvalTrack.ts
-// Version: v0.9.1 — Adds per-placement lane paths and start points
+// Version: v0.9.4 — Aligns start positions with deduplicated centerline geometry
 
 import { Point } from '../types';
 import { generateOffsetLanes } from './generateOffsetLanes';
 
-const SEGMENTS_PER_SIDE = 20;
-const SEGMENTS_PER_CORNER = 30;
+const SEGMENTS_PER_SIDE = 12;
+const SEGMENTS_PER_CORNER = 12;
 const TRACK_WIDTH = 120;
 const OUTER_RADIUS = 100;
 const INNER_RADIUS = 60;
@@ -20,21 +20,7 @@ const LANE_SPACING = 30;
 export function generateGreyOvalTrack(
   dimensions: { width: number; height: number },
   startAtPercent: number
-): {
-  innerBounds: { pointsArray: Point[] };
-  outerBounds: { pointsArray: Point[] };
-  centerline: Point[];
-  lanes: Point[][];
-  perPlacement: Record<number, {
-    startPoint: Point;
-    path: Point[];
-    direction: { x: number; y: number };
-  }>;
-  startAt: Point;
-  startLineAt: Point;
-  startInnerPoint: Point;
-  startOuterPoint: Point;
-} {
+) {
   const { width, height } = dimensions;
   const paddingX = width * 0.05;
   const paddingY = height * 0.05;
@@ -56,7 +42,7 @@ export function generateGreyOvalTrack(
   const innerAligned = inner.slice(0, pointCount);
   const outerAligned = outer.slice(0, pointCount);
 
-  const centerline: Point[] = [];
+  let centerline = [];
   for (let i = 0; i < pointCount; i++) {
     centerline.push({
       x: (innerAligned[i].x + outerAligned[i].x) / 2,
@@ -67,16 +53,21 @@ export function generateGreyOvalTrack(
   if (centerline[0].x !== centerline.at(-1)?.x || centerline[0].y !== centerline.at(-1)?.y) {
     centerline.push({ ...centerline[0] });
   }
-  if (innerAligned[0].x !== innerAligned.at(-1)?.x || innerAligned[0].y !== innerAligned.at(-1)?.y) {
-    innerAligned.push({ ...innerAligned[0] });
-  }
-  if (outerAligned[0].x !== outerAligned.at(-1)?.x || outerAligned[0].y !== outerAligned.at(-1)?.y) {
-    outerAligned.push({ ...outerAligned[0] });
+
+  // 🧼 Apply same deduplication logic as offset lanes
+  const cleanedCenterline: Point[] = [centerline[0]];
+  for (let i = 1; i < centerline.length; i++) {
+    const prev = cleanedCenterline[cleanedCenterline.length - 1];
+    const curr = centerline[i];
+    const dist = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+    if (dist >= 1) {
+      cleanedCenterline.push(curr);
+    }
   }
 
-  const startIndex = Math.floor(centerline.length * startAtPercent);
-  const startAt = centerline[startIndex];
-  const next = centerline[(startIndex + 1) % centerline.length];
+  const startIndex = Math.floor(cleanedCenterline.length * startAtPercent);
+  const startAt = cleanedCenterline[startIndex];
+  const next = cleanedCenterline[(startIndex + 1) % cleanedCenterline.length];
 
   const dx = next.x - startAt.x;
   const dy = next.y - startAt.y;
@@ -92,9 +83,9 @@ export function generateGreyOvalTrack(
   const laneOffsets = Array.from({ length: LANE_COUNT }, (_, i) => {
     const centerIndex = (LANE_COUNT - 1) / 2;
     return (i - centerIndex) * LANE_SPACING;
-  });
+  }).reverse();
 
-  const lanes = generateOffsetLanes(centerline, laneOffsets);
+  const lanes = generateOffsetLanes(cleanedCenterline, laneOffsets);
 
   const perPlacement: Record<number, any> = {};
   for (let i = 0; i < lanes.length; i++) {
@@ -114,7 +105,7 @@ export function generateGreyOvalTrack(
   return {
     innerBounds: { pointsArray: innerAligned },
     outerBounds: { pointsArray: outerAligned },
-    centerline,
+    centerline: cleanedCenterline,
     lanes,
     perPlacement,
     startAt,
@@ -124,13 +115,7 @@ export function generateGreyOvalTrack(
   };
 }
 
-function generateRoundedRectFixed(
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number
-): Point[] {
+function generateRoundedRectFixed(x: number, y: number, w: number, h: number, r: number): Point[] {
   const points: Point[] = [];
 
   addStraightFixed(points, x + r, y, x + w - r, y, SEGMENTS_PER_SIDE);
@@ -145,14 +130,7 @@ function generateRoundedRectFixed(
   return points;
 }
 
-function addStraightFixed(
-  points: Point[],
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  segments: number
-) {
+function addStraightFixed(points: Point[], x1: number, y1: number, x2: number, y2: number, segments: number) {
   for (let i = 0; i <= segments; i++) {
     const t = i / segments;
     points.push({
@@ -162,15 +140,7 @@ function addStraightFixed(
   }
 }
 
-function addArcFixed(
-  points: Point[],
-  cx: number,
-  cy: number,
-  r: number,
-  startDeg: number,
-  endDeg: number,
-  segments: number
-) {
+function addArcFixed(points: Point[], cx: number, cy: number, r: number, startDeg: number, endDeg: number, segments: number) {
   const startRad = (startDeg * Math.PI) / 180;
   const endRad = (endDeg * Math.PI) / 180;
   for (let i = 0; i <= segments; i++) {

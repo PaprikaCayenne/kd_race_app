@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.0.0 — Initializes horse sprites, labels, debug visuals, and sets track state
+// Version: v1.0.1 — Adds __horseId and __localIndex to sprite; keys all refs by local index
 
 import { Graphics, Text } from 'pixi.js';
 import { createHorseSprite } from '@/utils/createHorseSprite';
@@ -17,13 +17,15 @@ export function setupHorses({
   startDotsRef,
   horsePathsRef
 }) {
-  horses.forEach(horse => {
+  horses.forEach((horse, index) => {
     const { id, path, startPoint, placement, color } = horse;
 
     const sprite = createHorseSprite(color, id, app);
     sprite.anchor?.set?.(0.5);
     sprite.zIndex = 5;
     sprite.__progress = 0;
+    sprite.__horseId = id;        // DB ID
+    sprite.__localIndex = index;  // 0-based index used in race
 
     const dx = path[1].x - path[0].x;
     const dy = path[1].y - path[0].y;
@@ -37,7 +39,8 @@ export function setupHorses({
     sprite.rotation = Math.atan2(dy, dx);
 
     app.stage.addChild(sprite);
-    horseSpritesRef.current.set(id, sprite);
+    horseSpritesRef.current.set(index, sprite);          // Keyed by index
+    horsePathsRef.current[index] = horse;
 
     const label = new Text(`${placement}`, {
       fontSize: 12,
@@ -48,7 +51,7 @@ export function setupHorses({
     label.anchor.set(0.5);
     label.position.set(adjustedX, adjustedY);
     label.zIndex = 6;
-    labelSpritesRef.current.set(id, label);
+    labelSpritesRef.current.set(index, label);           // Keyed by index
     if (debugVisible) app.stage.addChild(label);
 
     const dot = new Graphics();
@@ -72,7 +75,5 @@ export function setupHorses({
     pathLine.zIndex = 1;
     debugPathLinesRef.current.push(pathLine);
     if (debugVisible) app.stage.addChild(pathLine);
-
-    horsePathsRef.current[id] = horse;
   });
 }
