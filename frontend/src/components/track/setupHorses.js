@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.1.1 — Adds debug logs for sprite placement failures and shows missing lane/path info
+// Version: v1.2.0 — Aligns horses to padded path start; removes duplicate offset
 
 import { Graphics, Text } from 'pixi.js';
 import { createHorseSprite } from '@/utils/createHorseSprite';
@@ -47,16 +47,11 @@ export function setupHorses({
       return;
     }
 
-    const dirX = dx / len;
-    const dirY = dy / len;
-
-    const adjustedX = path[0].x - dirX * (sprite.width / 2);
-    const adjustedY = path[0].y - dirY * (sprite.height / 2);
-
-    console.log(`[KD] 🐎 Placing horse ${id} at (${adjustedX.toFixed(1)}, ${adjustedY.toFixed(1)}) in lane ${laneIndex}`);
-
-    sprite.position.set(adjustedX, adjustedY);
+    // Directly place horse at path[0], which is already offset for sprite width
+    sprite.position.set(path[0].x, path[0].y);
     sprite.rotation = Math.atan2(dy, dx);
+
+    console.log(`[KD] 🐎 Placing horse ${id} at (${path[0].x.toFixed(1)}, ${path[0].y.toFixed(1)}) in lane ${laneIndex}`);
 
     app.stage.addChild(sprite);
     horseSpritesRef.current.set(index, sprite);
@@ -69,7 +64,7 @@ export function setupHorses({
       strokeThickness: 2
     });
     label.anchor.set(0.5);
-    label.position.set(adjustedX, adjustedY);
+    label.position.set(path[0].x, path[0].y);
     label.zIndex = 6;
     labelSpritesRef.current.set(index, label);
     if (debugVisible) app.stage.addChild(label);
@@ -77,7 +72,7 @@ export function setupHorses({
     const dot = new Graphics();
     dot.beginFill(0x00ff00).drawCircle(0, 0, 4).endFill();
     dot.zIndex = 99;
-    dot.position.set(adjustedX, adjustedY);
+    dot.position.set(path[0].x, path[0].y);
     startDotsRef.current.push(dot);
     if (debugVisible) app.stage.addChild(dot);
 

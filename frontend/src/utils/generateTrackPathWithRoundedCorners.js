@@ -1,64 +1,74 @@
 // File: frontend/src/utils/generateTrackPathWithRoundedCorners.js
-// Version: v0.1.2 — Adds offsetX and offsetY for visual centering
+// Version: v1.7.3 — Decouples track height from canvas height and centers vertically
 
 /**
- * Generates a centerline path for an oval track using corner control points
- * and straight lines — mimics Photoshop-style rounded rectangle logic.
+ * Generate a centerline path that spans the padded canvas and allows lane offset expansion.
  */
-function generateTrackPathWithRoundedCorners({ width, height, cornerRadius, segmentsPerCurve = 12, offsetX = 0, offsetY = 0 }) {
-    const path = [];
-  
-    const left = offsetX;
-    const right = offsetX + width;
-    const top = offsetY;
-    const bottom = offsetY + height;
-    const r = cornerRadius;
-  
-    // Start at top-left corner, just before curve
-    path.push({ x: left + r, y: top });
-  
-    // Top edge → top-right corner
-    for (let i = 0; i <= segmentsPerCurve; i++) {
-      const t = i / segmentsPerCurve;
-      const angle = (Math.PI * 1.5) + (Math.PI / 2) * t;
-      path.push({
-        x: right - r + Math.cos(angle) * r,
-        y: top + r + Math.sin(angle) * r
-      });
-    }
-  
-    // Right edge → bottom-right corner
-    for (let i = 0; i <= segmentsPerCurve; i++) {
-      const t = i / segmentsPerCurve;
-      const angle = 0 + (Math.PI / 2) * t;
-      path.push({
-        x: right - r + Math.cos(angle) * r,
-        y: bottom - r + Math.sin(angle) * r
-      });
-    }
-  
-    // Bottom edge → bottom-left corner
-    for (let i = 0; i <= segmentsPerCurve; i++) {
-      const t = i / segmentsPerCurve;
-      const angle = (Math.PI / 2) + (Math.PI / 2) * t;
-      path.push({
-        x: left + r + Math.cos(angle) * r,
-        y: bottom - r + Math.sin(angle) * r
-      });
-    }
-  
-    // Left edge → top-left corner
-    for (let i = 0; i <= segmentsPerCurve; i++) {
-      const t = i / segmentsPerCurve;
-      const angle = Math.PI + (Math.PI / 2) * t;
-      path.push({
-        x: left + r + Math.cos(angle) * r,
-        y: top + r + Math.sin(angle) * r
-      });
-    }
-  
-    return path;
+export function generateCenterline({
+  canvasWidth,
+  canvasHeight,
+  trackHeight,            // ← actual height of the track path
+  totalLaneWidth,
+  cornerRadius = 100,
+  segmentsPerCurve = 12,
+  trackPadding = 0
+}) {
+  const centerX = canvasWidth / 2;
+  const centerY = canvasHeight / 2;
+
+  const halfTrack = totalLaneWidth / 2;
+  const left = trackPadding + halfTrack;
+  const right = canvasWidth - trackPadding - halfTrack;
+
+  // ✅ Use trackHeight instead of full canvas height to calculate vertical bounds
+  const top = centerY - trackHeight / 2;
+  const bottom = centerY + trackHeight / 2;
+
+  const r = cornerRadius;
+  const path = [];
+
+  // Top straight
+  path.push({ x: left + r, y: top });
+
+  // Top-right curve
+  for (let i = 0; i <= segmentsPerCurve; i++) {
+    const t = i / segmentsPerCurve;
+    const angle = (Math.PI * 1.5) + (Math.PI / 2) * t;
+    path.push({
+      x: right - r + Math.cos(angle) * r,
+      y: top + r + Math.sin(angle) * r
+    });
   }
-  
-  export { generateTrackPathWithRoundedCorners };
-  
+
+  // Bottom-right
+  for (let i = 0; i <= segmentsPerCurve; i++) {
+    const t = i / segmentsPerCurve;
+    const angle = 0 + (Math.PI / 2) * t;
+    path.push({
+      x: right - r + Math.cos(angle) * r,
+      y: bottom - r + Math.sin(angle) * r
+    });
+  }
+
+  // Bottom-left curve
+  for (let i = 0; i <= segmentsPerCurve; i++) {
+    const t = i / segmentsPerCurve;
+    const angle = (Math.PI / 2) + (Math.PI / 2) * t;
+    path.push({
+      x: left + r + Math.cos(angle) * r,
+      y: bottom - r + Math.sin(angle) * r
+    });
+  }
+
+  // Top-left
+  for (let i = 0; i <= segmentsPerCurve; i++) {
+    const t = i / segmentsPerCurve;
+    const angle = Math.PI + (Math.PI / 2) * t;
+    path.push({
+      x: left + r + Math.cos(angle) * r,
+      y: top + r + Math.sin(angle) * r
+    });
+  }
+
+  return path;
+}

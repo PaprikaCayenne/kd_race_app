@@ -1,11 +1,11 @@
 // File: frontend/src/utils/generateOffsetLane.js
-// Version: v0.1.4 — Removes padding; centers lanes inside brown track boundary
+// Version: v0.3.0 — Distributes lanes evenly around centerline, spans full track width
 
 /**
- * Compute an offset version of a centerline for a given lane.
- * @param {Array<{x: number, y: number}>} centerline - Array of {x, y} points
- * @param {number} offset - Pixels to offset. Positive = outward, Negative = inward
- * @returns {Array<{x: number, y: number}>} Offset lane path
+ * Offsets a centerline path by a fixed number of pixels using vector normals.
+ * @param {Array<{x: number, y: number}>} centerline - base path
+ * @param {number} offset - how far to offset (+ outward, - inward)
+ * @returns {Array<{x: number, y: number}>}
  */
 export function generateOffsetLane(centerline, offset) {
   const offsetPath = [];
@@ -24,7 +24,7 @@ export function generateOffsetLane(centerline, offset) {
 
     offsetPath.push({
       x: p1.x + offset * normalX,
-      y: p1.y + offset * normalY,
+      y: p1.y + offset * normalY
     });
   }
 
@@ -32,20 +32,29 @@ export function generateOffsetLane(centerline, offset) {
 }
 
 /**
- * Generate multiple offset lanes from a centerline.
- * Removes padding to properly center all lanes inside visible track
+ * Generate all lanes spaced evenly from centerline across full track thickness.
+ * Boundary padding is already included in total track thickness.
  * @param {Array<{x: number, y: number}>} centerline
- * @param {number} laneCount - Number of total lanes
- * @param {number} laneWidth - Pixels between lanes
- * @returns {Array<Array<{x: number, y: number}>>} Array of lane paths
+ * @param {number} laneCount
+ * @param {number} laneWidth
+ * @param {number} boundaryPadding — included in total width, not added again
+ * @returns {Array<Array<{x: number, y: number}>>}
  */
-export function generateAllLanes(centerline, laneCount = 4, laneWidth = 30) {
-  const mid = (laneCount - 1) / 2;
+export function generateAllLanes(centerline, laneCount = 4, laneWidth = 30, boundaryPadding = 0) {
   const lanes = [];
 
+  // Total usable width = (laneWidth * laneCount) + 2 * boundaryPadding
+  const totalLaneWidth = (laneCount * laneWidth) + (2 * boundaryPadding);
+  const halfTrack = totalLaneWidth / 2;
+
+  console.log('[KD] 🧭 Generating', laneCount, 'lanes across ±', halfTrack, 'px');
+
+  // First lane offset = -halfTrack + laneWidth / 2
   for (let i = 0; i < laneCount; i++) {
-    const baseOffset = (i - mid) * laneWidth;
-    lanes.push(generateOffsetLane(centerline, baseOffset));
+    const offset = -halfTrack + boundaryPadding + (i + 0.5) * laneWidth;
+    lanes.push(generateOffsetLane(centerline, offset));
+
+    console.log(`[KD] 🧭 Lane ${i} offset: ${offset}`);
   }
 
   return lanes;

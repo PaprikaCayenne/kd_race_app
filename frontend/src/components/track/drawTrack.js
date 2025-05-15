@@ -1,38 +1,44 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v1.1.0 — Accepts spriteWidth and startAtPercent to support precise lane spacing and path alignment
+// Version: v1.4.2 — Uses separate trackHeight to center vertically in canvas
 
 import { Graphics } from 'pixi.js';
-import { generateTrackPathWithRoundedCorners } from '@/utils/generateTrackPathWithRoundedCorners';
-import { generateAllLanes } from '@/utils/generateOffsetLane';
+import { generateCenterline } from '@/utils/generateTrackPathWithRoundedCorners';
+import { generateAllLanes, generateOffsetLane } from '@/utils/generateOffsetLane';
 
-export function drawDerbyTrack({ app, width, height, cornerRadius, laneWidth, laneCount, spriteWidth = 40, startAtPercent = 0, debug = false }) {
+/**
+ * Draws the full race track using vector-based math.
+ */
+export function drawDerbyTrack({
+  app,
+  width,
+  height,               // trackHeight only, not full canvas
+  cornerRadius,
+  laneCount,
+  laneWidth,
+  boundaryPadding = 0,
+  trackPadding = 0,
+  debug = false
+}) {
   const trackContainer = new Graphics();
 
-  const offsetX = (app.view.width - width) / 2;
-  const offsetY = (app.view.height - height) / 2;
+  const totalLaneWidth = (laneWidth * laneCount) + 2 * boundaryPadding;
+  const halfTrack = totalLaneWidth / 2;
 
-  // Use spriteWidth + padding to calculate spacing between lanes
-  const adjustedLaneWidth = spriteWidth + 2;
-
-  // Generate the master centerline path
-  const centerline = generateTrackPathWithRoundedCorners({
-    width,
-    height,
+  const centerline = generateCenterline({
+    canvasWidth: app.view.width,
+    canvasHeight: app.view.height,   // full canvas height
+    totalLaneWidth,
     cornerRadius,
-    segmentsPerCurve: 24,
-    offsetX,
-    offsetY
+    trackPadding,
+    trackHeight: height              // pass actual track height explicitly
   });
 
-  // Generate lane paths offset from centerline
-  const lanes = generateAllLanes(centerline, laneCount, adjustedLaneWidth);
+  const lanes = generateAllLanes(centerline, laneCount, laneWidth, boundaryPadding);
+  const inner = generateOffsetLane(centerline, -halfTrack);
+  const outer = generateOffsetLane(centerline, +halfTrack);
 
-  // lanes[0] = innermost lane, lanes[lanes.length - 1] = outermost lane
-  const inner = lanes[0];
-  const outer = lanes[lanes.length - 1];
-
-  // Fill area between outer and inner boundaries
-  trackContainer.beginFill(0xc49a6c); // light brown
+  // Fill the track with brown
+  trackContainer.beginFill(0xc49a6c);
   trackContainer.moveTo(outer[0].x, outer[0].y);
   outer.forEach(pt => trackContainer.lineTo(pt.x, pt.y));
   inner.slice().reverse().forEach(pt => trackContainer.lineTo(pt.x, pt.y));
@@ -41,30 +47,33 @@ export function drawDerbyTrack({ app, width, height, cornerRadius, laneWidth, la
 
   // Outer boundary
   trackContainer.lineStyle(4, 0x888888);
-  trackContainer.moveTo(outer[0].x, outer[0].y);
   outer.forEach((pt, i) => {
-    if (i > 0) trackContainer.lineTo(pt.x, pt.y);
+    if (i === 0) trackContainer.moveTo(pt.x, pt.y);
+    else trackContainer.lineTo(pt.x, pt.y);
   });
   trackContainer.lineTo(outer[0].x, outer[0].y);
 
   // Inner boundary
-  trackContainer.moveTo(inner[0].x, inner[0].y);
   inner.forEach((pt, i) => {
-    if (i > 0) trackContainer.lineTo(pt.x, pt.y);
+    if (i === 0) trackContainer.moveTo(pt.x, pt.y);
+    else trackContainer.lineTo(pt.x, pt.y);
   });
   trackContainer.lineTo(inner[0].x, inner[0].y);
 
+  // Optional centerline
   if (debug) {
-    trackContainer.lineStyle(1, 0x00ff00, 0.6);
-    trackContainer.moveTo(centerline[0].x, centerline[0].y);
-    for (let i = 1; i < centerline.length; i++) {
-      trackContainer.lineTo(centerline[i].x, centerline[i].y);
-    }
+    trackContainer.lineStyle(1, 0x00ff00, 0.5);
+    centerline.forEach((pt, i) => {
+      if (i === 0) trackContainer.moveTo(pt.x, pt.y);
+      else trackContainer.lineTo(pt.x, pt.y);
+    });
     trackContainer.lineTo(centerline[0].x, centerline[0].y);
   }
 
   app.stage.addChild(trackContainer);
 
-  // Return geometry for later use
-  return { lanes, centerline };
+  return {
+    lanes,
+    centerline
+  };
 }

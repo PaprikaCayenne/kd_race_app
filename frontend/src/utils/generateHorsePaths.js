@@ -1,23 +1,31 @@
 // File: frontend/src/utils/generateHorsePaths.js
-// Version: v1.3.7 — Uses lanes from trackData to align with visual track boundaries
+// Version: v1.3.9 — Applies sprite width offset to align horse nose with progress=0
 
 /**
- * Generate full-length visible paths per horse using passed-in lanes.
- * All paths align with pre-rendered track geometry.
+ * Generate full-length paths per horse based on lane geometry.
+ * First horse gets innermost lane (lane 0), next horses move outward.
  */
 export function generateHorsePaths({
   horses,
   lanes,
-  spriteWidth = 40
+  spriteWidth = 20 // dynamically passed in
 }) {
   const horsePaths = {};
+
+  if (lanes.length < horses.length) {
+    console.warn(`[KD] ⚠️ Not enough lanes for all horses`);
+  }
 
   horses.forEach((horse, i) => {
     const laneIndex = i % lanes.length;
     const path = lanes[laneIndex];
-    if (!path || path.length < 2) return;
 
-    // Offset start slightly backward to center the sprite
+    if (!path || path.length < 2) {
+      console.warn(`[KD] ⚠️ Skipping horse ${horse.id} — invalid lane ${laneIndex}`);
+      return;
+    }
+
+    // Offset the path start so that progress=0 places the sprite correctly
     const offsetDistance = spriteWidth * 0.5;
     const p0 = path[0];
     const p1 = path[1];
@@ -38,6 +46,8 @@ export function generateHorsePaths({
       path: adjustedPath,
       laneIndex
     };
+
+    console.log(`[KD] 🐴 Assigned horse ${horse.id} → lane ${laneIndex} (inner to outer)`);
   });
 
   return horsePaths;
