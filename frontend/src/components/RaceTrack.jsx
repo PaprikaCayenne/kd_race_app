@@ -27,7 +27,7 @@ const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
 const HORSE_PADDING = 1;
 const BOUNDARY_PADDING = 1;
-const startAtPercent = 0;
+const startAtPercent = .50;
 
 const RaceTrack = () => {
   const containerRef = useRef(null);
