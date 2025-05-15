@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.2.0 — Aligns horses to padded path start; removes duplicate offset
+// Version: v1.6.0 — Uses vector path start instead of raw path[0]; fully aligned to arc-length logic
 
 import { Graphics, Text } from 'pixi.js';
 import { createHorseSprite } from '@/utils/createHorseSprite';
@@ -20,59 +20,64 @@ export function setupHorses({
   lanes,
   debugVisible
 }) {
-  horses.forEach((horse, index) => {
-    const { id, color } = horse;
+  horseSpritesRef.current = new Map();
+  labelSpritesRef.current = new Map();
+  horsePathsRef.current = new Map();
+  finishedHorsesRef.current = new Set();
+  debugPathLinesRef.current = [];
+  startDotsRef.current = [];
+
+  console.log('[KD] 🧩 horseSpritesRef identity at setup:', horseSpritesRef.current);
+  console.log('[KD] 🧪 Debug horseSpritesRef keys:', Array.from(horseSpritesRef.current?.keys?.() ?? []));
+  console.log('[KD] 🧪 Debug horsePathsRef keys:', Array.from(horsePathsRef.current?.keys?.() ?? []));
+  console.log('[KD] 🧪 Debug horses (dbId, localId):', horses.map(h => `(${h.id}, ${h.localId})`));
+
+  horses.forEach((horse) => {
+    const { id, color, localId } = horse;
     const horseData = horsePaths[id];
 
-    if (!horseData || !horseData.path || horseData.path.length < 2) {
-      console.warn(`[KD] ⚠️ Skipping horse ID ${id} — invalid path`, horseData);
+    if (!horseData || typeof horseData.getPointAtDistance !== 'function') {
+      console.warn(`[KD] ⚠️ Skipping horse dbId=${id} | localId=${localId} — invalid vector path`, horseData);
       return;
     }
 
-    const path = horseData.path;
-    const laneIndex = horseData.laneIndex;
+    const { laneIndex, path, getPointAtDistance, pathLength } = horseData;
+    const start = getPointAtDistance(0);
 
     const sprite = createHorseSprite(color, id, app);
     sprite.anchor?.set?.(0.5);
     sprite.zIndex = 5;
     sprite.__progress = 0;
+    sprite.__distance = 0;
     sprite.__horseId = id;
-    sprite.__localIndex = index;
+    sprite.__localIndex = localId;
 
-    const dx = path[1].x - path[0].x;
-    const dy = path[1].y - path[0].y;
-    const len = Math.sqrt(dx ** 2 + dy ** 2);
-    if (len === 0 || isNaN(len)) {
-      console.warn(`[KD] ⚠️ Invalid direction vector for horse ${id}`, { p0: path[0], p1: path[1] });
-      return;
-    }
+    sprite.position.set(start.x, start.y);
+    sprite.rotation = start.rotation;
 
-    // Directly place horse at path[0], which is already offset for sprite width
-    sprite.position.set(path[0].x, path[0].y);
-    sprite.rotation = Math.atan2(dy, dx);
-
-    console.log(`[KD] 🐎 Placing horse ${id} at (${path[0].x.toFixed(1)}, ${path[0].y.toFixed(1)}) in lane ${laneIndex}`);
+    console.log(`[KD] 🐎 Placing horse ${horse.name} | dbId=${id} | localId=${localId} at (${start.x.toFixed(1)}, ${start.y.toFixed(1)}) in lane ${laneIndex}`);
+    console.log(`[KD] ↪️ Facing angle: ${sprite.rotation.toFixed(2)} rad`);
 
     app.stage.addChild(sprite);
-    horseSpritesRef.current.set(index, sprite);
-    horsePathsRef.current[index] = horse;
+    horseSpritesRef.current.set(id, sprite);
+    horsePathsRef.current.set(id, horseData);
 
-    const label = new Text(`${index + 1}`, {
+    const label = new Text(`${localId + 1}`, {
       fontSize: 12,
       fill: 0xffffff,
       stroke: 0x000000,
       strokeThickness: 2
     });
     label.anchor.set(0.5);
-    label.position.set(path[0].x, path[0].y);
+    label.position.set(start.x, start.y - 20);
     label.zIndex = 6;
-    labelSpritesRef.current.set(index, label);
+    labelSpritesRef.current.set(id, label);
     if (debugVisible) app.stage.addChild(label);
 
     const dot = new Graphics();
     dot.beginFill(0x00ff00).drawCircle(0, 0, 4).endFill();
     dot.zIndex = 99;
-    dot.position.set(path[0].x, path[0].y);
+    dot.position.set(start.x, start.y);
     startDotsRef.current.push(dot);
     if (debugVisible) app.stage.addChild(dot);
 

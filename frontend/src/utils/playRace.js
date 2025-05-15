@@ -1,156 +1,159 @@
 // File: frontend/src/utils/playRace.js
-// Version: v1.1.9 — Isolates curveFactor effect and throttles logging
+// Version: v2.3.0 — Adds deep diagnostic logs for movement skipping reasons
 
-const BASE_SPEED = 0.00019;
-const DEBUG_ROTATION = true;
-const DEBUG_LOG_INTERVAL = 10;
-
-export function playRace({ app, horseSprites, horsePaths, labelSprites, finishedHorses, horses, onRaceEnd, speedMultiplier = 1 }) {
-  const lapFinished = new Set();
-  const resultOrder = [];
-  let winnerDeclared = false;
-  const speedProfiles = new Map();
-  const effectTimers = new Map();
-  const replayLog = new Map();
-  const frameCounts = new Map();
-
-  console.log('[KD] 🎬 Starting race via playRace');
-  console.log('[KD] 🚩 Horses in race:', [...horseSprites.keys()]);
-
+export function playRace({
+  app,
+  horseSprites,
+  horsePaths,
+  labelSprites,
+  finishedHorses,
+  horses,
+  onRaceEnd,
+  speedMultiplier = 1
+}) {
   if (app.__raceTicker) {
     app.ticker.remove(app.__raceTicker);
     app.__raceTicker = null;
   }
 
+  console.log('[KD] 🎬 Starting race with vector-distance tracking');
+  console.log('[KD] 🧪 playRace received horses:', horses.map(h => `(${h.id}, ${h.localId})`));
+
+  const resultOrder = [];
+  const lapFinished = new Set();
+
+  const replayLog = new Map();
+  const speedProfiles = new Map();
+
+  const BASE_SPEED = 0.45;
+  const CURVE_EXAGGERATION = 2.0;
+  const EPSILON = 2;
+  const DEBUG = true;
+
+  horses.forEach((horse) => {
+    speedProfiles.set(horse.id, {
+      fatigue: 1.0,
+      burst: false
+    });
+
+    const sprite = horseSprites.get(horse.id);
+    if (sprite) {
+      sprite.__distance = 0;
+      if (DEBUG) {
+        console.log(`[KD] 🐎 Init ${horse.name} | id=${horse.id} | localId=${horse.localId} | Start dist=0`);
+      }
+    }
+  });
+
   const ticker = (delta) => {
-    const now = performance.now();
+    console.log('[KD] ⏱️ ticker loop triggered');
+    console.log('[KD] ⏱️ horses.length =', horses.length);
 
-    horseSprites.forEach((sprite, localId) => {
-      const pathData = horsePaths[localId];
-      if (!pathData?.path || pathData.path.length < 2 || finishedHorses.has(localId)) return;
+    let allFinished = true;
 
-      const path = pathData.path;
-      const finishIndex = pathData.debug?.finishIndex;
-      if (finishIndex == null) return;
+    horses.forEach((horse) => {
+      const horseId = horse.id;
+      const localId = horse.localId ?? '?';
+      const sprite = horseSprites.get(horseId);
+      const label = labelSprites.get(horseId);
+      const pathData = horsePaths.get(horseId);
 
-      const currentIdx = Math.floor(sprite.__progress * path.length);
-      if (currentIdx >= finishIndex) {
-        if (!lapFinished.has(localId)) {
-          lapFinished.add(localId);
-          finishedHorses.add(localId);
+      const isSpriteMissing = !sprite;
+      const isPathMissing = !pathData;
+      const isAlreadyFinished = finishedHorses.has(horseId);
 
-          const horseObj = horses.find(h => h.id === sprite.__horseId);
-          const name = horseObj?.name ?? `Horse_${localId}`;
-          const dbId = sprite.__horseId ?? horseObj?.id ?? localId;
-          const raceIndex = sprite.__localIndex ?? localId;
+      if (isSpriteMissing || isPathMissing || isAlreadyFinished) {
+        console.warn(`[KD] 🚫 Skipping horse id=${horseId} | localId=${localId}`);
+        if (isSpriteMissing) console.warn(`[KD] ❌ Missing sprite for id=${horseId}`);
+        if (isPathMissing) console.warn(`[KD] ❌ Missing pathData for id=${horseId}`);
+        if (isAlreadyFinished) console.warn(`[KD] ⚠️ Already marked finished: id=${horseId}`);
+        return;
+      }
 
-          console.log(`[KD] 🐎 Finished: ${name} DB_ID: ${dbId}, ID=${raceIndex}`);
+      console.log(`[KD] ✅ Executing movement for horse id=${horseId} | localId=${localId}`);
 
-          if (!winnerDeclared) {
-            console.log(`[KD] 🏆 Winner: ${name} DB_ID: ${dbId}, ID=${raceIndex}`);
-            winnerDeclared = true;
-          }
+      const { rotatedPath, pathLength, getPointAtDistance, getCurveFactorAt } = pathData;
+      if (!rotatedPath || !getPointAtDistance) {
+        console.warn(`[KD] ❌ Incomplete pathData for id=${horseId}`);
+        return;
+      }
 
-          resultOrder.push({ name, dbId, localId: raceIndex, frames: replayLog.get(localId) });
+      const profile = speedProfiles.get(horseId);
+      const fatigue = profile?.fatigue ?? 1.0;
+      const burst = profile?.burst ?? false;
 
-          if (lapFinished.size === horses.length) {
-            console.log('[KD] 🏁 All horses finished!');
-            resultOrder.forEach((h, i) => {
-              console.log(`[KD] ${i + 1}st: ${h.name} DB_ID: ${h.dbId}, ID=${h.localId}`);
-            });
+      const currentDistance = sprite.__distance ?? 0;
 
-            if (typeof playRace.onReplayReady === 'function') {
-              playRace.onReplayReady({
-                horses: resultOrder.map((h, i) => ({
-                  place: i + 1,
-                  name: h.name,
-                  dbId: h.dbId,
-                  localId: h.localId,
-                  frames: h.frames
-                }))
-              });
-            }
+      const curveFactor = getCurveFactorAt ? getCurveFactorAt(currentDistance) : 1.0;
+      const curveBoost = Math.pow(curveFactor, CURVE_EXAGGERATION);
+      const finalSpeed = BASE_SPEED * fatigue * (burst ? 1.2 : 1) * curveBoost * speedMultiplier;
+      const nextDistance = currentDistance + finalSpeed * delta;
 
-            if (typeof onRaceEnd === 'function') {
-              setTimeout(() => onRaceEnd(), 100);
-            }
+      if (DEBUG) {
+        console.log(`[KD] 🏃 Frame: ${horse.name} | id=${horseId} | dist=${currentDistance.toFixed(2)} → ${nextDistance.toFixed(2)} | speed=${finalSpeed.toFixed(3)}`);
+      }
+
+      if (nextDistance >= pathLength - EPSILON) {
+        if (!finishedHorses.has(horseId)) {
+          finishedHorses.add(horseId);
+          lapFinished.add(horseId);
+          resultOrder.push({
+            id: horseId,
+            name: horse.name,
+            localId,
+            timeMs: performance.now()
+          });
+          if (DEBUG) {
+            console.log(`[KD] 🏁 Finished: ${horse.name} | id=${horseId} | localId=${localId} @ ${nextDistance.toFixed(2)} / ${pathLength}`);
           }
         }
         return;
       }
 
-      if (!sprite.__started) {
-        sprite.__started = true;
-        sprite.__progress = 0.001;
-        const curr = path[0];
-        const next = path[1];
-        sprite.position.set(curr.x, curr.y);
-        sprite.__rotation = Math.atan2(next.y - curr.y, next.x - curr.x);
-        sprite.rotation = sprite.__rotation;
-        sprite.__lastRotation = sprite.__rotation;
-        const label = labelSprites.get(localId);
-        if (label) label.position.set(curr.x, curr.y);
-        speedProfiles.set(localId, {});
-        effectTimers.set(localId, {});
-        replayLog.set(localId, []);
-        frameCounts.set(localId, 0);
-        return;
+      allFinished = false;
+      sprite.__distance = nextDistance;
+
+      const { x, y, rotation } = getPointAtDistance(nextDistance);
+      sprite.x = x;
+      sprite.y = y;
+      sprite.rotation = rotation;
+
+      if (DEBUG) {
+        console.log(`[KD] 🧭 Pos: ${horse.name} → (${x.toFixed(1)}, ${y.toFixed(1)}) | rot=${rotation.toFixed(2)}`);
       }
 
-      let curveFactor = 1;
-      if (currentIdx > 0 && currentIdx < path.length - 2) {
-        const prev = path[currentIdx - 1];
-        const curr = path[currentIdx];
-        const next = path[currentIdx + 1];
-        const a1 = Math.atan2(curr.y - prev.y, curr.x - prev.x);
-        const a2 = Math.atan2(next.y - curr.y, next.x - curr.x);
-        let angleDiff = Math.abs(a2 - a1);
-        if (angleDiff > Math.PI) angleDiff = Math.abs(angleDiff - 2 * Math.PI);
-        const curveIntensity = angleDiff / Math.PI;
-        curveFactor = 1 + (curveIntensity * 5.0); // exaggerated boost
+      if (label) {
+        label.x = x;
+        label.y = y - 20;
       }
 
-      const finalSpeed = BASE_SPEED * curveFactor;
-      sprite.__progress += finalSpeed * delta;
-
-      const count = (frameCounts.get(localId) || 0) + 1;
-      frameCounts.set(localId, count);
-      if (count % DEBUG_LOG_INTERVAL === 0) {
-        console.log(`[KD] 🌀 Horse ${localId} | curveFactor=${curveFactor.toFixed(2)} | finalSpeed=${finalSpeed.toFixed(6)} | pct=${sprite.__progress.toFixed(3)}`);
-      }
-
-      const idx = Math.floor(sprite.__progress * path.length);
-      const cappedIdx = Math.min(idx, path.length - 2);
-      const curr = path[cappedIdx];
-      const next = path[cappedIdx + 1];
-      const lerpT = (sprite.__progress * path.length) - cappedIdx;
-      const x = curr.x + (next.x - curr.x) * lerpT;
-      const y = curr.y + (next.y - curr.y) * lerpT;
-
-      sprite.position.set(x, y);
-
-      const dx = next.x - curr.x;
-      const dy = next.y - curr.y;
-      let desired = Math.atan2(dy, dx);
-
-      let last = sprite.__lastRotation ?? desired;
-      while (desired - last > Math.PI) desired -= 2 * Math.PI;
-      while (desired - last < -Math.PI) desired += 2 * Math.PI;
-      sprite.__lastRotation = desired;
-      sprite.rotation = desired;
-
-      const label = labelSprites.get(localId);
-      if (label) label.position.set(x, y);
-
-      replayLog.get(localId).push({
-        pct: sprite.__progress,
-        timeMs: now,
+      if (!replayLog.has(horseId)) replayLog.set(horseId, []);
+      replayLog.get(horseId).push({
+        time: performance.now(),
+        distance: nextDistance,
         speed: finalSpeed,
-        curveFactor
+        fatigue,
+        burst,
+        curveFactor,
+        x,
+        y,
+        localId
       });
     });
+
+    if (allFinished && horses.length && finishedHorses.size === horses.length) {
+      if (DEBUG) console.log('[KD] ✅ All horses finished');
+      app.ticker.remove(ticker);
+      app.__raceTicker = null;
+      onRaceEnd?.(resultOrder, replayLog);
+    }
   };
 
   app.ticker.add(ticker);
+  app.ticker.start();
+
+  console.log('[KD] 🧪 Ticker added to app:', !!app.ticker);
+  console.log('[KD] 🧪 app.ticker.running:', app.ticker?.started ?? 'unknown (force-started)');
+
   app.__raceTicker = ticker;
 }

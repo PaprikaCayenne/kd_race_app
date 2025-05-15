@@ -1,43 +1,50 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v1.4.2 — Uses separate trackHeight to center vertically in canvas
+// Version: v1.6.0 — Refactors start line rendering and relies on getPointAtDistance from vector centerline
 
 import { Graphics } from 'pixi.js';
 import { generateCenterline } from '@/utils/generateTrackPathWithRoundedCorners';
 import { generateAllLanes, generateOffsetLane } from '@/utils/generateOffsetLane';
 
 /**
- * Draws the full race track using vector-based math.
+ * Draws the full race track using vector-based geometry.
  */
 export function drawDerbyTrack({
   app,
   width,
-  height,               // trackHeight only, not full canvas
+  height,
   cornerRadius,
   laneCount,
   laneWidth,
   boundaryPadding = 0,
   trackPadding = 0,
-  debug = false
+  debug = false,
+  startAtPercent = 0
 }) {
   const trackContainer = new Graphics();
-
   const totalLaneWidth = (laneWidth * laneCount) + 2 * boundaryPadding;
   const halfTrack = totalLaneWidth / 2;
 
-  const centerline = generateCenterline({
+  // Generate centerline + arc projection utils
+  const centerlineData = generateCenterline({
     canvasWidth: app.view.width,
-    canvasHeight: app.view.height,   // full canvas height
+    canvasHeight: app.view.height,
     totalLaneWidth,
     cornerRadius,
     trackPadding,
-    trackHeight: height              // pass actual track height explicitly
+    trackHeight: height
   });
 
+  const centerline = centerlineData.path;
+  const getPointAtDistance = centerlineData.getPointAtDistance;
+  const getCurveFactorAt = centerlineData.getCurveFactorAt;
+  const pathLength = centerlineData.length;
+
+  // Generate all lanes
   const lanes = generateAllLanes(centerline, laneCount, laneWidth, boundaryPadding);
   const inner = generateOffsetLane(centerline, -halfTrack);
   const outer = generateOffsetLane(centerline, +halfTrack);
 
-  // Fill the track with brown
+  // Fill the track surface
   trackContainer.beginFill(0xc49a6c);
   trackContainer.moveTo(outer[0].x, outer[0].y);
   outer.forEach(pt => trackContainer.lineTo(pt.x, pt.y));
@@ -45,7 +52,7 @@ export function drawDerbyTrack({
   trackContainer.lineTo(outer[0].x, outer[0].y);
   trackContainer.endFill();
 
-  // Outer boundary
+  // Outer boundary line
   trackContainer.lineStyle(4, 0x888888);
   outer.forEach((pt, i) => {
     if (i === 0) trackContainer.moveTo(pt.x, pt.y);
@@ -53,7 +60,7 @@ export function drawDerbyTrack({
   });
   trackContainer.lineTo(outer[0].x, outer[0].y);
 
-  // Inner boundary
+  // Inner boundary line
   inner.forEach((pt, i) => {
     if (i === 0) trackContainer.moveTo(pt.x, pt.y);
     else trackContainer.lineTo(pt.x, pt.y);
@@ -70,10 +77,37 @@ export function drawDerbyTrack({
     trackContainer.lineTo(centerline[0].x, centerline[0].y);
   }
 
+  // Draw start line at specified arc percent
+  const startDist = startAtPercent * pathLength;
+  const { x, y, rotation } = getPointAtDistance(startDist);
+  const normal = { x: -Math.sin(rotation), y: Math.cos(rotation) };
+  const lineLength = totalLaneWidth;
+
+  const startA = {
+    x: x + normal.x * (lineLength / 2),
+    y: y + normal.y * (lineLength / 2)
+  };
+  const startB = {
+    x: x - normal.x * (lineLength / 2),
+    y: y - normal.y * (lineLength / 2)
+  };
+
+  const startLine = new Graphics();
+  startLine.lineStyle(4, 0x00ff00);
+  startLine.moveTo(startA.x, startA.y);
+  startLine.lineTo(startB.x, startB.y);
+  startLine.zIndex = 100;
+  app.stage.addChild(startLine);
+
+  console.log(`[KD] 🟢 Start line at ${Math.round(startAtPercent * 100)}% → from (${startA.x.toFixed(1)}, ${startA.y.toFixed(1)}) to (${startB.x.toFixed(1)}, ${startB.y.toFixed(1)})`);
+
   app.stage.addChild(trackContainer);
 
   return {
     lanes,
-    centerline
+    centerline,
+    getPointAtDistance,
+    getCurveFactorAt,
+    pathLength
   };
 }

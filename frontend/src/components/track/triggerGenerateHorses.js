@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/triggerGenerateHorses.js
-// Version: v1.3.0 — Uses lanes from trackData for accurate horse pathing
+// Version: v1.4.2 — Ensures horsesRef includes localId; adds debug log before assignment
 
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
 import { setupHorses } from './setupHorses';
@@ -39,7 +39,7 @@ export async function triggerGenerateHorses({
     return;
   }
 
-  const { laneCount, lanes, spriteWidth } = trackData;
+  const { laneCount, lanes, spriteWidth, centerline } = trackData;
 
   let horses = [];
   try {
@@ -48,11 +48,19 @@ export async function triggerGenerateHorses({
 
     const usedSet = usedHorseIdsRef?.current || new Set();
     const unused = allHorses.filter(h => !usedSet.has(h.id));
-    horses = unused.slice(0, laneCount);
-    horses.forEach(h => usedSet.add(h.id));
+    const selected = unused.slice(0, laneCount);
 
+    horses = selected.map((h, index) => ({
+      ...h,
+      localId: index
+    }));
+
+    horses.forEach(h => usedSet.add(h.id));
     if (usedHorseIdsRef?.current) usedHorseIdsRef.current = usedSet;
-    horsesRef.current = horses;
+
+    horses.forEach(h =>
+      logInfo(`[KD] 🐴 Selected Horse: ${h.name} | dbId=${h.id} | localId=${h.localId}`)
+    );
   } catch (err) {
     console.error('[KD] ❌ Failed to fetch horses:', err);
     return;
@@ -68,8 +76,17 @@ export async function triggerGenerateHorses({
   const horsePaths = generateHorsePaths({
     horses,
     lanes,
+    centerline,
+    startAtPercent,
     spriteWidth
   });
+
+  const validHorsePaths = Object.values(horsePaths).filter(p => p?.path?.length >= 2);
+  console.log('[KD] 🧪 Valid horsePaths count:', validHorsePaths.length);
+
+  // ✅ Assign horsesRef first to preserve localId across lifecycle
+  horsesRef.current = horses;
+  console.log('[KD] 🧪 horsesRef.current set:', horsesRef.current.map(h => `(${h.id}, ${h.localId})`));
 
   setupHorses({
     app,
@@ -83,7 +100,7 @@ export async function triggerGenerateHorses({
     finishDotsRef,
     startDotsRef,
     horsePathsRef,
-    lanes: Object.values(horsePaths).map(p => p.path),
+    lanes: validHorsePaths.map(p => p.path),
     debugVisible
   });
 

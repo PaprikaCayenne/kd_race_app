@@ -25,9 +25,9 @@ const CANVAS_HEIGHT = TRACK_HEIGHT + TRACK_PADDING * 2;
 
 const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
-const HORSE_PADDING = 1;
+const HORSE_PADDING = 5;
 const BOUNDARY_PADDING = 1;
-const startAtPercent = .50;
+const startAtPercent = .12;
 
 const RaceTrack = () => {
   const containerRef = useRef(null);
@@ -42,7 +42,7 @@ const RaceTrack = () => {
   const startDotsRef = useRef([]);
 
   const trackDataRef = useRef(null);
-  const horsePathsRef = useRef({});
+  const horsePathsRef = useRef(new Map());
   const horsesRef = useRef([]);
   const finishedHorsesRef = useRef(new Set());
   const usedHorseIdsRef = useRef(new Set());
@@ -67,6 +67,7 @@ const RaceTrack = () => {
       autoDensity: true
     });
     app.stage.sortableChildren = true;
+    app.start();
     appRef.current = app;
 
     fetch('/api/horses')
@@ -89,6 +90,7 @@ const RaceTrack = () => {
           laneWidth,
           boundaryPadding: BOUNDARY_PADDING,
           trackPadding: TRACK_PADDING,
+          startAtPercent, // ⬅️ add this
           debug: debugVisible
         });
 
