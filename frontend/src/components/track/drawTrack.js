@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v1.6.0 — Refactors start line rendering and relies on getPointAtDistance from vector centerline
+// Version: v1.6.1 — Adds guards for inner/outer lane arrays to prevent crash on invalid offset lanes
 
 import { Graphics } from 'pixi.js';
 import { generateCenterline } from '@/utils/generateTrackPathWithRoundedCorners';
@@ -43,6 +43,17 @@ export function drawDerbyTrack({
   const lanes = generateAllLanes(centerline, laneCount, laneWidth, boundaryPadding);
   const inner = generateOffsetLane(centerline, -halfTrack);
   const outer = generateOffsetLane(centerline, +halfTrack);
+
+  // ✅ Guard: Ensure inner and outer lanes are valid
+  if (!Array.isArray(inner) || inner.length < 2) {
+    console.error('[KD] ❌ Invalid inner lane generated:', inner);
+    return { lanes: [], centerline, getPointAtDistance, getCurveFactorAt, pathLength };
+  }
+
+  if (!Array.isArray(outer) || outer.length < 2) {
+    console.error('[KD] ❌ Invalid outer lane generated:', outer);
+    return { lanes: [], centerline, getPointAtDistance, getCurveFactorAt, pathLength };
+  }
 
   // Fill the track surface
   trackContainer.beginFill(0xc49a6c);

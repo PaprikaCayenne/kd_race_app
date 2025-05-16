@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/triggerGenerateHorses.js
-// Version: v1.4.2 — Ensures horsesRef includes localId; adds debug log before assignment
+// Version: v1.4.3 — Bypasses generateHorsePaths with dummy fallback for crash isolation
 
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
 import { setupHorses } from './setupHorses';
@@ -71,20 +71,37 @@ export async function triggerGenerateHorses({
     return;
   }
 
-  logInfo('[KD] 🐴 Generating horse paths for', horses.length, 'horses');
+  logInfo('[KD] 🐴 Skipping generateHorsePaths() — using dummy paths');
 
-  const horsePaths = generateHorsePaths({
-    horses,
-    lanes,
-    centerline,
-    startAtPercent,
-    spriteWidth
+  // Bypass generateHorsePaths to isolate crash source
+  const horsePaths = new Map();
+  horses.forEach((h, i) => {
+    horsePaths.set(h.id, {
+      path: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
+      rotatedPath: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
+      laneIndex: i,
+      pathLength: 100,
+      segments: [100],
+      getPointAtDistance: (d) => ({
+        x: 0 + d,
+        y: 0,
+        rotation: 0
+      }),
+      getCurveFactorAt: () => 1.0
+    });
   });
 
-  const validHorsePaths = Object.values(horsePaths).filter(p => p?.path?.length >= 2);
+  // const horsePaths = generateHorsePaths({
+  //   horses,
+  //   lanes,
+  //   centerline,
+  //   startAtPercent,
+  //   spriteWidth
+  // });
+
+  const validHorsePaths = Array.from(horsePaths.values()).filter(p => p?.path?.length >= 2);
   console.log('[KD] 🧪 Valid horsePaths count:', validHorsePaths.length);
 
-  // ✅ Assign horsesRef first to preserve localId across lifecycle
   horsesRef.current = horses;
   console.log('[KD] 🧪 horsesRef.current set:', horsesRef.current.map(h => `(${h.id}, ${h.localId})`));
 
