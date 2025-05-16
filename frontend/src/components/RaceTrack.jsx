@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v1.8.7 — Fixes canvas height override by Tailwind; binds height from TRACK_HEIGHT + padding
+// Version: v1.8.9 — Passes correct trackData for path generation
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from 'pixi.js';
@@ -14,20 +14,19 @@ import ReplayControls from './ReplayControls';
 
 import { getSpriteDimensions } from '@/utils/spriteDimensionCache';
 
-const VERSION = 'v1.8.7';
+const VERSION = 'v1.8.9';
 const socket = io('/race', { path: '/api/socket.io' });
 
-// Layout constants
 const TRACK_WIDTH = window.innerWidth;
-const TRACK_PADDING = 60; // Vertical padding above/below the track
-const TRACK_HEIGHT = 600; // The track's actual height (not full canvas)
+const TRACK_PADDING = 60;
+const TRACK_HEIGHT = 600;
 const CANVAS_HEIGHT = TRACK_HEIGHT + TRACK_PADDING * 2;
 
 const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
 const HORSE_PADDING = 5;
 const BOUNDARY_PADDING = 1;
-const startAtPercent = .12;
+const startAtPercent = 0.20; // Top-middle (12 o'clock)
 
 const RaceTrack = () => {
   const containerRef = useRef(null);
@@ -54,9 +53,6 @@ const RaceTrack = () => {
   const [replayHistory, setReplayHistory] = useState([]);
   const [replayToPlay, setReplayToPlay] = useState(null);
 
-  const lanesRef = useRef(null);
-  const centerlineRef = useRef(null);
-
   useEffect(() => {
     const app = new Application({
       view: canvasRef.current,
@@ -72,16 +68,18 @@ const RaceTrack = () => {
 
     fetch('/api/horses')
       .then(res => res.json())
-      .then(horses => {
+      .then(async horses => {
         horsesRef.current = horses.slice(0, LANE_COUNT);
 
-        const measuredWidths = horsesRef.current.map(h =>
-          getSpriteDimensions(h.color, h.id, app).width
+        const measuredWidths = await Promise.all(
+          horsesRef.current.map(h =>
+            getSpriteDimensions(h.color, h.id, app).width
+          )
         );
         const maxSpriteWidth = Math.max(...measuredWidths);
         const laneWidth = maxSpriteWidth + HORSE_PADDING;
 
-        const { lanes, centerline } = drawDerbyTrack({
+        const track = drawDerbyTrack({
           app,
           width: TRACK_WIDTH,
           height: TRACK_HEIGHT,
@@ -90,17 +88,19 @@ const RaceTrack = () => {
           laneWidth,
           boundaryPadding: BOUNDARY_PADDING,
           trackPadding: TRACK_PADDING,
-          startAtPercent, // ⬅️ add this
+          startAtPercent,
           debug: debugVisible
         });
 
-        lanesRef.current = lanes;
-        centerlineRef.current = centerline;
+        if (!track || !track.lanes || !track.centerline) {
+          console.error('[KD] ❌ drawDerbyTrack failed:', track);
+          return;
+        }
+
         trackDataRef.current = {
-          lanes,
-          centerline,
-          laneWidth,
+          ...track,
           laneCount: LANE_COUNT,
+          laneWidth,
           spriteWidth: maxSpriteWidth
         };
 
@@ -152,9 +152,20 @@ const RaceTrack = () => {
   }, [replayToPlay]);
 
   const handleGenerate = () => {
+    const { lanes, centerline, spriteWidth } = trackDataRef.current ?? {};
+    if (!lanes || !centerline || !spriteWidth) {
+      console.error('[KD] ❌ trackDataRef is incomplete — cannot generate horses');
+      return;
+    }
+
     triggerGenerateHorses({
       app: appRef.current,
-      trackData: trackDataRef.current,
+      trackData: {
+        ...trackDataRef.current,
+        lanes,
+        centerline,
+        spriteWidth
+      },
       horsesRef,
       horseSpritesRef,
       labelSpritesRef,
@@ -191,11 +202,10 @@ const RaceTrack = () => {
 
     if (typeof window !== 'undefined' && window.playRace) {
       window.playRace.onReplayReady = (replayData) => {
-        const newReplay = {
+        setReplayHistory(prev => [...prev, {
           timestamp: Date.now(),
           data: replayData
-        };
-        setReplayHistory(prev => [...prev, newReplay]);
+        }]);
       };
     }
   };

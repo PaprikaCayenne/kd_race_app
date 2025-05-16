@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v1.6.1 — Adds guards for inner/outer lane arrays to prevent crash on invalid offset lanes
+// Version: v1.6.2 — Guards centerline and lane structure, returns null if invalid
 
 import { Graphics } from 'pixi.js';
 import { generateCenterline } from '@/utils/generateTrackPathWithRoundedCorners';
@@ -39,20 +39,32 @@ export function drawDerbyTrack({
   const getCurveFactorAt = centerlineData.getCurveFactorAt;
   const pathLength = centerlineData.length;
 
+  // ✅ Guard: Ensure centerline is valid
+  if (!Array.isArray(centerline) || centerline.length < 2) {
+    console.error('[KD] ❌ drawDerbyTrack: Invalid centerline path:', centerline);
+    return null;
+  }
+
   // Generate all lanes
   const lanes = generateAllLanes(centerline, laneCount, laneWidth, boundaryPadding);
+
+  // ✅ Guard: Ensure all generated lanes are valid arrays with 2+ points
+  if (!Array.isArray(lanes) || lanes.length !== laneCount || lanes.some(l => !Array.isArray(l) || l.length < 2)) {
+    console.error('[KD] ❌ drawDerbyTrack: Invalid lanes structure:', lanes);
+    return null;
+  }
+
   const inner = generateOffsetLane(centerline, -halfTrack);
   const outer = generateOffsetLane(centerline, +halfTrack);
 
-  // ✅ Guard: Ensure inner and outer lanes are valid
   if (!Array.isArray(inner) || inner.length < 2) {
     console.error('[KD] ❌ Invalid inner lane generated:', inner);
-    return { lanes: [], centerline, getPointAtDistance, getCurveFactorAt, pathLength };
+    return null;
   }
 
   if (!Array.isArray(outer) || outer.length < 2) {
     console.error('[KD] ❌ Invalid outer lane generated:', outer);
-    return { lanes: [], centerline, getPointAtDistance, getCurveFactorAt, pathLength };
+    return null;
   }
 
   // Fill the track surface

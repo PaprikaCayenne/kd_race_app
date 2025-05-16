@@ -1,6 +1,3 @@
-// File: frontend/src/components/track/triggerGenerateHorses.js
-// Version: v1.4.3 — Bypasses generateHorsePaths with dummy fallback for crash isolation
-
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
 import { setupHorses } from './setupHorses';
 import { logInfo } from './debugConsole';
@@ -25,106 +22,117 @@ export async function triggerGenerateHorses({
   usedHorseIdsRef,
   debugVisible
 }) {
+  console.log('[KD] 🟡 triggerGenerateHorses() START');
+
   try {
-    await fetch('/api/admin/start', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-pass': '6a2e8819c6fb4c15'
-      },
-      body: JSON.stringify({ startAtPercent, width, height })
+    if (!trackData || typeof trackData !== 'object') {
+      console.error('[KD] ❌ trackData is missing or invalid:', trackData);
+      return;
+    }
+
+    const laneCount = trackData.laneCount ?? 0;
+    const lanes = Array.isArray(trackData.lanes) ? trackData.lanes : [];
+    const spriteWidth = trackData.spriteWidth ?? 0;
+    const centerline = Array.isArray(trackData.centerline) ? trackData.centerline : [];
+
+    if (lanes.length < laneCount) {
+      console.error('[KD] ❌ lanes array is too short:', lanes);
+      return;
+    }
+
+    try {
+      await fetch('/api/admin/start', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-pass': '6a2e8819c6fb4c15'
+        },
+        body: JSON.stringify({ startAtPercent, width, height })
+      });
+    } catch (err) {
+      console.error('[KD] ❌ Error triggering race:', err);
+      return;
+    }
+
+    let horses = [];
+    try {
+      const res = await fetch('/api/horses');
+      const allHorses = await res.json();
+
+      const usedSet = usedHorseIdsRef?.current || new Set();
+      const unused = allHorses.filter(h => !usedSet.has(h.id));
+
+      console.log('[KD] 🧪 Unused horses before selection:', unused.map(h => `(${h.id}, ${h.name})`));
+
+      const selected = unused.slice(0, laneCount);
+      console.log('[KD] 🧪 Selected horses:', selected.map(h => `(${h.id}, ${h.name})`));
+
+      horses = selected.map((h, index) => {
+        const mapped = { ...h, localId: index };
+        console.log(`[KD] 🎯 Assigning localId=${index} to horse id=${h.id}, name=${h.name}`);
+        return mapped;
+      });
+
+      horsesRef.current = horses;  // ✅ Moved earlier
+      console.log('[KD] ✅ horsesRef.current set:', horses.map(h => `(${h.id}, ${h.localId})`));
+
+      horses.forEach(h => usedSet.add(h.id));
+      if (usedHorseIdsRef?.current) usedHorseIdsRef.current = usedSet;
+
+      horses.forEach(h =>
+        logInfo(`[KD] 🐴 Selected Horse: ${h.name} | dbId=${h.id} | localId=${h.localId}`)
+      );
+    } catch (err) {
+      console.error('[KD] ❌ Failed to fetch horses:', err);
+      return;
+    }
+
+    if (!horses || horses.length === 0) {
+      console.error('[KD] ❌ No horses available after filtering');
+      return;
+    }
+
+    const horsePaths = await generateHorsePaths({
+      horses,
+      lanes,
+      centerline,
+      startAtPercent,
+      spriteWidth
     });
-  } catch (err) {
-    console.error('[KD] ❌ Error triggering race:', err);
-    return;
-  }
 
-  const { laneCount, lanes, spriteWidth, centerline } = trackData;
+    if (!(horsePaths instanceof Map)) {
+      console.error('[KD] ❌ generateHorsePaths did not return a Map');
+      return;
+    }
 
-  let horses = [];
-  try {
-    const res = await fetch('/api/horses');
-    const allHorses = await res.json();
+    const validHorsePaths = Array.from(horsePaths.values()).filter(p => p?.path?.length >= 2);
+    console.log('[KD] 🧪 Valid horsePaths count:', validHorsePaths.length);
+    console.log('[KD] 🧪 horsePaths Map keys:', Array.from(horsePaths.keys()));
 
-    const usedSet = usedHorseIdsRef?.current || new Set();
-    const unused = allHorses.filter(h => !usedSet.has(h.id));
-    const selected = unused.slice(0, laneCount);
-
-    horses = selected.map((h, index) => ({
-      ...h,
-      localId: index
-    }));
-
-    horses.forEach(h => usedSet.add(h.id));
-    if (usedHorseIdsRef?.current) usedHorseIdsRef.current = usedSet;
-
-    horses.forEach(h =>
-      logInfo(`[KD] 🐴 Selected Horse: ${h.name} | dbId=${h.id} | localId=${h.localId}`)
-    );
-  } catch (err) {
-    console.error('[KD] ❌ Failed to fetch horses:', err);
-    return;
-  }
-
-  if (!horses || horses.length === 0) {
-    console.error('[KD] ❌ No horses available after filtering');
-    return;
-  }
-
-  logInfo('[KD] 🐴 Skipping generateHorsePaths() — using dummy paths');
-
-  // Bypass generateHorsePaths to isolate crash source
-  const horsePaths = new Map();
-  horses.forEach((h, i) => {
-    horsePaths.set(h.id, {
-      path: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
-      rotatedPath: [{ x: 0, y: 0 }, { x: 100, y: 0 }],
-      laneIndex: i,
-      pathLength: 100,
-      segments: [100],
-      getPointAtDistance: (d) => ({
-        x: 0 + d,
-        y: 0,
-        rotation: 0
-      }),
-      getCurveFactorAt: () => 1.0
+    setupHorses({
+      app,
+      horses,
+      horsePaths,
+      horseSpritesRef,
+      labelSpritesRef,
+      finishedHorsesRef,
+      debugPathLinesRef,
+      debugDotsRef,
+      finishDotsRef,
+      startDotsRef,
+      horsePathsRef,
+      lanes: validHorsePaths.map(p => p.path),
+      debugVisible
     });
-  });
 
-  // const horsePaths = generateHorsePaths({
-  //   horses,
-  //   lanes,
-  //   centerline,
-  //   startAtPercent,
-  //   spriteWidth
-  // });
+    logInfo('[KD] ✅ Horses placed and rendered');
 
-  const validHorsePaths = Array.from(horsePaths.values()).filter(p => p?.path?.length >= 2);
-  console.log('[KD] 🧪 Valid horsePaths count:', validHorsePaths.length);
+    setRaceReady(true);
+    setCanGenerate(false);
 
-  horsesRef.current = horses;
-  console.log('[KD] 🧪 horsesRef.current set:', horsesRef.current.map(h => `(${h.id}, ${h.localId})`));
+    return horsePaths;
 
-  setupHorses({
-    app,
-    horses,
-    horsePaths,
-    horseSpritesRef,
-    labelSpritesRef,
-    finishedHorsesRef,
-    debugPathLinesRef,
-    debugDotsRef,
-    finishDotsRef,
-    startDotsRef,
-    horsePathsRef,
-    lanes: validHorsePaths.map(p => p.path),
-    debugVisible
-  });
-
-  logInfo('[KD] ✅ Horses placed and rendered');
-
-  setRaceReady(true);
-  setCanGenerate(false);
-
-  return horsePaths;
+  } catch (fatal) {
+    console.error('[KD] 💥 Uncaught error in triggerGenerateHorses:', fatal);
+  }
 }

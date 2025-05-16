@@ -1,53 +1,91 @@
 // File: frontend/src/utils/generateHorsePaths.js
-// Version: v1.6.5 — Diagnostic only: crash guard and entry check
+// Version: v2.2.0 — Uses true arc-distance startAtPercent offset from lane path
 
-export function generateHorsePaths({
-  horses,
-  lanes,
-  centerline,
-  startAtPercent = 0,
-  spriteWidth = 20
-}) {
-  console.warn('[KD] 🧪 ENTERED generateHorsePaths');
+/**
+ * Builds normalized path data for each horse based on vector lane geometry and arc-distance.
+ * Rotates paths so each starts at the same arc-length percent (e.g. 0.03 for top-middle).
+ */
+export async function generateHorsePaths({ horses, lanes, centerline, startAtPercent = 0 }) {
+  if (!Array.isArray(horses) || !horses.length) return new Map();
+  if (!Array.isArray(lanes) || !lanes.length) return new Map();
+  if (!Array.isArray(centerline) || !centerline.length) return new Map();
 
-  // 🛑 TEMP GUARD: prevent crash while we confirm load and inputs
-  console.log('[KD] 🧪 Input horses:', horses);
-  console.log('[KD] 🧪 Input lanes:', lanes);
-  console.log('[KD] 🧪 Input centerline:', centerline);
+  const horsePaths = new Map();
 
-  if (!Array.isArray(horses)) {
-    console.error('[KD] ❌ horses is not an array');
-    return {};
-  }
+  horses.forEach((horse, i) => {
+    const lane = lanes[i];
+    if (!lane || lane.length < 2) return;
 
-  if (!Array.isArray(lanes)) {
-    console.error('[KD] ❌ lanes is not an array');
-    return {};
-  }
+    // Step 1: Compute total arc-length of this lane
+    const arcPoints = [];
+    let arcLength = 0;
 
-  if (!Array.isArray(centerline)) {
-    console.error('[KD] ❌ centerline is not an array');
-    return {};
-  }
-
-  const anyInvalidLanes = lanes.some((l, idx) => {
-    if (!Array.isArray(l)) {
-      console.error(`[KD] ❌ Lane ${idx} is not an array:`, l);
-      return true;
+    for (let j = 0; j < lane.length; j++) {
+      const curr = lane[j];
+      const prev = lane[j - 1] || lane[lane.length - 1];
+      const dx = curr.x - prev.x;
+      const dy = curr.y - prev.y;
+      const segment = Math.sqrt(dx * dx + dy * dy);
+      arcLength += segment;
+      arcPoints.push({ ...curr, arcLength });
     }
-    return false;
+
+    // Step 2: Determine the true distance offset
+    const startOffset = arcLength * startAtPercent;
+
+    // Step 3: Find index and rotate path to start at that offset
+    let rotateIndex = 0;
+    for (let j = 0; j < arcPoints.length; j++) {
+      if (arcPoints[j].arcLength >= startOffset) {
+        rotateIndex = j;
+        break;
+      }
+    }
+
+    const rotatedPath = [...lane.slice(rotateIndex), ...lane.slice(0, rotateIndex)];
+
+    // Step 4: Provide smooth arc-distance-based point lookup
+    const getPointAtDistance = (d) => {
+      const wrapped = d % arcLength;
+      let currLength = 0;
+
+      for (let k = 0; k < rotatedPath.length - 1; k++) {
+        const p0 = rotatedPath[k];
+        const p1 = rotatedPath[k + 1];
+        const dx = p1.x - p0.x;
+        const dy = p1.y - p0.y;
+        const segLen = Math.sqrt(dx * dx + dy * dy);
+
+        if (currLength + segLen >= wrapped) {
+          const t = (wrapped - currLength) / segLen;
+          const x = p0.x + dx * t;
+          const y = p0.y + dy * t;
+          const rotation = Math.atan2(dy, dx);
+          return { x, y, rotation };
+        }
+
+        currLength += segLen;
+      }
+
+      // fallback to last point
+      const last = rotatedPath[rotatedPath.length - 1];
+      const preLast = rotatedPath[rotatedPath.length - 2];
+      return {
+        x: last.x,
+        y: last.y,
+        rotation: Math.atan2(last.y - preLast.y, last.x - preLast.x)
+      };
+    };
+
+    horsePaths.set(horse.id, {
+      path: lane,
+      rotatedPath,
+      laneIndex: i,
+      pathLength: arcLength,
+      getPointAtDistance,
+      getCurveFactorAt: () => 1.0
+    });
   });
 
-  if (anyInvalidLanes) {
-    console.error('[KD] ❌ Invalid lanes detected, aborting horse path generation');
-    return {};
-  }
-
-  if (lanes.length < horses.length) {
-    console.warn(`[KD] ⚠️ Not enough lanes for all horses`);
-  }
-
-  // ✅ TEMP: return early to prove safe execution
-  console.log('[KD] ✅ generateHorsePaths loaded safely — returning empty result temporarily');
-  return {};
+  return horsePaths;
 }

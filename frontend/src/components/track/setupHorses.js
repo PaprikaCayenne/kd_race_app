@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.6.0 — Uses vector path start instead of raw path[0]; fully aligned to arc-length logic
+// Version: v1.7.0 — Aligns horse sprite front edge using width offset, restores arc-distance start alignment
 
 import { Graphics, Text } from 'pixi.js';
 import { createHorseSprite } from '@/utils/createHorseSprite';
@@ -22,26 +22,25 @@ export function setupHorses({
 }) {
   horseSpritesRef.current = new Map();
   labelSpritesRef.current = new Map();
-  horsePathsRef.current = new Map();
+  horsePathsRef.current = horsePaths;
   finishedHorsesRef.current = new Set();
   debugPathLinesRef.current = [];
   startDotsRef.current = [];
 
-  console.log('[KD] 🧩 horseSpritesRef identity at setup:', horseSpritesRef.current);
-  console.log('[KD] 🧪 Debug horseSpritesRef keys:', Array.from(horseSpritesRef.current?.keys?.() ?? []));
-  console.log('[KD] 🧪 Debug horsePathsRef keys:', Array.from(horsePathsRef.current?.keys?.() ?? []));
-  console.log('[KD] 🧪 Debug horses (dbId, localId):', horses.map(h => `(${h.id}, ${h.localId})`));
+  console.log('[KD] 🧩 setupHorses CALLED');
 
   horses.forEach((horse) => {
     const { id, color, localId } = horse;
-    const horseData = horsePaths[id];
+    const horseData = horsePaths.get(id);
 
     if (!horseData || typeof horseData.getPointAtDistance !== 'function') {
-      console.warn(`[KD] ⚠️ Skipping horse dbId=${id} | localId=${localId} — invalid vector path`, horseData);
+      console.warn(`[KD] ⚠️ Skipping horse dbId=${id} — invalid vector path`, horseData);
       return;
     }
 
-    const { laneIndex, path, getPointAtDistance, pathLength } = horseData;
+    const { laneIndex, path, getPointAtDistance } = horseData;
+
+    // Get vector start point at distance = 0 (start of lane)
     const start = getPointAtDistance(0);
 
     const sprite = createHorseSprite(color, id, app);
@@ -52,11 +51,18 @@ export function setupHorses({
     sprite.__horseId = id;
     sprite.__localIndex = localId;
 
-    sprite.position.set(start.x, start.y);
+    // 🧭 Offset the sprite back along its direction using width (front-aligned)
+    const offsetX = -Math.cos(start.rotation) * sprite.width / 2;
+    const offsetY = -Math.sin(start.rotation) * sprite.width / 2;
+
+    sprite.position.set(start.x + offsetX, start.y + offsetY);
     sprite.rotation = start.rotation;
 
-    console.log(`[KD] 🐎 Placing horse ${horse.name} | dbId=${id} | localId=${localId} at (${start.x.toFixed(1)}, ${start.y.toFixed(1)}) in lane ${laneIndex}`);
-    console.log(`[KD] ↪️ Facing angle: ${sprite.rotation.toFixed(2)} rad`);
+    console.log(
+      `[KD] 🐎 Placing horse ${horse.name} | dbId=${id} | localId=${localId} at (${(start.x + offsetX).toFixed(
+        1
+      )}, ${(start.y + offsetY).toFixed(1)}) in lane ${laneIndex}`
+    );
 
     app.stage.addChild(sprite);
     horseSpritesRef.current.set(id, sprite);
@@ -69,7 +75,7 @@ export function setupHorses({
       strokeThickness: 2
     });
     label.anchor.set(0.5);
-    label.position.set(start.x, start.y - 20);
+    label.position.set(sprite.position.x, sprite.position.y - 20);
     label.zIndex = 6;
     labelSpritesRef.current.set(id, label);
     if (debugVisible) app.stage.addChild(label);
@@ -77,7 +83,7 @@ export function setupHorses({
     const dot = new Graphics();
     dot.beginFill(0x00ff00).drawCircle(0, 0, 4).endFill();
     dot.zIndex = 99;
-    dot.position.set(start.x, start.y);
+    dot.position.set(sprite.position.x, sprite.position.y);
     startDotsRef.current.push(dot);
     if (debugVisible) app.stage.addChild(dot);
 
