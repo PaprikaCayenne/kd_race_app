@@ -1,5 +1,5 @@
 // File: frontend/src/utils/generateHorsePaths.js
-// Version: v2.4.0 — Aligns horse path start to centerline global anchor point
+// Version: v2.5.1 — Logs closestIndex and minDist to validate path anchor rotation
 
 /**
  * Builds normalized path data for each horse based on vector lane geometry and a global arc-distance anchor.
@@ -20,19 +20,19 @@ export async function generateHorsePaths({
 
   const horsePaths = new Map();
 
-  // 🎯 Global anchor position (e.g. 50% around centerline)
+  // 🎯 Global anchor position (e.g. 10% around centerline)
   const globalStart = centerline.getPointAtDistance(centerline.totalArcLength * startAtPercent);
 
   horses.forEach((horse, i) => {
     const lane = lanes[i];
     if (!lane || lane.length < 2) return;
 
-    // Step 1: Compute arc-length of the lane and distance from each point to the global anchor
     const arcPoints = [];
     let arcLength = 0;
     let minDist = Infinity;
     let closestIndex = 0;
 
+    // 🧮 Build arcLength and find closest point to global anchor
     for (let j = 0; j < lane.length; j++) {
       const curr = lane[j];
       const prev = lane[j - 1] || lane[lane.length - 1];
@@ -50,10 +50,11 @@ export async function generateHorsePaths({
       }
     }
 
-    // Step 2: Rotate path so index closest to anchor becomes start
+    const startDistance = arcPoints[closestIndex].arcLength;
+
+    // 🔄 Rotate path
     const rotatedPath = [...lane.slice(closestIndex), ...lane.slice(0, closestIndex)];
 
-    // Step 3: Provide smooth arc-distance-based point lookup
     const getPointAtDistance = (d) => {
       const wrapped = d % arcLength;
       let dist = 0;
@@ -76,7 +77,6 @@ export async function generateHorsePaths({
         dist += segLen;
       }
 
-      // fallback to last segment
       const last = rotatedPath[rotatedPath.length - 1];
       const preLast = rotatedPath[rotatedPath.length - 2];
       return {
@@ -92,8 +92,12 @@ export async function generateHorsePaths({
       laneIndex: i,
       pathLength: arcLength,
       getPointAtDistance,
-      getCurveFactorAt: () => 1.0
+      getCurveFactorAt: () => 1.0,
+      startDistance
     });
+
+    console.log(`[KD] 🧪 Horse ${horse.name} (dbId=${horse.id}) → startDistance=${startDistance.toFixed(2)} / arcLength=${arcLength.toFixed(2)}`);
+    console.log(`[KD] 🧪 ${horse.name} → closestIndex=${closestIndex} | minDist=${minDist.toFixed(2)} | lanePts=${lane.length}`);
   });
 
   return horsePaths;
