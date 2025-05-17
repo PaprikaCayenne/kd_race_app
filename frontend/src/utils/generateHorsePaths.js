@@ -1,53 +1,62 @@
 // File: frontend/src/utils/generateHorsePaths.js
-// Version: v2.2.0 — Uses true arc-distance startAtPercent offset from lane path
+// Version: v2.4.0 — Aligns horse path start to centerline global anchor point
 
 /**
- * Builds normalized path data for each horse based on vector lane geometry and arc-distance.
- * Rotates paths so each starts at the same arc-length percent (e.g. 0.03 for top-middle).
+ * Builds normalized path data for each horse based on vector lane geometry and a global arc-distance anchor.
  */
-export async function generateHorsePaths({ horses, lanes, centerline, startAtPercent = 0 }) {
+export async function generateHorsePaths({
+  horses,
+  lanes,
+  centerline,
+  startAtPercent = 0,
+  spriteWidth = 0
+}) {
   if (!Array.isArray(horses) || !horses.length) return new Map();
   if (!Array.isArray(lanes) || !lanes.length) return new Map();
-  if (!Array.isArray(centerline) || !centerline.length) return new Map();
+  if (!centerline || typeof centerline.totalArcLength !== 'number' || typeof centerline.getPointAtDistance !== 'function') {
+    console.error('[KD] ❌ Invalid centerline passed to generateHorsePaths');
+    return new Map();
+  }
 
   const horsePaths = new Map();
+
+  // 🎯 Global anchor position (e.g. 50% around centerline)
+  const globalStart = centerline.getPointAtDistance(centerline.totalArcLength * startAtPercent);
 
   horses.forEach((horse, i) => {
     const lane = lanes[i];
     if (!lane || lane.length < 2) return;
 
-    // Step 1: Compute total arc-length of this lane
+    // Step 1: Compute arc-length of the lane and distance from each point to the global anchor
     const arcPoints = [];
     let arcLength = 0;
+    let minDist = Infinity;
+    let closestIndex = 0;
 
     for (let j = 0; j < lane.length; j++) {
       const curr = lane[j];
       const prev = lane[j - 1] || lane[lane.length - 1];
       const dx = curr.x - prev.x;
       const dy = curr.y - prev.y;
-      const segment = Math.sqrt(dx * dx + dy * dy);
-      arcLength += segment;
+      const segLen = Math.sqrt(dx * dx + dy * dy);
+      arcLength += segLen;
+
       arcPoints.push({ ...curr, arcLength });
-    }
 
-    // Step 2: Determine the true distance offset
-    const startOffset = arcLength * startAtPercent;
-
-    // Step 3: Find index and rotate path to start at that offset
-    let rotateIndex = 0;
-    for (let j = 0; j < arcPoints.length; j++) {
-      if (arcPoints[j].arcLength >= startOffset) {
-        rotateIndex = j;
-        break;
+      const distToAnchor = Math.hypot(curr.x - globalStart.x, curr.y - globalStart.y);
+      if (distToAnchor < minDist) {
+        minDist = distToAnchor;
+        closestIndex = j;
       }
     }
 
-    const rotatedPath = [...lane.slice(rotateIndex), ...lane.slice(0, rotateIndex)];
+    // Step 2: Rotate path so index closest to anchor becomes start
+    const rotatedPath = [...lane.slice(closestIndex), ...lane.slice(0, closestIndex)];
 
-    // Step 4: Provide smooth arc-distance-based point lookup
+    // Step 3: Provide smooth arc-distance-based point lookup
     const getPointAtDistance = (d) => {
       const wrapped = d % arcLength;
-      let currLength = 0;
+      let dist = 0;
 
       for (let k = 0; k < rotatedPath.length - 1; k++) {
         const p0 = rotatedPath[k];
@@ -56,18 +65,18 @@ export async function generateHorsePaths({ horses, lanes, centerline, startAtPer
         const dy = p1.y - p0.y;
         const segLen = Math.sqrt(dx * dx + dy * dy);
 
-        if (currLength + segLen >= wrapped) {
-          const t = (wrapped - currLength) / segLen;
+        if (dist + segLen >= wrapped) {
+          const t = (wrapped - dist) / segLen;
           const x = p0.x + dx * t;
           const y = p0.y + dy * t;
           const rotation = Math.atan2(dy, dx);
           return { x, y, rotation };
         }
 
-        currLength += segLen;
+        dist += segLen;
       }
 
-      // fallback to last point
+      // fallback to last segment
       const last = rotatedPath[rotatedPath.length - 1];
       const preLast = rotatedPath[rotatedPath.length - 2];
       return {

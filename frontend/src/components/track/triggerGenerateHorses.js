@@ -1,3 +1,6 @@
+// File: frontend/src/components/track/triggerGenerateHorses.js
+// Version: v1.9.0 — Fixes centerline shape passthrough to preserve arc metadata
+
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
 import { setupHorses } from './setupHorses';
 import { logInfo } from './debugConsole';
@@ -33,7 +36,9 @@ export async function triggerGenerateHorses({
     const laneCount = trackData.laneCount ?? 0;
     const lanes = Array.isArray(trackData.lanes) ? trackData.lanes : [];
     const spriteWidth = trackData.spriteWidth ?? 0;
-    const centerline = Array.isArray(trackData.centerline) ? trackData.centerline : [];
+
+    // ✅ FIX: Use full object instead of destructuring array
+    const centerline = trackData.centerline;
 
     if (lanes.length < laneCount) {
       console.error('[KD] ❌ lanes array is too short:', lanes);
@@ -73,7 +78,7 @@ export async function triggerGenerateHorses({
         return mapped;
       });
 
-      horsesRef.current = horses;  // ✅ Moved earlier
+      horsesRef.current = horses;
       console.log('[KD] ✅ horsesRef.current set:', horses.map(h => `(${h.id}, ${h.localId})`));
 
       horses.forEach(h => usedSet.add(h.id));

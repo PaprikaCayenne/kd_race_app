@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.7.0 — Aligns horse sprite front edge using width offset, restores arc-distance start alignment
+// Version: v1.8.3 — Aligns to global arc-distance start point + normal-aligned label
 
 import { Graphics, Text } from 'pixi.js';
 import { createHorseSprite } from '@/utils/createHorseSprite';
@@ -38,10 +38,7 @@ export function setupHorses({
       return;
     }
 
-    const { laneIndex, path, getPointAtDistance } = horseData;
-
-    // Get vector start point at distance = 0 (start of lane)
-    const start = getPointAtDistance(0);
+    const { laneIndex, path, getPointAtDistance, startDistance } = horseData;
 
     const sprite = createHorseSprite(color, id, app);
     sprite.anchor?.set?.(0.5);
@@ -51,23 +48,26 @@ export function setupHorses({
     sprite.__horseId = id;
     sprite.__localIndex = localId;
 
-    // 🧭 Offset the sprite back along its direction using width (front-aligned)
-    const offsetX = -Math.cos(start.rotation) * sprite.width / 2;
-    const offsetY = -Math.sin(start.rotation) * sprite.width / 2;
+    // ✅ Use true global start distance
+    const start = getPointAtDistance(startDistance ?? 0);
 
-    sprite.position.set(start.x + offsetX, start.y + offsetY);
+    // Offset sprite backward to align its front to the path
+    const dx = Math.cos(start.rotation) * sprite.width / 2;
+    const dy = Math.sin(start.rotation) * sprite.width / 2;
+    sprite.position.set(start.x - dx, start.y - dy);
     sprite.rotation = start.rotation;
 
     console.log(
-      `[KD] 🐎 Placing horse ${horse.name} | dbId=${id} | localId=${localId} at (${(start.x + offsetX).toFixed(
+      `[KD] 🐎 Placing horse ${horse.name} | dbId=${id} | localId=${localId} at (${(start.x - dx).toFixed(
         1
-      )}, ${(start.y + offsetY).toFixed(1)}) in lane ${laneIndex}`
+      )}, ${(start.y - dy).toFixed(1)}) in lane ${laneIndex}`
     );
 
     app.stage.addChild(sprite);
     horseSpritesRef.current.set(id, sprite);
     horsePathsRef.current.set(id, horseData);
 
+    // 🔢 Label: offset normal to path direction (90 degrees left)
     const label = new Text(`${localId + 1}`, {
       fontSize: 12,
       fill: 0xffffff,
@@ -75,11 +75,19 @@ export function setupHorses({
       strokeThickness: 2
     });
     label.anchor.set(0.5);
-    label.position.set(sprite.position.x, sprite.position.y - 20);
+
+    const normalX = -Math.sin(start.rotation);
+    const normalY = Math.cos(start.rotation);
+    const labelOffset = 20;
+    const labelX = sprite.position.x + normalX * labelOffset;
+    const labelY = sprite.position.y + normalY * labelOffset;
+
+    label.position.set(labelX, labelY);
     label.zIndex = 6;
     labelSpritesRef.current.set(id, label);
     if (debugVisible) app.stage.addChild(label);
 
+    // 🟢 Green dot at sprite center
     const dot = new Graphics();
     dot.beginFill(0x00ff00).drawCircle(0, 0, 4).endFill();
     dot.zIndex = 99;
@@ -87,6 +95,7 @@ export function setupHorses({
     startDotsRef.current.push(dot);
     if (debugVisible) app.stage.addChild(dot);
 
+    // 🛤️ Optional path line
     const pathLine = new Graphics();
     pathLine.lineStyle(1, parseColorStringToHex(color, id));
     pathLine.moveTo(path[0].x, path[0].y);

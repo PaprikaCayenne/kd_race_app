@@ -1,13 +1,10 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v1.6.2 — Guards centerline and lane structure, returns null if invalid
+// Version: v1.6.3 — Preserves full centerline object with arc metadata
 
 import { Graphics } from 'pixi.js';
 import { generateCenterline } from '@/utils/generateTrackPathWithRoundedCorners';
 import { generateAllLanes, generateOffsetLane } from '@/utils/generateOffsetLane';
 
-/**
- * Draws the full race track using vector-based geometry.
- */
 export function drawDerbyTrack({
   app,
   width,
@@ -24,8 +21,8 @@ export function drawDerbyTrack({
   const totalLaneWidth = (laneWidth * laneCount) + 2 * boundaryPadding;
   const halfTrack = totalLaneWidth / 2;
 
-  // Generate centerline + arc projection utils
-  const centerlineData = generateCenterline({
+  // ✅ Preserve full centerline object
+  const centerline = generateCenterline({
     canvasWidth: app.view.width,
     canvasHeight: app.view.height,
     totalLaneWidth,
@@ -34,28 +31,25 @@ export function drawDerbyTrack({
     trackHeight: height
   });
 
-  const centerline = centerlineData.path;
-  const getPointAtDistance = centerlineData.getPointAtDistance;
-  const getCurveFactorAt = centerlineData.getCurveFactorAt;
-  const pathLength = centerlineData.length;
+  const pathLength = centerline.length;
+  const getPointAtDistance = centerline.getPointAtDistance;
+  const getCurveFactorAt = centerline.getCurveFactorAt;
 
   // ✅ Guard: Ensure centerline is valid
-  if (!Array.isArray(centerline) || centerline.length < 2) {
+  if (!Array.isArray(centerline.path) || centerline.path.length < 2) {
     console.error('[KD] ❌ drawDerbyTrack: Invalid centerline path:', centerline);
     return null;
   }
 
-  // Generate all lanes
-  const lanes = generateAllLanes(centerline, laneCount, laneWidth, boundaryPadding);
+  const lanes = generateAllLanes(centerline.path, laneCount, laneWidth, boundaryPadding);
 
-  // ✅ Guard: Ensure all generated lanes are valid arrays with 2+ points
   if (!Array.isArray(lanes) || lanes.length !== laneCount || lanes.some(l => !Array.isArray(l) || l.length < 2)) {
     console.error('[KD] ❌ drawDerbyTrack: Invalid lanes structure:', lanes);
     return null;
   }
 
-  const inner = generateOffsetLane(centerline, -halfTrack);
-  const outer = generateOffsetLane(centerline, +halfTrack);
+  const inner = generateOffsetLane(centerline.path, -halfTrack);
+  const outer = generateOffsetLane(centerline.path, +halfTrack);
 
   if (!Array.isArray(inner) || inner.length < 2) {
     console.error('[KD] ❌ Invalid inner lane generated:', inner);
@@ -67,7 +61,7 @@ export function drawDerbyTrack({
     return null;
   }
 
-  // Fill the track surface
+  // Draw track shape
   trackContainer.beginFill(0xc49a6c);
   trackContainer.moveTo(outer[0].x, outer[0].y);
   outer.forEach(pt => trackContainer.lineTo(pt.x, pt.y));
@@ -75,7 +69,7 @@ export function drawDerbyTrack({
   trackContainer.lineTo(outer[0].x, outer[0].y);
   trackContainer.endFill();
 
-  // Outer boundary line
+  // Draw outer and inner outlines
   trackContainer.lineStyle(4, 0x888888);
   outer.forEach((pt, i) => {
     if (i === 0) trackContainer.moveTo(pt.x, pt.y);
@@ -83,26 +77,25 @@ export function drawDerbyTrack({
   });
   trackContainer.lineTo(outer[0].x, outer[0].y);
 
-  // Inner boundary line
   inner.forEach((pt, i) => {
     if (i === 0) trackContainer.moveTo(pt.x, pt.y);
     else trackContainer.lineTo(pt.x, pt.y);
   });
   trackContainer.lineTo(inner[0].x, inner[0].y);
 
-  // Optional centerline
+  // Optional centerline for debug
   if (debug) {
     trackContainer.lineStyle(1, 0x00ff00, 0.5);
-    centerline.forEach((pt, i) => {
+    centerline.path.forEach((pt, i) => {
       if (i === 0) trackContainer.moveTo(pt.x, pt.y);
       else trackContainer.lineTo(pt.x, pt.y);
     });
-    trackContainer.lineTo(centerline[0].x, centerline[0].y);
+    trackContainer.lineTo(centerline.path[0].x, centerline.path[0].y);
   }
 
-  // Draw start line at specified arc percent
-  const startDist = startAtPercent * pathLength;
-  const { x, y, rotation } = getPointAtDistance(startDist);
+  // ✅ Draw start line at arc-distance location
+  const startDist = startAtPercent * centerline.totalArcLength;
+  const { x, y, rotation } = centerline.getPointAtDistance(startDist);
   const normal = { x: -Math.sin(rotation), y: Math.cos(rotation) };
   const lineLength = totalLaneWidth;
 
@@ -128,7 +121,7 @@ export function drawDerbyTrack({
 
   return {
     lanes,
-    centerline,
+    centerline, // ✅ now includes arc methods
     getPointAtDistance,
     getCurveFactorAt,
     pathLength

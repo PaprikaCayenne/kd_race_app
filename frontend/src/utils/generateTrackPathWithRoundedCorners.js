@@ -1,5 +1,5 @@
 // File: frontend/src/utils/generateTrackPathWithRoundedCorners.js
-// Version: v1.8.0 — Adds arc-length metadata and true getPointAtDistance by distance
+// Version: v1.8.1 — Adds totalArcLength metadata and accurate arc-distance sampling
 
 /**
  * Generate a centerline path with arc-distance tracking and percent-based lookup.
@@ -87,7 +87,7 @@ export function generateCenterline({
     });
   }
 
-  // Step 2: Normalize arcLength values (0 to 1) and provide distance lookup
+  // Step 2: Sample interpolated point at any arc-distance
   const getPointAtDistance = (distance) => {
     const dist = distance % totalLength;
 
@@ -95,6 +95,7 @@ export function generateCenterline({
       const p0 = path[i];
       const p1 = path[i + 1];
       const segLen = p1.arcLength - p0.arcLength;
+
       if (dist <= p1.arcLength) {
         const t = (dist - p0.arcLength) / segLen;
         const x = p0.x + (p1.x - p0.x) * t;
@@ -106,9 +107,14 @@ export function generateCenterline({
       }
     }
 
-    // fallback (should not hit)
+    // fallback
     const last = path[path.length - 1];
-    return { x: last.x, y: last.y, rotation: 0 };
+    const preLast = path[path.length - 2] || last;
+    return {
+      x: last.x,
+      y: last.y,
+      rotation: Math.atan2(last.y - preLast.y, last.x - preLast.x)
+    };
   };
 
   return {
@@ -116,6 +122,6 @@ export function generateCenterline({
     length: path.length,
     totalArcLength: totalLength,
     getPointAtDistance,
-    getCurveFactorAt: () => 1.0 // Placeholder
+    getCurveFactorAt: () => 1.0 // Placeholder for future curve adjustment
   };
 }
