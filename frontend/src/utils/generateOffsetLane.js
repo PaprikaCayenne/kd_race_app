@@ -1,9 +1,10 @@
 // File: frontend/src/utils/generateOffsetLane.js
-// Version: v0.3.0 — Distributes lanes evenly around centerline, spans full track width
+// Version: v0.4.0 — Offsets from rotated centerline starting at 12 o’clock
 
 /**
  * Offsets a centerline path by a fixed number of pixels using vector normals.
- * @param {Array<{x: number, y: number}>} centerline - base path
+ * Assumes the centerline has already been rotated to start at the 12 o’clock position.
+ * @param {Array<{x: number, y: number}>} centerline - base path (already rotated)
  * @param {number} offset - how far to offset (+ outward, - inward)
  * @returns {Array<{x: number, y: number}>}
  */
@@ -32,29 +33,27 @@ export function generateOffsetLane(centerline, offset) {
 }
 
 /**
- * Generate all lanes spaced evenly from centerline across full track thickness.
- * Boundary padding is already included in total track thickness.
+ * Generates all lanes spaced evenly around the rotated centerline.
+ * Assumes centerline already starts at top-middle (12 o’clock).
  * @param {Array<{x: number, y: number}>} centerline
  * @param {number} laneCount
  * @param {number} laneWidth
- * @param {number} boundaryPadding — included in total width, not added again
+ * @param {number} boundaryPadding
  * @returns {Array<Array<{x: number, y: number}>>}
  */
 export function generateAllLanes(centerline, laneCount = 4, laneWidth = 30, boundaryPadding = 0) {
   const lanes = [];
 
-  // Total usable width = (laneWidth * laneCount) + 2 * boundaryPadding
   const totalLaneWidth = (laneCount * laneWidth) + (2 * boundaryPadding);
   const halfTrack = totalLaneWidth / 2;
 
-  console.log('[KD] 🧭 Generating', laneCount, 'lanes across ±', halfTrack, 'px');
+  console.log(`[KD] 🧭 Generating ${laneCount} lanes around centerline starting at 12 o’clock`);
+  console.log(`[KD] 🧭 Total width: ${totalLaneWidth}px (±${halfTrack}px from center)`);
 
-  // First lane offset = -halfTrack + laneWidth / 2
   for (let i = 0; i < laneCount; i++) {
     const offset = -halfTrack + boundaryPadding + (i + 0.5) * laneWidth;
+    console.log(`[KD] 🧭 Lane ${i} offset: ${offset.toFixed(1)}px`);
     lanes.push(generateOffsetLane(centerline, offset));
-
-    console.log(`[KD] 🧭 Lane ${i} offset: ${offset}`);
   }
 
   return lanes;

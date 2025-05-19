@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v1.8.9 — Passes correct trackData for path generation
+// Version: v1.9.0 — Replaces startAtPercent with startLineOffset for 12 o’clock start
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from 'pixi.js';
@@ -14,7 +14,7 @@ import ReplayControls from './ReplayControls';
 
 import { getSpriteDimensions } from '@/utils/spriteDimensionCache';
 
-const VERSION = 'v1.8.9';
+const VERSION = 'v1.9.0';
 const socket = io('/race', { path: '/api/socket.io' });
 
 const TRACK_WIDTH = window.innerWidth;
@@ -26,7 +26,9 @@ const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
 const HORSE_PADDING = 5;
 const BOUNDARY_PADDING = 1;
-const startAtPercent = 0.10; // Top-middle (12 o'clock)
+
+// ✅ NEW: start line offset in arc distance pixels
+const START_LINE_OFFSET = 0;
 
 const RaceTrack = () => {
   const containerRef = useRef(null);
@@ -88,7 +90,7 @@ const RaceTrack = () => {
           laneWidth,
           boundaryPadding: BOUNDARY_PADDING,
           trackPadding: TRACK_PADDING,
-          startAtPercent,
+          startLineOffset: START_LINE_OFFSET,
           debug: debugVisible
         });
 
@@ -177,7 +179,7 @@ const RaceTrack = () => {
       horsePathsRef,
       width: TRACK_WIDTH,
       height: TRACK_HEIGHT,
-      startAtPercent,
+      startAtPercent: 0, // hardcoded to 0 to match arc-distance start
       setRaceReady,
       setCanGenerate,
       usedHorseIdsRef,

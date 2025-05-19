@@ -1,5 +1,5 @@
 // File: frontend/src/utils/generateTrackPathWithRoundedCorners.js
-// Version: v1.8.1 — Adds totalArcLength metadata and accurate arc-distance sampling
+// Version: v1.8.2 — Starts path from top-middle (12 o’clock), rotates rawPoints before arc-length
 
 /**
  * Generate a centerline path with arc-distance tracking and percent-based lookup.
@@ -69,13 +69,28 @@ export function generateCenterline({
     });
   }
 
-  // Step 1: Compute arc distances
+  // 🔁 Rotate rawPoints so top-middle is index 0
+  const topMiddle = { x: centerX, y: top };
+  let minDist = Infinity;
+  let topIndex = 0;
+
+  rawPoints.forEach((pt, i) => {
+    const dist = Math.hypot(pt.x - topMiddle.x, pt.y - topMiddle.y);
+    if (dist < minDist) {
+      minDist = dist;
+      topIndex = i;
+    }
+  });
+
+  const rotated = [...rawPoints.slice(topIndex), ...rawPoints.slice(0, topIndex)];
+
+  // 🧮 Compute arc distances
   const path = [];
   let totalLength = 0;
 
-  for (let i = 0; i < rawPoints.length; i++) {
-    const curr = rawPoints[i];
-    const prev = rawPoints[i - 1] || rawPoints[rawPoints.length - 1];
+  for (let i = 0; i < rotated.length; i++) {
+    const curr = rotated[i];
+    const prev = rotated[i - 1] || rotated[rotated.length - 1];
     const dx = curr.x - prev.x;
     const dy = curr.y - prev.y;
     const segmentLength = Math.sqrt(dx * dx + dy * dy);
@@ -87,7 +102,6 @@ export function generateCenterline({
     });
   }
 
-  // Step 2: Sample interpolated point at any arc-distance
   const getPointAtDistance = (distance) => {
     const dist = distance % totalLength;
 
@@ -107,9 +121,8 @@ export function generateCenterline({
       }
     }
 
-    // fallback
-    const last = path[path.length - 1];
-    const preLast = path[path.length - 2] || last;
+    const last = path.at(-1);
+    const preLast = path.at(-2) || last;
     return {
       x: last.x,
       y: last.y,
@@ -122,6 +135,6 @@ export function generateCenterline({
     length: path.length,
     totalArcLength: totalLength,
     getPointAtDistance,
-    getCurveFactorAt: () => 1.0 // Placeholder for future curve adjustment
+    getCurveFactorAt: () => 1.0
   };
 }

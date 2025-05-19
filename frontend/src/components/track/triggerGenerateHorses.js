@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/triggerGenerateHorses.js
-// Version: v1.9.0 — Fixes centerline shape passthrough to preserve arc metadata
+// Version: v2.1.0 — Removes startAtPercent completely, assumes 12 o’clock fixed start
 
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
 import { setupHorses } from './setupHorses';
@@ -19,7 +19,6 @@ export async function triggerGenerateHorses({
   horsePathsRef,
   width,
   height,
-  startAtPercent,
   setRaceReady,
   setCanGenerate,
   usedHorseIdsRef,
@@ -36,14 +35,14 @@ export async function triggerGenerateHorses({
     const laneCount = trackData.laneCount ?? 0;
     const lanes = Array.isArray(trackData.lanes) ? trackData.lanes : [];
     const spriteWidth = trackData.spriteWidth ?? 0;
-
-    // ✅ FIX: Use full object instead of destructuring array
     const centerline = trackData.centerline;
 
     if (lanes.length < laneCount) {
       console.error('[KD] ❌ lanes array is too short:', lanes);
       return;
     }
+
+    console.log('[KD] 🧭 All lane paths are hardcoded to start at arc-distance 0 (12 o’clock)');
 
     try {
       await fetch('/api/admin/start', {
@@ -52,7 +51,7 @@ export async function triggerGenerateHorses({
           'Content-Type': 'application/json',
           'x-admin-pass': '6a2e8819c6fb4c15'
         },
-        body: JSON.stringify({ startAtPercent, width, height })
+        body: JSON.stringify({ startAtPercent: 0, width, height }) // Still sent for compatibility
       });
     } catch (err) {
       console.error('[KD] ❌ Error triggering race:', err);
@@ -101,7 +100,6 @@ export async function triggerGenerateHorses({
       horses,
       lanes,
       centerline,
-      startAtPercent,
       spriteWidth
     });
 

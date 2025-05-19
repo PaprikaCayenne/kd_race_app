@@ -1,14 +1,14 @@
 // File: frontend/src/utils/generateHorsePaths.js
-// Version: v2.8.0 — Uses unrotated arcPoints and direct arc-distance projection
+// Version: v2.9.0 — Simplified for true 12 o’clock arc start; removes anchor projection
 
 /**
- * Builds normalized path data for each horse based on vector lane geometry and a shared arc-distance anchor.
+ * Builds normalized path data for each horse based on vector lane geometry.
+ * Assumes all lanes are aligned to a shared arc start (top-middle, 12 o’clock).
  */
 export async function generateHorsePaths({
   horses,
   lanes,
   centerline,
-  startAtPercent = 0,
   spriteWidth = 0
 }) {
   if (!Array.isArray(horses) || !horses.length) return new Map();
@@ -19,9 +19,6 @@ export async function generateHorsePaths({
   }
 
   const horsePaths = new Map();
-  const centerlineAnchor = centerline.getPointAtDistance(centerline.totalArcLength * startAtPercent);
-
-  console.log(`[KD] 🎯 Centerline anchor at ${startAtPercent * 100}% → (${centerlineAnchor.x.toFixed(1)}, ${centerlineAnchor.y.toFixed(1)})`);
 
   horses.forEach((horse, i) => {
     const lane = lanes[i];
@@ -32,8 +29,6 @@ export async function generateHorsePaths({
 
     const arcPoints = [];
     let arcLength = 0;
-    let minDist = Infinity;
-    let closestIndex = 0;
 
     for (let j = 0; j < lane.length; j++) {
       const curr = lane[j];
@@ -42,17 +37,10 @@ export async function generateHorsePaths({
       const dy = curr.y - prev.y;
       const segLen = Math.sqrt(dx * dx + dy * dy);
       arcLength += segLen;
-
-      const distToAnchor = Math.hypot(curr.x - centerlineAnchor.x, curr.y - centerlineAnchor.y);
-      if (distToAnchor < minDist) {
-        minDist = distToAnchor;
-        closestIndex = j;
-      }
-
       arcPoints.push({ ...curr, arcLength });
     }
 
-    const startDistance = arcPoints[closestIndex]?.arcLength ?? 0;
+    const startDistance = 0;
 
     const getPointAtDistance = (d) => {
       const wrapped = d % arcLength;
@@ -95,10 +83,7 @@ export async function generateHorsePaths({
       startDistance
     });
 
-    console.log(`[KD] 🧪 Horse ${horse.name} (dbId=${horse.id}) → startDistance=${startDistance.toFixed(2)} / arcLength=${arcLength.toFixed(2)} / closestIndex=${closestIndex}`);
-    if (minDist > 20) {
-      console.warn(`[KD] ⚠️ WARN: ${horse.name} (lane ${i}) is ${minDist.toFixed(1)}px off from centerline anchor`);
-    }
+    console.log(`[KD] 🐎 Horse ${horse.name} (dbId=${horse.id}) → startDistance=0 (top-middle start) / arcLength=${arcLength.toFixed(2)}`);
   });
 
   return horsePaths;

@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.9.1 — Uses arcPoints and startDistance without rotation
+// Version: v1.9.3 — Cleaned for pure arc-distance starts (12 o’clock)
 
 import { Graphics, Text } from 'pixi.js';
 import { createHorseSprite } from '@/utils/createHorseSprite';
@@ -33,17 +33,14 @@ export function setupHorses({
     const { id, color, localId } = horse;
     const horseData = horsePaths.get(id);
 
-    if (!horseData || typeof horseData.getPointAtDistance !== 'function') {
-      console.warn(`[KD] ⚠️ Skipping horse dbId=${id} — invalid vector path`, horseData);
+    if (!horseData?.getPointAtDistance) {
+      console.warn(`[KD] ⚠️ Skipping horse dbId=${id} — missing vector data`, horseData);
       return;
     }
 
-    console.log('[KD] 🧪 horseData keys for horse', id, Object.keys(horseData));
-    console.log('[KD] ✅ Placing horse using startDistance =', horseData.startDistance.toFixed(2));
-
-    const { laneIndex, arcPoints, getPointAtDistance, startDistance } = horseData;
-
+    const { arcPoints, getPointAtDistance } = horseData;
     const sprite = createHorseSprite(color, id, app);
+
     sprite.anchor?.set?.(0.5);
     sprite.zIndex = 5;
     sprite.__progress = 0;
@@ -51,23 +48,20 @@ export function setupHorses({
     sprite.__horseId = id;
     sprite.__localIndex = localId;
 
-    const start = getPointAtDistance(startDistance);
+    const start = getPointAtDistance(0); // 🔁 All horses start at 12 o’clock
 
     const dx = Math.cos(start.rotation) * sprite.width / 2;
     const dy = Math.sin(start.rotation) * sprite.width / 2;
     sprite.position.set(start.x - dx, start.y - dy);
     sprite.rotation = start.rotation;
 
-    console.log(
-      `[KD] 🐎 Placing horse ${horse.name} | dbId=${id} | localId=${localId} at (${(start.x - dx).toFixed(
-        1
-      )}, ${(start.y - dy).toFixed(1)}) using startDistance=${startDistance.toFixed(2)}`
-    );
+    console.log(`[KD] 🐎 Placing horse ${horse.name} | dbId=${id} | localId=${localId} → (${(start.x - dx).toFixed(1)}, ${(start.y - dy).toFixed(1)})`);
 
     app.stage.addChild(sprite);
     horseSpritesRef.current.set(id, sprite);
     horsePathsRef.current.set(id, horseData);
 
+    // 🏷 Label offset from sprite center (normal to direction)
     const label = new Text(`${localId + 1}`, {
       fontSize: 12,
       fill: 0xffffff,
@@ -87,6 +81,7 @@ export function setupHorses({
     labelSpritesRef.current.set(id, label);
     if (debugVisible) app.stage.addChild(label);
 
+    // 🟢 Start dot
     const dot = new Graphics();
     dot.beginFill(0x00ff00).drawCircle(0, 0, 4).endFill();
     dot.zIndex = 99;
@@ -94,6 +89,7 @@ export function setupHorses({
     startDotsRef.current.push(dot);
     if (debugVisible) app.stage.addChild(dot);
 
+    // 🛤 Path visual
     const pathLine = new Graphics();
     pathLine.lineStyle(1, parseColorStringToHex(color, id));
     pathLine.moveTo(arcPoints[0].x, arcPoints[0].y);

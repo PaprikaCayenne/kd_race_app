@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v1.6.3 — Preserves full centerline object with arc metadata
+// Version: v1.7.2 — Adds orange dots at inner[0] and outer[0]; confirms all track starts visually
 
 import { Graphics } from 'pixi.js';
 import { generateCenterline } from '@/utils/generateTrackPathWithRoundedCorners';
@@ -15,13 +15,12 @@ export function drawDerbyTrack({
   boundaryPadding = 0,
   trackPadding = 0,
   debug = false,
-  startAtPercent = 0
+  startLineOffset = 0
 }) {
   const trackContainer = new Graphics();
   const totalLaneWidth = (laneWidth * laneCount) + 2 * boundaryPadding;
   const halfTrack = totalLaneWidth / 2;
 
-  // ✅ Preserve full centerline object
   const centerline = generateCenterline({
     canvasWidth: app.view.width,
     canvasHeight: app.view.height,
@@ -35,14 +34,12 @@ export function drawDerbyTrack({
   const getPointAtDistance = centerline.getPointAtDistance;
   const getCurveFactorAt = centerline.getCurveFactorAt;
 
-  // ✅ Guard: Ensure centerline is valid
   if (!Array.isArray(centerline.path) || centerline.path.length < 2) {
     console.error('[KD] ❌ drawDerbyTrack: Invalid centerline path:', centerline);
     return null;
   }
 
   const lanes = generateAllLanes(centerline.path, laneCount, laneWidth, boundaryPadding);
-
   if (!Array.isArray(lanes) || lanes.length !== laneCount || lanes.some(l => !Array.isArray(l) || l.length < 2)) {
     console.error('[KD] ❌ drawDerbyTrack: Invalid lanes structure:', lanes);
     return null;
@@ -50,18 +47,12 @@ export function drawDerbyTrack({
 
   const inner = generateOffsetLane(centerline.path, -halfTrack);
   const outer = generateOffsetLane(centerline.path, +halfTrack);
-
-  if (!Array.isArray(inner) || inner.length < 2) {
-    console.error('[KD] ❌ Invalid inner lane generated:', inner);
+  if (!Array.isArray(inner) || inner.length < 2 || !Array.isArray(outer) || outer.length < 2) {
+    console.error('[KD] ❌ Invalid track edges:', { inner, outer });
     return null;
   }
 
-  if (!Array.isArray(outer) || outer.length < 2) {
-    console.error('[KD] ❌ Invalid outer lane generated:', outer);
-    return null;
-  }
-
-  // Draw track shape
+  // 🎨 Track fill
   trackContainer.beginFill(0xc49a6c);
   trackContainer.moveTo(outer[0].x, outer[0].y);
   outer.forEach(pt => trackContainer.lineTo(pt.x, pt.y));
@@ -69,7 +60,7 @@ export function drawDerbyTrack({
   trackContainer.lineTo(outer[0].x, outer[0].y);
   trackContainer.endFill();
 
-  // Draw outer and inner outlines
+  // 🧱 Inner and outer outlines
   trackContainer.lineStyle(4, 0x888888);
   outer.forEach((pt, i) => {
     if (i === 0) trackContainer.moveTo(pt.x, pt.y);
@@ -83,7 +74,7 @@ export function drawDerbyTrack({
   });
   trackContainer.lineTo(inner[0].x, inner[0].y);
 
-  // Optional centerline for debug
+  // 🧪 Debug: Optional centerline
   if (debug) {
     trackContainer.lineStyle(1, 0x00ff00, 0.5);
     centerline.path.forEach((pt, i) => {
@@ -93,8 +84,8 @@ export function drawDerbyTrack({
     trackContainer.lineTo(centerline.path[0].x, centerline.path[0].y);
   }
 
-  // ✅ Draw start line at arc-distance location
-  const startDist = startAtPercent * centerline.totalArcLength;
+  // ✅ Start line
+  const startDist = startLineOffset;
   const { x, y, rotation } = centerline.getPointAtDistance(startDist);
   const normal = { x: -Math.sin(rotation), y: Math.cos(rotation) };
   const lineLength = totalLaneWidth;
@@ -115,13 +106,28 @@ export function drawDerbyTrack({
   startLine.zIndex = 100;
   app.stage.addChild(startLine);
 
-  console.log(`[KD] 🟢 Start line at ${Math.round(startAtPercent * 100)}% → from (${startA.x.toFixed(1)}, ${startA.y.toFixed(1)}) to (${startB.x.toFixed(1)}, ${startB.y.toFixed(1)})`);
+  // 🟦 Dot for centerline[0] already handled elsewhere (blue)
+  // 🟧 Add orange dots at inner[0] and outer[0]
+  const innerDot = new Graphics();
+  innerDot.beginFill(0xffa500).drawCircle(0, 0, 4).endFill();
+  innerDot.position.set(inner[0].x, inner[0].y);
+  innerDot.zIndex = 100;
+  app.stage.addChild(innerDot);
+
+  const outerDot = new Graphics();
+  outerDot.beginFill(0xffa500).drawCircle(0, 0, 4).endFill();
+  outerDot.position.set(outer[0].x, outer[0].y);
+  outerDot.zIndex = 100;
+  app.stage.addChild(outerDot);
+
+  console.log(`[KD] 🟢 Start line drawn at arc 0 + ${startLineOffset.toFixed(1)}px → (${startA.x.toFixed(1)}, ${startA.y.toFixed(1)}) to (${startB.x.toFixed(1)}, ${startB.y.toFixed(1)})`);
+  console.log('[KD] 🎯 Centerline starts at 12 o’clock (top-middle), arc distance = 0');
 
   app.stage.addChild(trackContainer);
 
   return {
     lanes,
-    centerline, // ✅ now includes arc methods
+    centerline,
     getPointAtDistance,
     getCurveFactorAt,
     pathLength
