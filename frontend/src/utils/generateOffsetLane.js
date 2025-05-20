@@ -1,14 +1,15 @@
 // File: frontend/src/utils/generateOffsetLane.js
-// Version: v0.4.0 — Offsets from rotated centerline starting at 12 o’clock
+// Version: v0.5.0 — Fixed 12 o’clock alignment using global reference point
 
 /**
  * Offsets a centerline path by a fixed number of pixels using vector normals.
- * Assumes the centerline has already been rotated to start at the 12 o’clock position.
- * @param {Array<{x: number, y: number}>} centerline - base path (already rotated)
- * @param {number} offset - how far to offset (+ outward, - inward)
+ * Then rotates the path so the closest point to true 12 o’clock becomes index [0].
+ * @param {Array<{x: number, y: number}>} centerline - base path
+ * @param {number} offset - lane offset in px (+ outward, - inward)
+ * @param {{x: number, y: number}} twelveOclockRef - fixed pixel coordinate
  * @returns {Array<{x: number, y: number}>}
  */
-export function generateOffsetLane(centerline, offset) {
+export function generateOffsetLane(centerline, offset, twelveOclockRef) {
   const offsetPath = [];
 
   for (let i = 0; i < centerline.length; i++) {
@@ -29,31 +30,54 @@ export function generateOffsetLane(centerline, offset) {
     });
   }
 
-  return offsetPath;
+  // 🔁 Find closest point to fixed 12 o'clock and rotate
+  let bestIdx = 0;
+  let bestDist = Infinity;
+
+  for (let i = 0; i < offsetPath.length; i++) {
+    const pt = offsetPath[i];
+    const dx = pt.x - twelveOclockRef.x;
+    const dy = pt.y - twelveOclockRef.y;
+    const dist = dx * dx + dy * dy;
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestIdx = i;
+    }
+  }
+
+  const rotatedPath = [
+    ...offsetPath.slice(bestIdx),
+    ...offsetPath.slice(0, bestIdx)
+  ];
+
+  console.log(`[KD] ✅ generateOffsetLane(): snapped [0] to 12 o’clock → Δ=${Math.sqrt(bestDist).toFixed(2)}px`);
+
+  return rotatedPath;
 }
 
 /**
- * Generates all lanes spaced evenly around the rotated centerline.
- * Assumes centerline already starts at top-middle (12 o’clock).
+ * Generates all lanes spaced evenly around the centerline and aligned to true 12 o’clock.
  * @param {Array<{x: number, y: number}>} centerline
  * @param {number} laneCount
  * @param {number} laneWidth
  * @param {number} boundaryPadding
+ * @param {{x: number, y: number}} twelveOclockRef - fixed visual anchor
  * @returns {Array<Array<{x: number, y: number}>>}
  */
-export function generateAllLanes(centerline, laneCount = 4, laneWidth = 30, boundaryPadding = 0) {
+export function generateAllLanes(centerline, laneCount = 4, laneWidth = 30, boundaryPadding = 0, twelveOclockRef) {
   const lanes = [];
 
   const totalLaneWidth = (laneCount * laneWidth) + (2 * boundaryPadding);
   const halfTrack = totalLaneWidth / 2;
 
-  console.log(`[KD] 🧭 Generating ${laneCount} lanes around centerline starting at 12 o’clock`);
+  console.log(`[KD] 🧭 Generating ${laneCount} lanes from centerline`);
   console.log(`[KD] 🧭 Total width: ${totalLaneWidth}px (±${halfTrack}px from center)`);
+  console.log(`[KD] 📌 Reference 12 o’clock: (${twelveOclockRef.x.toFixed(1)}, ${twelveOclockRef.y.toFixed(1)})`);
 
   for (let i = 0; i < laneCount; i++) {
     const offset = -halfTrack + boundaryPadding + (i + 0.5) * laneWidth;
     console.log(`[KD] 🧭 Lane ${i} offset: ${offset.toFixed(1)}px`);
-    lanes.push(generateOffsetLane(centerline, offset));
+    lanes.push(generateOffsetLane(centerline, offset, twelveOclockRef));
   }
 
   return lanes;

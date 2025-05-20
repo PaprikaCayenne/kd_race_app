@@ -28,7 +28,7 @@ const HORSE_PADDING = 5;
 const BOUNDARY_PADDING = 1;
 
 // ✅ NEW: start line offset in arc distance pixels
-const START_LINE_OFFSET = 0;
+const START_LINE_OFFSET = 10;
 
 const RaceTrack = () => {
   const containerRef = useRef(null);

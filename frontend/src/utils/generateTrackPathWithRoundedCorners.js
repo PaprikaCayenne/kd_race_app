@@ -1,9 +1,6 @@
 // File: frontend/src/utils/generateTrackPathWithRoundedCorners.js
-// Version: v1.8.2 — Starts path from top-middle (12 o’clock), rotates rawPoints before arc-length
+// Version: v2.3.0 — Rebuilds rawPoints starting at 12 o’clock explicitly
 
-/**
- * Generate a centerline path with arc-distance tracking and percent-based lookup.
- */
 export function generateCenterline({
   canvasWidth,
   canvasHeight,
@@ -26,11 +23,11 @@ export function generateCenterline({
   const r = cornerRadius;
   const rawPoints = [];
 
-  // Top straight
-  rawPoints.push({ x: left + r, y: top });
+  // ✅ Start at 12 o’clock
+  rawPoints.push({ x: centerX, y: top - r });
 
-  // Top-right curve
-  for (let i = 0; i <= segmentsPerCurve; i++) {
+  // ➡ Top-right curve
+  for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = Math.PI * 1.5 + (Math.PI / 2) * t;
     rawPoints.push({
@@ -39,8 +36,8 @@ export function generateCenterline({
     });
   }
 
-  // Bottom-right curve
-  for (let i = 0; i <= segmentsPerCurve; i++) {
+  // ➡ Bottom-right curve
+  for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = 0 + (Math.PI / 2) * t;
     rawPoints.push({
@@ -49,8 +46,8 @@ export function generateCenterline({
     });
   }
 
-  // Bottom-left curve
-  for (let i = 0; i <= segmentsPerCurve; i++) {
+  // ➡ Bottom-left curve
+  for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = Math.PI / 2 + (Math.PI / 2) * t;
     rawPoints.push({
@@ -59,8 +56,8 @@ export function generateCenterline({
     });
   }
 
-  // Top-left curve
-  for (let i = 0; i <= segmentsPerCurve; i++) {
+  // ➡ Top-left curve
+  for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = Math.PI + (Math.PI / 2) * t;
     rawPoints.push({
@@ -69,28 +66,16 @@ export function generateCenterline({
     });
   }
 
-  // 🔁 Rotate rawPoints so top-middle is index 0
-  const topMiddle = { x: centerX, y: top };
-  let minDist = Infinity;
-  let topIndex = 0;
+  // ➡ Back to top-middle to close loop (12 o’clock)
+  rawPoints.push({ x: centerX, y: top - r });
 
-  rawPoints.forEach((pt, i) => {
-    const dist = Math.hypot(pt.x - topMiddle.x, pt.y - topMiddle.y);
-    if (dist < minDist) {
-      minDist = dist;
-      topIndex = i;
-    }
-  });
-
-  const rotated = [...rawPoints.slice(topIndex), ...rawPoints.slice(0, topIndex)];
-
-  // 🧮 Compute arc distances
+  // 🧮 Compute arcLength per point
   const path = [];
   let totalLength = 0;
 
-  for (let i = 0; i < rotated.length; i++) {
-    const curr = rotated[i];
-    const prev = rotated[i - 1] || rotated[rotated.length - 1];
+  for (let i = 0; i < rawPoints.length; i++) {
+    const curr = rawPoints[i];
+    const prev = rawPoints[i - 1] || rawPoints[0];
     const dx = curr.x - prev.x;
     const dy = curr.y - prev.y;
     const segmentLength = Math.sqrt(dx * dx + dy * dy);
@@ -129,6 +114,9 @@ export function generateCenterline({
       rotation: Math.atan2(last.y - preLast.y, last.x - preLast.x)
     };
   };
+
+  console.log(`[KD] 🎯 centerline[0] = true 12 o’clock anchor → (${path[0].x.toFixed(1)}, ${path[0].y.toFixed(1)})`);
+  console.log(`[KD] 🔁 Full arc length: ${totalLength.toFixed(2)} px | Points: ${path.length}`);
 
   return {
     path,

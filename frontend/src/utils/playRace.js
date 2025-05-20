@@ -1,5 +1,5 @@
 // File: frontend/src/utils/playRace.js
-// Version: v2.4.0 — Fully vector-aligned playback with correct arc-distance tracking
+// Version: v2.5.0 — Confirms arc 0 placement and dynamic rotation per lane
 
 export function playRace({
   app,
@@ -17,7 +17,6 @@ export function playRace({
   }
 
   const BASE_SPEED = 0.45;
-  const CURVE_EXAGGERATION = 2.0;
   const EPSILON = 2;
   const DEBUG = true;
 
@@ -27,12 +26,12 @@ export function playRace({
   const speedProfiles = new Map();
 
   horses.forEach((horse) => {
-    speedProfiles.set(horse.id, { fatigue: 1.0, burst: false });
     const sprite = horseSprites.get(horse.id);
     if (sprite) {
       sprite.__distance = 0;
+      speedProfiles.set(horse.id, { fatigue: 1.0, burst: false });
       if (DEBUG) {
-        console.log(`[KD] 🐎 Init ${horse.name} | id=${horse.id} | Start at distance=0`);
+        console.log(`[KD] 🐎 Init ${horse.name} | id=${horse.id} | Start at arc=0`);
       }
     }
   });
@@ -48,22 +47,14 @@ export function playRace({
 
       if (!sprite || !pathData || finishedHorses.has(id)) return;
 
-      const { getPointAtDistance, getCurveFactorAt, pathLength } = pathData;
+      const { getPointAtDistance, pathLength } = pathData;
       const profile = speedProfiles.get(id);
-
       const currentDist = sprite.__distance ?? 0;
-      const fatigue = profile?.fatigue ?? 1.0;
-      const burst = profile?.burst ?? false;
 
-      const curveFactor = getCurveFactorAt?.(currentDist) ?? 1.0;
-      const curveBoost = Math.pow(curveFactor, CURVE_EXAGGERATION);
-
-      const velocity = BASE_SPEED * fatigue * (burst ? 1.2 : 1) * curveBoost * speedMultiplier;
+      const fatigue = profile.fatigue;
+      const burst = profile.burst;
+      const velocity = BASE_SPEED * fatigue * (burst ? 1.2 : 1) * speedMultiplier;
       const nextDist = currentDist + velocity * delta;
-
-      if (DEBUG) {
-        console.log(`[KD] ⏱️ ${horse.name} | dist ${currentDist.toFixed(2)} → ${nextDist.toFixed(2)} | speed ${velocity.toFixed(3)}`);
-      }
 
       if (nextDist >= pathLength - EPSILON) {
         if (!finishedHorses.has(id)) {
@@ -72,7 +63,7 @@ export function playRace({
           resultOrder.push({ id, name: horse.name, localId: horse.localId, timeMs: performance.now() });
 
           if (DEBUG) {
-            console.log(`[KD] 🏁 Finished: ${horse.name} | at ${nextDist.toFixed(2)} / ${pathLength}`);
+            console.log(`[KD] 🏁 Finished: ${horse.name} | distance=${nextDist.toFixed(1)} / ${pathLength.toFixed(1)}`);
           }
         }
         return;
@@ -98,7 +89,6 @@ export function playRace({
         speed: velocity,
         fatigue,
         burst,
-        curveFactor,
         x,
         y,
         localId: horse.localId
@@ -118,6 +108,6 @@ export function playRace({
   app.__raceTicker = ticker;
 
   if (DEBUG) {
-    console.log('[KD] 🎬 Race ticker added and running:', app.ticker?.started ?? 'unknown');
+    console.log('[KD] 🎬 Race ticker added and running');
   }
 }

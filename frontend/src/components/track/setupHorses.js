@@ -1,9 +1,7 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.9.3 — Cleaned for pure arc-distance starts (12 o’clock)
+// Version: v1.4.0 — Aligns horse placement to arcDistance=0 (true 12 o’clock start)
 
-import { Graphics, Text } from 'pixi.js';
-import { createHorseSprite } from '@/utils/createHorseSprite';
-import { parseColorStringToHex } from '@/utils/parseColorStringToHex';
+import { Sprite, Text, TextStyle } from 'pixi.js';
 
 export function setupHorses({
   app,
@@ -18,91 +16,69 @@ export function setupHorses({
   startDotsRef,
   horsePathsRef,
   lanes,
-  debugVisible
+  debugVisible = false
 }) {
-  horseSpritesRef.current = new Map();
-  labelSpritesRef.current = new Map();
-  horsePathsRef.current = horsePaths;
-  finishedHorsesRef.current = new Set();
-  debugPathLinesRef.current = [];
-  startDotsRef.current = [];
-
   console.log('[KD] 🧩 setupHorses CALLED');
 
-  horses.forEach((horse) => {
-    const { id, color, localId } = horse;
-    const horseData = horsePaths.get(id);
+  horseSpritesRef.current.clear?.();
+  labelSpritesRef.current.clear?.();
+  finishedHorsesRef.current.clear?.();
 
-    if (!horseData?.getPointAtDistance) {
-      console.warn(`[KD] ⚠️ Skipping horse dbId=${id} — missing vector data`, horseData);
+  horseSpritesRef.current = new Map();
+  labelSpritesRef.current = new Map();
+  finishedHorsesRef.current = new Set();
+  debugPathLinesRef.current = [];
+  debugDotsRef.current = [];
+  finishDotsRef.current = [];
+  startDotsRef.current = [];
+  horsePathsRef.current = horsePaths;
+
+  horses.forEach((horse, index) => {
+    const pathData = horsePaths.get(horse.id);
+    if (!pathData || !Array.isArray(pathData.path) || pathData.path.length < 2) {
+      console.warn(`[KD] ⚠️ Invalid path for horse ${horse.name}`);
       return;
     }
 
-    const { arcPoints, getPointAtDistance } = horseData;
-    const sprite = createHorseSprite(color, id, app);
+    const { getPointAtDistance } = pathData;
+    const { x, y, rotation } = getPointAtDistance(0);
 
-    sprite.anchor?.set?.(0.5);
-    sprite.zIndex = 5;
-    sprite.__progress = 0;
-    sprite.__distance = 0;
-    sprite.__horseId = id;
-    sprite.__localIndex = localId;
+    const colorHex = parseColorToHex(horse.color);
+    const sprite = getSpriteForColor(colorHex);
 
-    const start = getPointAtDistance(0); // 🔁 All horses start at 12 o’clock
-
-    const dx = Math.cos(start.rotation) * sprite.width / 2;
-    const dy = Math.sin(start.rotation) * sprite.width / 2;
-    sprite.position.set(start.x - dx, start.y - dy);
-    sprite.rotation = start.rotation;
-
-    console.log(`[KD] 🐎 Placing horse ${horse.name} | dbId=${id} | localId=${localId} → (${(start.x - dx).toFixed(1)}, ${(start.y - dy).toFixed(1)})`);
-
+    sprite.x = x;
+    sprite.y = y;
+    sprite.rotation = rotation;
+    sprite.anchor.set(0.5);
+    sprite.zIndex = 10;
     app.stage.addChild(sprite);
-    horseSpritesRef.current.set(id, sprite);
-    horsePathsRef.current.set(id, horseData);
 
-    // 🏷 Label offset from sprite center (normal to direction)
-    const label = new Text(`${localId + 1}`, {
+    horseSpritesRef.current.set(horse.id, sprite);
+    console.log(`[KD] 🐎 Placing horse ${horse.name} | dbId=${horse.id} | localId=${horse.localId} → (${x.toFixed(1)}, ${y.toFixed(1)})`);
+
+    // 📛 Add label
+    const label = new Text(horse.name, new TextStyle({
+      fill: '#000',
       fontSize: 12,
-      fill: 0xffffff,
-      stroke: 0x000000,
+      fontWeight: 'bold',
+      stroke: '#fff',
       strokeThickness: 2
-    });
+    }));
     label.anchor.set(0.5);
+    label.x = x;
+    label.y = y - 20;
+    label.zIndex = 11;
+    app.stage.addChild(label);
+    labelSpritesRef.current.set(horse.id, label);
 
-    const normalX = -Math.sin(start.rotation);
-    const normalY = Math.cos(start.rotation);
-    const labelOffset = 20;
-    label.position.set(
-      sprite.position.x + normalX * labelOffset,
-      sprite.position.y + normalY * labelOffset
-    );
-    label.zIndex = 6;
-    labelSpritesRef.current.set(id, label);
-    if (debugVisible) app.stage.addChild(label);
-
-    // 🟢 Start dot
-    const dot = new Graphics();
-    dot.beginFill(0x00ff00).drawCircle(0, 0, 4).endFill();
-    dot.zIndex = 99;
-    dot.position.set(sprite.position.x, sprite.position.y);
-    startDotsRef.current.push(dot);
-    if (debugVisible) app.stage.addChild(dot);
-
-    // 🛤 Path visual
-    const pathLine = new Graphics();
-    pathLine.lineStyle(1, parseColorStringToHex(color, id));
-    pathLine.moveTo(arcPoints[0].x, arcPoints[0].y);
-    for (let i = 1; i < arcPoints.length - 1; i++) {
-      const p1 = arcPoints[i];
-      const p2 = arcPoints[i + 1];
-      const cx = (p1.x + p2.x) / 2;
-      const cy = (p1.y + p2.y) / 2;
-      pathLine.quadraticCurveTo(p1.x, p1.y, cx, cy);
+    // 🔵 Optional debug dot
+    if (debugVisible) {
+      const debugDot = new PIXI.Graphics();
+      debugDot.beginFill(colorHex).drawCircle(0, 0, 4).endFill();
+      debugDot.position.set(x, y);
+      debugDot.zIndex = 5;
+      app.stage.addChild(debugDot);
+      debugDotsRef.current.push(debugDot);
     }
-    pathLine.lineTo(arcPoints.at(-1).x, arcPoints.at(-1).y);
-    pathLine.zIndex = 1;
-    debugPathLinesRef.current.push(pathLine);
-    if (debugVisible) app.stage.addChild(pathLine);
   });
 }
