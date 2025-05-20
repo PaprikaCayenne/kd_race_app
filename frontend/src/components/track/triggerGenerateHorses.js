@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/triggerGenerateHorses.js
-// Version: v2.1.0 — Removes startAtPercent completely, assumes 12 o’clock fixed start
+// Version: v2.3.0 — Fully synced with vector engine, fixes localId issue, confirms 12 o’clock arc start
 
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
 import { setupHorses } from './setupHorses';
@@ -32,18 +32,14 @@ export async function triggerGenerateHorses({
       return;
     }
 
-    const laneCount = trackData.laneCount ?? 0;
-    const lanes = Array.isArray(trackData.lanes) ? trackData.lanes : [];
-    const spriteWidth = trackData.spriteWidth ?? 0;
-    const centerline = trackData.centerline;
+    const { laneCount, lanes, spriteWidth, centerline } = trackData;
 
-    if (lanes.length < laneCount) {
-      console.error('[KD] ❌ lanes array is too short:', lanes);
+    if (!Array.isArray(lanes) || lanes.length < laneCount) {
+      console.error('[KD] ❌ Not enough valid lanes for horse generation');
       return;
     }
 
-    console.log('[KD] 🧭 All lane paths are hardcoded to start at arc-distance 0 (12 o’clock)');
-
+    // 🛰 Legacy compatibility: call /api/admin/start
     try {
       await fetch('/api/admin/start', {
         method: 'POST',
@@ -51,13 +47,14 @@ export async function triggerGenerateHorses({
           'Content-Type': 'application/json',
           'x-admin-pass': '6a2e8819c6fb4c15'
         },
-        body: JSON.stringify({ startAtPercent: 0, width, height }) // Still sent for compatibility
+        body: JSON.stringify({ width, height }) // No more startAtPercent
       });
     } catch (err) {
       console.error('[KD] ❌ Error triggering race:', err);
       return;
     }
 
+    // 🐴 Fetch and filter horses
     let horses = [];
     try {
       const res = await fetch('/api/horses');
@@ -65,23 +62,18 @@ export async function triggerGenerateHorses({
 
       const usedSet = usedHorseIdsRef?.current || new Set();
       const unused = allHorses.filter(h => !usedSet.has(h.id));
-
-      console.log('[KD] 🧪 Unused horses before selection:', unused.map(h => `(${h.id}, ${h.name})`));
-
       const selected = unused.slice(0, laneCount);
-      console.log('[KD] 🧪 Selected horses:', selected.map(h => `(${h.id}, ${h.name})`));
 
       horses = selected.map((h, index) => {
         const mapped = { ...h, localId: index };
-        console.log(`[KD] 🎯 Assigning localId=${index} to horse id=${h.id}, name=${h.name}`);
+        logInfo(`[KD] 🎯 Assigning localId=${index} to horse id=${h.id}, name=${h.name}`);
         return mapped;
       });
 
       horsesRef.current = horses;
-      console.log('[KD] ✅ horsesRef.current set:', horses.map(h => `(${h.id}, ${h.localId})`));
-
-      horses.forEach(h => usedSet.add(h.id));
-      if (usedHorseIdsRef?.current) usedHorseIdsRef.current = usedSet;
+      if (usedHorseIdsRef?.current) {
+        horses.forEach(h => usedHorseIdsRef.current.add(h.id));
+      }
 
       horses.forEach(h =>
         logInfo(`[KD] 🐴 Selected Horse: ${h.name} | dbId=${h.id} | localId=${h.localId}`)
@@ -91,26 +83,18 @@ export async function triggerGenerateHorses({
       return;
     }
 
-    if (!horses || horses.length === 0) {
+    if (!horses.length) {
       console.error('[KD] ❌ No horses available after filtering');
       return;
     }
 
-    const horsePaths = await generateHorsePaths({
-      horses,
-      lanes,
-      centerline,
-      spriteWidth
-    });
+    // 🧭 Generate vector-based lane paths
+    const horsePaths = await generateHorsePaths({ horses, lanes, centerline, spriteWidth });
 
-    if (!(horsePaths instanceof Map)) {
-      console.error('[KD] ❌ generateHorsePaths did not return a Map');
+    if (!(horsePaths instanceof Map) || horsePaths.size === 0) {
+      console.error('[KD] ❌ generateHorsePaths returned empty or invalid Map');
       return;
     }
-
-    const validHorsePaths = Array.from(horsePaths.values()).filter(p => p?.path?.length >= 2);
-    console.log('[KD] 🧪 Valid horsePaths count:', validHorsePaths.length);
-    console.log('[KD] 🧪 horsePaths Map keys:', Array.from(horsePaths.keys()));
 
     setupHorses({
       app,
@@ -124,12 +108,10 @@ export async function triggerGenerateHorses({
       finishDotsRef,
       startDotsRef,
       horsePathsRef,
-      lanes: validHorsePaths.map(p => p.path),
       debugVisible
     });
 
     logInfo('[KD] ✅ Horses placed and rendered');
-
     setRaceReady(true);
     setCanGenerate(false);
 

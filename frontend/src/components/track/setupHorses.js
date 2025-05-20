@@ -1,7 +1,8 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.4.0 — Aligns horse placement to arcDistance=0 (true 12 o’clock start)
+// Version: v1.4.2 — Passes app to getSpriteForColor to prevent ReferenceError
 
-import { Sprite, Text, TextStyle } from 'pixi.js';
+import { Sprite, Text, TextStyle, Graphics } from 'pixi.js';
+import { getSpriteForColor } from '@/utils/getSpriteForColor';
 
 export function setupHorses({
   app,
@@ -44,7 +45,7 @@ export function setupHorses({
     const { x, y, rotation } = getPointAtDistance(0);
 
     const colorHex = parseColorToHex(horse.color);
-    const sprite = getSpriteForColor(colorHex);
+    const sprite = getSpriteForColor(colorHex, app); // ✅ Pass `app` here
 
     sprite.x = x;
     sprite.y = y;
@@ -56,7 +57,6 @@ export function setupHorses({
     horseSpritesRef.current.set(horse.id, sprite);
     console.log(`[KD] 🐎 Placing horse ${horse.name} | dbId=${horse.id} | localId=${horse.localId} → (${x.toFixed(1)}, ${y.toFixed(1)})`);
 
-    // 📛 Add label
     const label = new Text(horse.name, new TextStyle({
       fill: '#000',
       fontSize: 12,
@@ -71,9 +71,8 @@ export function setupHorses({
     app.stage.addChild(label);
     labelSpritesRef.current.set(horse.id, label);
 
-    // 🔵 Optional debug dot
     if (debugVisible) {
-      const debugDot = new PIXI.Graphics();
+      const debugDot = new Graphics();
       debugDot.beginFill(colorHex).drawCircle(0, 0, 4).endFill();
       debugDot.position.set(x, y);
       debugDot.zIndex = 5;
@@ -81,4 +80,16 @@ export function setupHorses({
       debugDotsRef.current.push(debugDot);
     }
   });
+}
+
+function parseColorToHex(color) {
+  if (typeof color !== 'string') return 0x888888;
+  if (color.startsWith('#')) return parseInt(color.slice(1), 16);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, 1, 1);
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return (r << 16) + (g << 8) + b;
 }

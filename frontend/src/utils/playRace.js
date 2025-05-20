@@ -1,5 +1,5 @@
 // File: frontend/src/utils/playRace.js
-// Version: v2.5.0 — Confirms arc 0 placement and dynamic rotation per lane
+// Version: v2.6.1 — Confirms arc 0 alignment, curve-aware speed, and runtime debug
 
 export function playRace({
   app,
@@ -17,6 +17,7 @@ export function playRace({
   }
 
   const BASE_SPEED = 0.45;
+  const CURVE_EXAGGERATION = 1.0;
   const EPSILON = 2;
   const DEBUG = true;
 
@@ -31,7 +32,7 @@ export function playRace({
       sprite.__distance = 0;
       speedProfiles.set(horse.id, { fatigue: 1.0, burst: false });
       if (DEBUG) {
-        console.log(`[KD] 🐎 Init ${horse.name} | id=${horse.id} | Start at arc=0`);
+        console.log(`[KD] 🐎 Init ${horse.name} | id=${horse.id} → arc 0`);
       }
     }
   });
@@ -47,13 +48,16 @@ export function playRace({
 
       if (!sprite || !pathData || finishedHorses.has(id)) return;
 
-      const { getPointAtDistance, pathLength } = pathData;
+      const { getPointAtDistance, getCurveFactorAt, pathLength } = pathData;
       const profile = speedProfiles.get(id);
       const currentDist = sprite.__distance ?? 0;
 
       const fatigue = profile.fatigue;
       const burst = profile.burst;
-      const velocity = BASE_SPEED * fatigue * (burst ? 1.2 : 1) * speedMultiplier;
+      const curveFactor = getCurveFactorAt?.(currentDist) ?? 1.0;
+      const curveBoost = Math.pow(curveFactor, CURVE_EXAGGERATION);
+
+      const velocity = BASE_SPEED * fatigue * (burst ? 1.2 : 1) * curveBoost * speedMultiplier;
       const nextDist = currentDist + velocity * delta;
 
       if (nextDist >= pathLength - EPSILON) {
@@ -63,7 +67,7 @@ export function playRace({
           resultOrder.push({ id, name: horse.name, localId: horse.localId, timeMs: performance.now() });
 
           if (DEBUG) {
-            console.log(`[KD] 🏁 Finished: ${horse.name} | distance=${nextDist.toFixed(1)} / ${pathLength.toFixed(1)}`);
+            console.log(`[KD] 🏁 FINISH: ${horse.name} @ ${nextDist.toFixed(1)} / ${pathLength.toFixed(1)}`);
           }
         }
         return;
@@ -77,6 +81,10 @@ export function playRace({
       sprite.y = y;
       sprite.rotation = rotation;
 
+      if (DEBUG) {
+        console.log(`[KD] 🔄 ${horse.name} | dist=${nextDist.toFixed(1)} | angle=${(rotation * 180 / Math.PI).toFixed(1)}°`);
+      }
+
       if (label) {
         label.x = x;
         label.y = y - 20;
@@ -89,6 +97,7 @@ export function playRace({
         speed: velocity,
         fatigue,
         burst,
+        curveFactor,
         x,
         y,
         localId: horse.localId
@@ -96,7 +105,7 @@ export function playRace({
     });
 
     if (allFinished && horses.length && finishedHorses.size === horses.length) {
-      if (DEBUG) console.log('[KD] ✅ All horses finished');
+      if (DEBUG) console.log('[KD] ✅ All horses completed lap.');
       app.ticker.remove(ticker);
       app.__raceTicker = null;
       onRaceEnd?.(resultOrder, replayLog);
@@ -108,6 +117,6 @@ export function playRace({
   app.__raceTicker = ticker;
 
   if (DEBUG) {
-    console.log('[KD] 🎬 Race ticker added and running');
+    console.log('[KD] 🎬 Race started — ticker running');
   }
 }

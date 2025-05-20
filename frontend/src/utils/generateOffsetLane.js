@@ -1,12 +1,12 @@
 // File: frontend/src/utils/generateOffsetLane.js
-// Version: v0.5.0 — Fixed 12 o’clock alignment using global reference point
+// Version: v0.6.0 — Finalized 12 o’clock alignment logic with improved logs
 
 /**
  * Offsets a centerline path by a fixed number of pixels using vector normals.
  * Then rotates the path so the closest point to true 12 o’clock becomes index [0].
  * @param {Array<{x: number, y: number}>} centerline - base path
  * @param {number} offset - lane offset in px (+ outward, - inward)
- * @param {{x: number, y: number}} twelveOclockRef - fixed pixel coordinate
+ * @param {{x: number, y: number}} twelveOclockRef - fixed canvas anchor
  * @returns {Array<{x: number, y: number}>}
  */
 export function generateOffsetLane(centerline, offset, twelveOclockRef) {
@@ -30,7 +30,7 @@ export function generateOffsetLane(centerline, offset, twelveOclockRef) {
     });
   }
 
-  // 🔁 Find closest point to fixed 12 o'clock and rotate
+  // 🔁 Rotate path so closest point to 12 o'clock anchor is at index 0
   let bestIdx = 0;
   let bestDist = Infinity;
 
@@ -38,9 +38,9 @@ export function generateOffsetLane(centerline, offset, twelveOclockRef) {
     const pt = offsetPath[i];
     const dx = pt.x - twelveOclockRef.x;
     const dy = pt.y - twelveOclockRef.y;
-    const dist = dx * dx + dy * dy;
-    if (dist < bestDist) {
-      bestDist = dist;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < bestDist) {
+      bestDist = distSq;
       bestIdx = i;
     }
   }
@@ -50,7 +50,8 @@ export function generateOffsetLane(centerline, offset, twelveOclockRef) {
     ...offsetPath.slice(0, bestIdx)
   ];
 
-  console.log(`[KD] ✅ generateOffsetLane(): snapped [0] to 12 o’clock → Δ=${Math.sqrt(bestDist).toFixed(2)}px`);
+  const delta = Math.sqrt(bestDist);
+  console.log(`[KD] ✅ generateOffsetLane(): snapped [0] to 12 o’clock → Δ=${delta.toFixed(2)}px`);
 
   return rotatedPath;
 }

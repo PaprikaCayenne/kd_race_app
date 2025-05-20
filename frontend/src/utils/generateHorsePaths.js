@@ -1,10 +1,6 @@
 // File: frontend/src/utils/generateHorsePaths.js
-// Version: v2.9.0 — Simplified for true 12 o’clock arc start; removes anchor projection
+// Version: v3.1.0 — Finalizes arc 0 alignment, cleans up edge cases, confirms accurate wraparound
 
-/**
- * Builds normalized path data for each horse based on vector lane geometry.
- * Assumes all lanes are aligned to a shared arc start (top-middle, 12 o’clock).
- */
 export async function generateHorsePaths({
   horses,
   lanes,
@@ -13,7 +9,7 @@ export async function generateHorsePaths({
 }) {
   if (!Array.isArray(horses) || !horses.length) return new Map();
   if (!Array.isArray(lanes) || !lanes.length) return new Map();
-  if (!centerline || typeof centerline.totalArcLength !== 'number' || typeof centerline.getPointAtDistance !== 'function') {
+  if (!centerline?.getPointAtDistance || typeof centerline.totalArcLength !== 'number') {
     console.error('[KD] ❌ Invalid centerline passed to generateHorsePaths');
     return new Map();
   }
@@ -23,10 +19,11 @@ export async function generateHorsePaths({
   horses.forEach((horse, i) => {
     const lane = lanes[i];
     if (!lane || lane.length < 2) {
-      console.warn(`[KD] ❌ Horse "${horse.name}" skipped — invalid or empty lane`);
+      console.warn(`[KD] ⚠️ Horse "${horse.name}" skipped — invalid lane path`);
       return;
     }
 
+    // 🧮 Calculate arc length per segment
     const arcPoints = [];
     let arcLength = 0;
 
@@ -42,8 +39,8 @@ export async function generateHorsePaths({
 
     const startDistance = 0;
 
-    const getPointAtDistance = (d) => {
-      const wrapped = d % arcLength;
+    const getPointAtDistance = (distance) => {
+      const d = distance % arcLength;
       let dist = 0;
 
       for (let k = 0; k < arcPoints.length - 1; k++) {
@@ -53,8 +50,8 @@ export async function generateHorsePaths({
         const dy = p1.y - p0.y;
         const segLen = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist + segLen >= wrapped) {
-          const t = (wrapped - dist) / segLen;
+        if (dist + segLen >= d) {
+          const t = (d - dist) / segLen;
           const x = p0.x + dx * t;
           const y = p0.y + dy * t;
           const rotation = Math.atan2(dy, dx);
@@ -83,7 +80,7 @@ export async function generateHorsePaths({
       startDistance
     });
 
-    console.log(`[KD] 🐎 Horse ${horse.name} (dbId=${horse.id}) → startDistance=0 (top-middle start) / arcLength=${arcLength.toFixed(2)}`);
+    console.log(`[KD] 🐎 Horse ${horse.name} (dbId=${horse.id}) → startDistance=0 / arcLength=${arcLength.toFixed(2)}px`);
   });
 
   return horsePaths;

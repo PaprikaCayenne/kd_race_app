@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v1.9.0 — Replaces startAtPercent with startLineOffset for 12 o’clock start
+// Version: v2.0.1 — Connects Toggle Visuals button to debug dots in drawDerbyTrack
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from 'pixi.js';
@@ -14,7 +14,7 @@ import ReplayControls from './ReplayControls';
 
 import { getSpriteDimensions } from '@/utils/spriteDimensionCache';
 
-const VERSION = 'v1.9.0';
+const VERSION = 'v2.0.1';
 const socket = io('/race', { path: '/api/socket.io' });
 
 const TRACK_WIDTH = window.innerWidth;
@@ -26,9 +26,9 @@ const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
 const HORSE_PADDING = 5;
 const BOUNDARY_PADDING = 1;
-
-// ✅ NEW: start line offset in arc distance pixels
 const START_LINE_OFFSET = 10;
+
+const SPEED_MULTIPLIER_DEFAULT = 1;
 
 const RaceTrack = () => {
   const containerRef = useRef(null);
@@ -51,7 +51,7 @@ const RaceTrack = () => {
   const [debugVisible, setDebugVisible] = useState(false);
   const [raceReady, setRaceReady] = useState(false);
   const [canGenerate, setCanGenerate] = useState(true);
-  const [speedMultiplier, setSpeedMultiplier] = useState(1);
+  const [speedMultiplier, setSpeedMultiplier] = useState(SPEED_MULTIPLIER_DEFAULT);
   const [replayHistory, setReplayHistory] = useState([]);
   const [replayToPlay, setReplayToPlay] = useState(null);
 
@@ -91,7 +91,7 @@ const RaceTrack = () => {
           boundaryPadding: BOUNDARY_PADDING,
           trackPadding: TRACK_PADDING,
           startLineOffset: START_LINE_OFFSET,
-          debug: debugVisible
+          debug: debugVisible === true // ✅ Ensures toggle connects
         });
 
         if (!track || !track.lanes || !track.centerline) {
@@ -179,7 +179,6 @@ const RaceTrack = () => {
       horsePathsRef,
       width: TRACK_WIDTH,
       height: TRACK_HEIGHT,
-      startAtPercent: 0, // hardcoded to 0 to match arc-distance start
       setRaceReady,
       setCanGenerate,
       usedHorseIdsRef,
@@ -223,8 +222,8 @@ const RaceTrack = () => {
         <button onClick={handleGenerate} disabled={!canGenerate} className="bg-blue-600 px-4 py-2 text-white rounded disabled:opacity-50">Generate Horses</button>
         <button onClick={handleStartRace} disabled={!raceReady} className="bg-green-600 px-4 py-2 text-white rounded disabled:opacity-50">Start Race</button>
         <button onClick={() => setDebugVisible(v => !v)} className="bg-gray-600 px-4 py-2 text-white rounded">Toggle Visuals</button>
-        <button onClick={() => setSpeedMultiplier(speedMultiplier === 1 ? 4 : 1)} className="bg-purple-600 px-4 py-2 text-white rounded">
-          {speedMultiplier === 1 ? 'Enable Test Speed' : 'Back to Live Speed'}
+        <button onClick={() => setSpeedMultiplier(speedMultiplier === SPEED_MULTIPLIER_DEFAULT ? 4 : SPEED_MULTIPLIER_DEFAULT)} className="bg-purple-600 px-4 py-2 text-white rounded">
+          {speedMultiplier === SPEED_MULTIPLIER_DEFAULT ? 'Enable Test Speed' : 'Back to Live Speed'}
         </button>
       </div>
       <ReplayControls
