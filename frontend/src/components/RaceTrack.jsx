@@ -19,16 +19,16 @@ const socket = io('/race', { path: '/api/socket.io' });
 
 const TRACK_WIDTH = window.innerWidth;
 const TRACK_PADDING = 60;
-const TRACK_HEIGHT = 600;
+const TRACK_HEIGHT = 700;
 const CANVAS_HEIGHT = TRACK_HEIGHT + TRACK_PADDING * 2;
 
 const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
 const HORSE_PADDING = 5;
 const BOUNDARY_PADDING = 1;
-const START_LINE_OFFSET = 10;
+const START_LINE_OFFSET = 100;
 
-const SPEED_MULTIPLIER_DEFAULT = 1;
+const SPEED_MULTIPLIER_DEFAULT = 60;
 
 const RaceTrack = () => {
   const containerRef = useRef(null);

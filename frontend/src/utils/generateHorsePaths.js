@@ -1,5 +1,5 @@
 // File: frontend/src/utils/generateHorsePaths.js
-// Version: v3.1.0 — Finalizes arc 0 alignment, cleans up edge cases, confirms accurate wraparound
+// Version: v3.3.1 — Fixes arcLength key mismatch (was pathLength)
 
 export async function generateHorsePaths({
   horses,
@@ -17,19 +17,24 @@ export async function generateHorsePaths({
   const horsePaths = new Map();
 
   horses.forEach((horse, i) => {
-    const lane = lanes[i];
+    let lane = lanes[i];
     if (!lane || lane.length < 2) {
       console.warn(`[KD] ⚠️ Horse "${horse.name}" skipped — invalid lane path`);
       return;
     }
 
-    // 🧮 Calculate arc length per segment
+    const isClosed =
+      lane[0].x === lane.at(-1).x && lane[0].y === lane.at(-1).y;
+    if (!isClosed) {
+      lane = [...lane, lane[0]];
+    }
+
     const arcPoints = [];
     let arcLength = 0;
 
     for (let j = 0; j < lane.length; j++) {
       const curr = lane[j];
-      const prev = lane[j - 1] || lane[lane.length - 1];
+      const prev = lane[j - 1] || lane[lane.length - 2];
       const dx = curr.x - prev.x;
       const dy = curr.y - prev.y;
       const segLen = Math.sqrt(dx * dx + dy * dy);
@@ -40,7 +45,7 @@ export async function generateHorsePaths({
     const startDistance = 0;
 
     const getPointAtDistance = (distance) => {
-      const d = distance % arcLength;
+      const d = Math.min(distance, arcLength);
       let dist = 0;
 
       for (let k = 0; k < arcPoints.length - 1; k++) {
@@ -73,14 +78,18 @@ export async function generateHorsePaths({
     horsePaths.set(horse.id, {
       path: lane,
       arcPoints,
+      arcLength, // ✅ Was pathLength
       laneIndex: i,
-      pathLength: arcLength,
       getPointAtDistance,
       getCurveFactorAt: () => 1.0,
       startDistance
     });
 
-    console.log(`[KD] 🐎 Horse ${horse.name} (dbId=${horse.id}) → startDistance=0 / arcLength=${arcLength.toFixed(2)}px`);
+    console.log(
+      `[KD] 🐎 Horse ${horse.name} (dbId=${horse.id}) → startDistance=0 / arcLength=${arcLength.toFixed(
+        2
+      )}px (points=${lane.length})`
+    );
   });
 
   return horsePaths;

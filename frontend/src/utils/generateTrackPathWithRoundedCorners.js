@@ -1,5 +1,5 @@
 // File: frontend/src/utils/generateTrackPathWithRoundedCorners.js
-// Version: v2.5.0 — Fixes top arc jump by starting from first real curve point
+// Version: v2.5.1 — Starts path at 12 o'clock position
 
 export function generateCenterline({
   canvasWidth,
@@ -23,8 +23,11 @@ export function generateCenterline({
   const r = cornerRadius;
   const rawPoints = [];
 
-  // 🟢 Top-right curve (starts actual track, avoids off-canvas jump)
-  for (let i = 0; i <= segmentsPerCurve; i++) {
+  // 🟢 Start at top-center (12 o'clock)
+  rawPoints.push({ x: centerX, y: top });
+
+  // 🔵 Top-right curve
+  for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = Math.PI * 1.5 + (Math.PI / 2) * t;
     rawPoints.push({
@@ -33,7 +36,7 @@ export function generateCenterline({
     });
   }
 
-  // 🔵 Bottom-right
+  // 🟣 Bottom-right
   for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = 0 + (Math.PI / 2) * t;
@@ -43,7 +46,7 @@ export function generateCenterline({
     });
   }
 
-  // 🟣 Bottom-left
+  // 🟠 Bottom-left
   for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = Math.PI / 2 + (Math.PI / 2) * t;
@@ -53,7 +56,7 @@ export function generateCenterline({
     });
   }
 
-  // 🟠 Top-left
+  // 🔴 Top-left
   for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = Math.PI + (Math.PI / 2) * t;
@@ -89,33 +92,12 @@ export function generateCenterline({
     });
   }
 
-  // 🔁 Rotate to 12 o’clock (nearest to canvas center-top)
-  const anchor = {
-    x: canvasWidth / 2,
-    y: top + r
-  };
-
-  let bestIndex = 0;
-  let bestDist = Infinity;
-  for (let i = 0; i < path.length; i++) {
-    const dx = path[i].x - anchor.x;
-    const dy = path[i].y - anchor.y;
-    const dist = dx * dx + dy * dy;
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestIndex = i;
-    }
-  }
-
-  const rotatedPath = [...path.slice(bestIndex), ...path.slice(0, bestIndex)];
-  const delta = Math.sqrt(bestDist);
-
   const getPointAtDistance = (distance) => {
     const dist = distance % totalLength;
 
-    for (let i = 0; i < rotatedPath.length - 1; i++) {
-      const p0 = rotatedPath[i];
-      const p1 = rotatedPath[i + 1];
+    for (let i = 0; i < path.length - 1; i++) {
+      const p0 = path[i];
+      const p1 = path[i + 1];
       const segLen = p1.arcLength - p0.arcLength;
 
       if (dist <= p1.arcLength) {
@@ -127,8 +109,8 @@ export function generateCenterline({
       }
     }
 
-    const last = rotatedPath.at(-1);
-    const preLast = rotatedPath.at(-2) || last;
+    const last = path.at(-1);
+    const preLast = path.at(-2) || last;
     return {
       x: last.x,
       y: last.y,
@@ -136,13 +118,12 @@ export function generateCenterline({
     };
   };
 
-  console.log(`[KD] 🎯 centerline[0] aligned to 12 o’clock → (${rotatedPath[0].x.toFixed(1)}, ${rotatedPath[0].y.toFixed(1)})`);
-  console.log(`[KD] 📌 Nearest canvas anchor: (${anchor.x.toFixed(1)}, ${anchor.y.toFixed(1)}) → Δ=${delta.toFixed(2)}px`);
-  console.log(`[KD] 🔁 Full arc length: ${totalLength.toFixed(2)} px | Points: ${rotatedPath.length}`);
+  console.log(`[KD] 🎯 centerline[0] set to 12 o’clock → (${path[0].x.toFixed(1)}, ${path[0].y.toFixed(1)})`);
+  console.log(`[KD] 🔁 Full arc length: ${totalLength.toFixed(2)} px | Points: ${path.length}`);
 
   return {
-    path: rotatedPath,
-    length: rotatedPath.length,
+    path,
+    length: path.length,
     totalArcLength: totalLength,
     getPointAtDistance,
     getCurveFactorAt: () => 1.0

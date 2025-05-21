@@ -1,9 +1,10 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v2.0.7 — Finalized polygon fill fix with working 12 o'clock arc start
+// Version: v2.1.1 — Fixes brown fill seam at 12 o’clock, full debug alignment
 
 import { Graphics } from 'pixi.js';
 import { generateCenterline } from '@/utils/generateTrackPathWithRoundedCorners';
 import { generateAllLanes, generateOffsetLane } from '@/utils/generateOffsetLane';
+import parseColorToHex from '@/utils/parseColorToHex';
 
 export function drawDerbyTrack({
   app,
@@ -15,7 +16,11 @@ export function drawDerbyTrack({
   boundaryPadding = 0,
   trackPadding = 0,
   debug = false,
-  startLineOffset = 0
+  startLineOffset = 0,
+  horses = [],
+  debugDotsRef,
+  debugPathLinesRef,
+  labelSpritesRef
 }) {
   const trackContainer = new Graphics();
   const totalLaneWidth = (laneWidth * laneCount) + 2 * boundaryPadding;
@@ -39,7 +44,7 @@ export function drawDerbyTrack({
 
   const expectedTop = {
     x: width / 2,
-    y: (height + 2 * trackPadding) / 2 - height / 2 + cornerRadius
+    y: trackPadding + cornerRadius
   };
   const dx = path[0].x - expectedTop.x;
   const dy = path[0].y - expectedTop.y;
@@ -55,51 +60,49 @@ export function drawDerbyTrack({
     return null;
   }
 
-  // ✅ Proper polygon fill: clockwise outer + reversed inner, flattened as number array
+  // 🧵 DEBUG: Check polygon closure delta
+  const gapDx = outer[0].x - inner.at(-1).x;
+  const gapDy = outer[0].y - inner.at(-1).y;
+  const gapDelta = Math.sqrt(gapDx * gapDx + gapDy * gapDy);
+  console.log(`[KD] 🔍 Fill seam gap Δ = ${gapDelta.toFixed(2)}px between outer[0] and inner[-1]`);
+
+  // 🎨 Fill polygon — force close
+  const fillOuter = [...outer, outer[0]];
+  const fillInner = [...inner].reverse();
+  fillInner.push(fillInner[0]); // force closure
+
   const fillPolygon = [
-    ...outer.flatMap(pt => [pt.x, pt.y]),
-    ...inner.slice().reverse().flatMap(pt => [pt.x, pt.y])
+    ...fillOuter.flatMap(pt => [pt.x, pt.y]),
+    ...fillInner.flatMap(pt => [pt.x, pt.y])
   ];
 
   trackContainer.beginFill(0xc49a6c);
   trackContainer.drawPolygon(fillPolygon);
   trackContainer.endFill();
 
-  // 🧱 Track borders
+  // 🧱 Border lines
   trackContainer.lineStyle(4, 0x888888);
-  outer.forEach((pt, i) => {
-    if (i === 0) trackContainer.moveTo(pt.x, pt.y);
-    else trackContainer.lineTo(pt.x, pt.y);
-  });
+  outer.forEach((pt, i) => i === 0 ? trackContainer.moveTo(pt.x, pt.y) : trackContainer.lineTo(pt.x, pt.y));
   trackContainer.lineTo(outer[0].x, outer[0].y);
 
-  inner.forEach((pt, i) => {
-    if (i === 0) trackContainer.moveTo(pt.x, pt.y);
-    else trackContainer.lineTo(pt.x, pt.y);
-  });
+  inner.forEach((pt, i) => i === 0 ? trackContainer.moveTo(pt.x, pt.y) : trackContainer.lineTo(pt.x, pt.y));
   trackContainer.lineTo(inner[0].x, inner[0].y);
 
-  // 🟩 Centerline path (optional)
-  if (debug) {
-    trackContainer.lineStyle(1, 0x00ff00, 0.6);
-    path.forEach((pt, i) => {
-      if (i === 0) trackContainer.moveTo(pt.x, pt.y);
-      else trackContainer.lineTo(pt.x, pt.y);
-    });
-    trackContainer.lineTo(path[0].x, path[0].y);
-  }
+  app.stage.addChild(trackContainer);
 
-  // 🟢 Start line at arc 0
-  const startPt = getPointAtDistance(startLineOffset);
-  const normal = { x: -Math.sin(startPt.rotation), y: Math.cos(startPt.rotation) };
+  // 🟢 Start line (green)
+  const seg0 = path[0];
+  const seg1 = path[1];
+  const rotation = Math.atan2(seg1.y - seg0.y, seg1.x - seg0.x);
+  const normal = { x: -Math.sin(rotation), y: Math.cos(rotation) };
   const halfLine = totalLaneWidth / 2;
   const startA = {
-    x: startPt.x + normal.x * halfLine,
-    y: startPt.y + normal.y * halfLine
+    x: seg0.x + normal.x * halfLine,
+    y: seg0.y + normal.y * halfLine
   };
   const startB = {
-    x: startPt.x - normal.x * halfLine,
-    y: startPt.y - normal.y * halfLine
+    x: seg0.x - normal.x * halfLine,
+    y: seg0.y - normal.y * halfLine
   };
 
   const startLine = new Graphics();
@@ -109,22 +112,39 @@ export function drawDerbyTrack({
   startLine.zIndex = 100;
   app.stage.addChild(startLine);
 
-  // 🔵 Optional debug anchor dots
+  // 🔍 Debug overlays
   if (debug) {
-    const blueDot = new Graphics();
-    blueDot.beginFill(0x0000ff).drawCircle(0, 0, 5).endFill();
-    blueDot.position.set(path[0].x, path[0].y);
-    blueDot.zIndex = 101;
-    app.stage.addChild(blueDot);
+    const centerlineGraphic = new Graphics();
+    centerlineGraphic.lineStyle(1, 0x000000, 0.8);
+    path.forEach((pt, i) => i === 0 ? centerlineGraphic.moveTo(pt.x, pt.y) : centerlineGraphic.lineTo(pt.x, pt.y));
+    centerlineGraphic.lineTo(path[0].x, path[0].y);
+    app.stage.addChild(centerlineGraphic);
+    debugPathLinesRef.current.push(centerlineGraphic);
 
-    const redDot = new Graphics();
-    redDot.beginFill(0xff0000).drawCircle(0, 0, 5).endFill();
-    redDot.position.set(expectedTop.x, expectedTop.y);
-    redDot.zIndex = 102;
-    app.stage.addChild(redDot);
+    const addDot = (x, y, color) => {
+      const dot = new Graphics();
+      dot.beginFill(color).drawCircle(0, 0, 5).endFill();
+      dot.position.set(x, y);
+      dot.zIndex = 101;
+      app.stage.addChild(dot);
+      debugDotsRef.current.push(dot);
+    };
+
+    addDot(path[0].x, path[0].y, 0x0000ff);
+    addDot(expectedTop.x, expectedTop.y, 0xff0000);
+    addDot(inner[0].x, inner[0].y, 0xff9900);
+    addDot(outer[0].x, outer[0].y, 0xff9900);
+
+    horses.slice(0, laneCount).forEach((horse, i) => {
+      const lanePath = lanes[i];
+      const colorHex = parseColorToHex(horse.color);
+      const laneLine = new Graphics();
+      laneLine.lineStyle(2, colorHex, 1);
+      lanePath.forEach((pt, j) => j === 0 ? laneLine.moveTo(pt.x, pt.y) : laneLine.lineTo(pt.x, pt.y));
+      app.stage.addChild(laneLine);
+      debugPathLinesRef.current.push(laneLine);
+    });
   }
-
-  app.stage.addChild(trackContainer);
 
   return {
     lanes,

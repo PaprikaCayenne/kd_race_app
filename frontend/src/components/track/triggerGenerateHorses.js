@@ -1,9 +1,10 @@
 // File: frontend/src/components/track/triggerGenerateHorses.js
-// Version: v2.3.0 — Fully synced with vector engine, fixes localId issue, confirms 12 o’clock arc start
+// Version: v2.3.1 — Adds `.hex` field per horse, logs hex for lane path and sprite usage
 
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
 import { setupHorses } from './setupHorses';
 import { logInfo } from './debugConsole';
+import parseColorToHex from '@/utils/parseColorToHex';
 
 export async function triggerGenerateHorses({
   app,
@@ -47,7 +48,7 @@ export async function triggerGenerateHorses({
           'Content-Type': 'application/json',
           'x-admin-pass': '6a2e8819c6fb4c15'
         },
-        body: JSON.stringify({ width, height }) // No more startAtPercent
+        body: JSON.stringify({ width, height })
       });
     } catch (err) {
       console.error('[KD] ❌ Error triggering race:', err);
@@ -65,8 +66,9 @@ export async function triggerGenerateHorses({
       const selected = unused.slice(0, laneCount);
 
       horses = selected.map((h, index) => {
-        const mapped = { ...h, localId: index };
-        logInfo(`[KD] 🎯 Assigning localId=${index} to horse id=${h.id}, name=${h.name}`);
+        const hex = parseColorToHex(h.color);
+        const mapped = { ...h, localId: index, hex };
+        logInfo(`[KD] 🎯 Assigning localId=${index} to horse id=${h.id}, name=${h.name}, hex=${hex.toString(16)}`);
         return mapped;
       });
 

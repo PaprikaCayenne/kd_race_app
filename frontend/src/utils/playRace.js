@@ -1,122 +1,114 @@
 // File: frontend/src/utils/playRace.js
-// Version: v2.6.1 — Confirms arc 0 alignment, curve-aware speed, and runtime debug
+// Version: v2.4.9 — Horses change color and slow after finish, but never stop
+
+const DEBUG = true;
+const TICK_INTERVAL = 1000 / 30;
+const FINISH_EPSILON = 25;
+const MAX_POST_FINISH_DISTANCE = 999999; // ← effectively prevents full stop
 
 export function playRace({
   app,
   horseSprites,
   horsePaths,
   labelSprites,
-  finishedHorses,
   horses,
   onRaceEnd,
   speedMultiplier = 1
 }) {
-  if (app.__raceTicker) {
-    app.ticker.remove(app.__raceTicker);
-    app.__raceTicker = null;
-  }
+  const finished = new Set();
+  const stopping = new Set();
+  const results = [];
 
-  const BASE_SPEED = 0.45;
-  const CURVE_EXAGGERATION = 1.0;
-  const EPSILON = 2;
-  const DEBUG = true;
+  const maxDistance = new Map();
+  const currentDistance = new Map();
+  const currentSpeed = new Map();
+  const deceleration = new Map();
+  const tickCounter = new Map();
 
-  const resultOrder = [];
-  const lapFinished = new Set();
-  const replayLog = new Map();
-  const speedProfiles = new Map();
-
+  // 🐎 Initialize each horse with a random speed and set up tracking maps
   horses.forEach((horse) => {
-    const sprite = horseSprites.get(horse.id);
-    if (sprite) {
-      sprite.__distance = 0;
-      speedProfiles.set(horse.id, { fatigue: 1.0, burst: false });
-      if (DEBUG) {
-        console.log(`[KD] 🐎 Init ${horse.name} | id=${horse.id} → arc 0`);
-      }
+    const { id } = horse;
+    const path = horsePaths.get(id);
+    const arcLen = path?.arcLength ?? 0;
+
+    const speed = (Math.random() * 0.4 + 0.6) * 35;
+    maxDistance.set(id, arcLen);
+    currentDistance.set(id, 0);
+    currentSpeed.set(id, speed);
+    tickCounter.set(id, 0);
+
+    if (DEBUG) {
+      console.log(`[KD] 🧪 ${horse.name} → arcLength=${arcLen.toFixed(2)} | speed=${speed.toFixed(3)}`);
     }
   });
 
-  const ticker = (delta) => {
-    let allFinished = true;
-
+  const ticker = setInterval(() => {
     horses.forEach((horse) => {
-      const id = horse.id;
+      const { id, name } = horse;
+      const path = horsePaths.get(id);
       const sprite = horseSprites.get(id);
       const label = labelSprites.get(id);
-      const pathData = horsePaths.get(id);
+      const arcLen = maxDistance.get(id);
 
-      if (!sprite || !pathData || finishedHorses.has(id)) return;
+      if (!path?.arcPoints?.length || !sprite || !label) return;
 
-      const { getPointAtDistance, getCurveFactorAt, pathLength } = pathData;
-      const profile = speedProfiles.get(id);
-      const currentDist = sprite.__distance ?? 0;
+      let speed = currentSpeed.get(id);
+      let distance = currentDistance.get(id);
+      let ticks = tickCounter.get(id);
 
-      const fatigue = profile.fatigue;
-      const burst = profile.burst;
-      const curveFactor = getCurveFactorAt?.(currentDist) ?? 1.0;
-      const curveBoost = Math.pow(curveFactor, CURVE_EXAGGERATION);
+      if (stopping.has(id)) {
+        // 💤 Decelerating horse after finish — but no stop
+        const decel = deceleration.get(id);
+        speed = Math.max(0, speed + decel); // decel is negative
+        distance += speed;
+        currentSpeed.set(id, speed);
+        currentDistance.set(id, distance);
+        tickCounter.set(id, ticks + 1);
 
-      const velocity = BASE_SPEED * fatigue * (burst ? 1.2 : 1) * curveBoost * speedMultiplier;
-      const nextDist = currentDist + velocity * delta;
-
-      if (nextDist >= pathLength - EPSILON) {
-        if (!finishedHorses.has(id)) {
-          finishedHorses.add(id);
-          lapFinished.add(id);
-          resultOrder.push({ id, name: horse.name, localId: horse.localId, timeMs: performance.now() });
-
-          if (DEBUG) {
-            console.log(`[KD] 🏁 FINISH: ${horse.name} @ ${nextDist.toFixed(1)} / ${pathLength.toFixed(1)}`);
-          }
+        if (DEBUG && ticks % 10 === 0) {
+          console.log(`[KD] 🐴 ${name} continues slowing → distance=${distance.toFixed(1)} speed=${speed.toFixed(2)}`);
         }
-        return;
+      } else {
+        // 🐎 Normal movement
+        distance += speed;
+        currentDistance.set(id, distance);
+        tickCounter.set(id, ticks + 1);
       }
 
-      allFinished = false;
-      sprite.__distance = nextDist;
+      const clampedDistance = Math.min(distance, arcLen + MAX_POST_FINISH_DISTANCE);
+      const point = path.getPointAtDistance(clampedDistance);
+      const nextPoint = path.getPointAtDistance(clampedDistance + 1);
+      const angle = Math.atan2(nextPoint.y - point.y, nextPoint.x - point.x);
 
-      const { x, y, rotation } = getPointAtDistance(nextDist);
-      sprite.x = x;
-      sprite.y = y;
-      sprite.rotation = rotation;
+      // 🎯 Move horse to calculated position + rotation
+      sprite.x = point.x;
+      sprite.y = point.y;
+      sprite.rotation = angle;
 
-      if (DEBUG) {
-        console.log(`[KD] 🔄 ${horse.name} | dist=${nextDist.toFixed(1)} | angle=${(rotation * 180 / Math.PI).toFixed(1)}°`);
+      label.x = point.x;
+      label.y = point.y - 20;
+
+      if (!finished.has(id) && ticks > 5 && distance >= arcLen + FINISH_EPSILON) {
+        finished.add(id);
+        results.push({ id, name, finalSpeed: speed });
+
+        const decel = -speed / (Math.random() * 30 + 30); // gentle slowdown
+        stopping.add(id);
+        deceleration.set(id, decel);
+
+        // 🎨 Tint horse and label to show they finished
+        sprite.tint = 0x888888;
+        label.style.fill = 0x888888;
+
+        if (DEBUG) {
+          console.log(`[KD] 🏁 ${name} finished ${results.length} at speed ${speed.toFixed(2)}`);
+          console.log(`[KD] 💤 ${name} slowdown rate: ${decel.toFixed(4)} per tick`);
+        }
+
+        if (results.length === horses.length) {
+          onRaceEnd(results);
+        }
       }
-
-      if (label) {
-        label.x = x;
-        label.y = y - 20;
-      }
-
-      if (!replayLog.has(id)) replayLog.set(id, []);
-      replayLog.get(id).push({
-        time: performance.now(),
-        distance: nextDist,
-        speed: velocity,
-        fatigue,
-        burst,
-        curveFactor,
-        x,
-        y,
-        localId: horse.localId
-      });
     });
-
-    if (allFinished && horses.length && finishedHorses.size === horses.length) {
-      if (DEBUG) console.log('[KD] ✅ All horses completed lap.');
-      app.ticker.remove(ticker);
-      app.__raceTicker = null;
-      onRaceEnd?.(resultOrder, replayLog);
-    }
-  };
-
-  app.ticker.add(ticker);
-  app.ticker.start();
-  app.__raceTicker = ticker;
-
-  if (DEBUG) {
-    console.log('[KD] 🎬 Race started — ticker running');
-  }
+  }, TICK_INTERVAL);
 }
