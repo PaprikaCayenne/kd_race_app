@@ -1,22 +1,23 @@
 // File: api/index.ts
-// Version: v0.8.1 – Mount track route and preserve full app structure
+// Version: v0.8.3 — Mounts user, register, and betting routes properly
 
 import express from "express";
 import dotenv from "dotenv";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import cors from "cors";
 import horsesRoute from "./routes/horses.js";
 import registerRoute from "./routes/register.js";
+import userRoute from "./routes/user.js";
+import betRoute from "./routes/bet.js";
 import { createAdminRoute } from "./routes/admin.js";
 import replayRoute from "./routes/replay.js";
-import trackRoute from "./routes/track.js"; // ✅ Added
+import trackRoute from "./routes/track.js";
 import { setupRaceNamespace } from "./sockets/race.js";
 import { execSync } from "child_process";
 
-// 🌱 Load environment variables
 dotenv.config();
 
-// 🧬 Generate Prisma client if not in production
 if (process.env.NODE_ENV !== "production") {
   try {
     console.log("🛠️ Running prisma generate...");
@@ -29,16 +30,14 @@ if (process.env.NODE_ENV !== "production") {
 const app = express();
 const server = createServer(app);
 
-// 📡 Setup Socket.IO
 const io = new Server(server, {
   cors: { origin: "*" },
   path: "/api/socket.io"
 });
 
-// 🧩 Parse JSON bodies
+app.use(cors());
 app.use(express.json());
 
-// 🧬 Preserve WebSocket upgrade behavior
 app.use((req, res, next) => {
   if (req.url.startsWith("/api/socket.io")) return next();
   next();
@@ -47,14 +46,14 @@ app.use((req, res, next) => {
 // 🔗 Mount REST API routes
 app.use("/api/horses", horsesRoute);
 app.use("/api/register", registerRoute);
+app.use("/api/user", userRoute);              // ✅ NEW: fetch user & balance
 app.use("/api/admin", createAdminRoute(io));
 app.use("/api", replayRoute);
-app.use("/api/track", trackRoute); // ✅ Mount new route here
+app.use("/api/track", trackRoute);
+app.use("/api/bet", betRoute);
 
-// 🏇 Setup race WebSocket namespace
 setupRaceNamespace(io);
 
-// 🚀 Start the HTTP server
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`🔥 KD API running at http://localhost:${PORT}`);

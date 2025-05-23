@@ -1,45 +1,58 @@
 // File: api/routes/register.ts
-// Version: v0.2.0 – Convert to TypeScript and fully type route handler
+// Version: v0.3.1 — Sets starting Lease Loons via configurable constant
 
 import express, { Request, Response } from "express";
 import prisma from "../lib/prisma";
 
 const router = express.Router();
 
-// POST /api/register
+// 💰 Starting Lease Loons for all new users
+const STARTING_CURRENCY = 1000;
+
 router.post("/", async (req: Request, res: Response) => {
   const { firstName, lastName, nickname, horseId, deviceId } = req.body;
 
-  if (!firstName || !lastName || !horseId || !deviceId) {
+  if (!firstName || !lastName || !deviceId) {
     return res.status(400).json({
-      error: "firstName, lastName, horseId, and deviceId are required",
+      error: "firstName, lastName, and deviceId are required",
     });
   }
 
   try {
     let user = await prisma.user.findUnique({
-      where: { device_id: deviceId },
+      where: { deviceId },
     });
 
     if (!user) {
       user = await prisma.user.create({
         data: {
-          first_name: firstName,
-          last_name: lastName,
+          firstName,
+          lastName,
           nickname: nickname || null,
-          device_id: deviceId,
+          deviceId,
+          currency: STARTING_CURRENCY
         },
       });
 
-      await prisma.registration.create({
-        data: {
-          user_id: user.id,
-          horse_id: horseId,
-        },
-      });
+      // Optional: register to a horse if provided
+      if (horseId) {
+        await prisma.registration.create({
+          data: {
+            userId: user.id,
+            horseId,
+          },
+        });
+      }
     }
 
-    res.json({ userId: user.id });
+    res.json({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      nickname: user.nickname,
+      currency: user.currency,
+      deviceId: user.deviceId
+    });
   } catch (err) {
     console.error("Registration error:", err);
     res.status(500).json({ error: "Internal server error" });

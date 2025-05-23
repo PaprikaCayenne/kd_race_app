@@ -28,7 +28,7 @@ const HORSE_PADDING = 5;
 const BOUNDARY_PADDING = 1;
 const START_LINE_OFFSET = 100;
 
-const SPEED_MULTIPLIER_DEFAULT = 60;
+const SPEED_MULTIPLIER_DEFAULT = 1;
 
 const RaceTrack = () => {
   const containerRef = useRef(null);

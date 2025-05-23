@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/triggerStartRace.js
-// Version: v1.1.2 — Adds ref identity logs to detect diverging Map instances
+// Version: v1.1.3 — Logs passed speedMultiplier for verification
 
 import { playRace } from '@/utils/playRace';
 
@@ -16,7 +16,7 @@ export function triggerStartRace({
   setCanGenerate,
   speedMultiplier
 }) {
-  console.log('[KD] ▶️ triggerStartRace.js v1.1.2');
+  console.log('[KD] ▶️ triggerStartRace.js v1.1.3');
 
   const app = appRef.current;
   const horses = horsesRef.current;
@@ -49,6 +49,7 @@ export function triggerStartRace({
   }
 
   console.log('[KD] ✅ All horses have valid path data — preparing race');
+  console.log('[KD] 🎯 speedMultiplier passed to playRace():', speedMultiplier);
 
   // 🔎 Deep trace logs for debugging ID mismatch issues
   console.log('[KD] 🔎 Final horse IDs in race:', horses.map(h => h.id));

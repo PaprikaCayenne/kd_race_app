@@ -1,5 +1,5 @@
 // File: prisma/schema.prisma
-// Version: v0.4.0 – Add TrackMeta and HorsePath for race visualization
+// Version: v0.5.0 — Adds user currency, betting model, and race lock support
 
 generator client {
   provider = "prisma-client-js"
@@ -17,8 +17,10 @@ model User {
   lastName      String
   nickname      String?
   deviceId      String          @unique
+  currency      Int             @default(100) // 🪙 Lease Coins
   createdAt     DateTime        @default(now())
   registrations Registration[]
+  bets          Bet[]
 
   @@map("users")
 }
@@ -27,10 +29,12 @@ model Horse {
   id            Int             @id @default(autoincrement())
   name          String
   color         String
+  variant       String          @default("bay")
   registrations Registration[]
   results       Result[]
   replayFrames  ReplayFrame[]
   horsePaths    HorsePath[]
+  bets          Bet[]
 
   @@map("horses")
 }
@@ -50,10 +54,12 @@ model Race {
   id         BigInt        @id @default(autoincrement()) @db.BigInt
   startedAt  DateTime?
   endedAt    DateTime?
+  locked     Boolean       @default(false) // 🔒 Prevent new bets when locked
   results    Result[]
   replay     ReplayFrame[]
   horsePaths HorsePath[]
   trackMeta  TrackMeta?
+  bets       Bet[]
 
   @@map("races")
 }
@@ -88,7 +94,7 @@ model HorsePath {
   id      Int     @id @default(autoincrement())
   raceId  BigInt  @db.BigInt
   horseId Int
-  index   Int     // Position in path
+  index   Int
   x       Float
   y       Float
 
@@ -110,4 +116,19 @@ model TrackMeta {
   race         Race    @relation(fields: [raceId], references: [id])
 
   @@map("track_meta")
+}
+
+model Bet {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  race      Race     @relation(fields: [raceId], references: [id])
+  raceId    BigInt
+  horse     Horse    @relation(fields: [horseId], references: [id])
+  horseId   Int
+  amount    Int
+  createdAt DateTime @default(now())
+
+  @@unique([userId, raceId]) // 🧠 One bet per user per race
+  @@map("bets")
 }

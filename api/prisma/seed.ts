@@ -1,8 +1,14 @@
 // File: prisma/seed.ts
-// Version: v0.6.5 – Updated to match new schema with HorsePath and TrackMeta
+// Version: v0.6.7 — Seeds users with Lease Loons currency
 
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
+
+const VARIANTS = ['bay', 'chestnut', 'palomino', 'black'];
+
+function getRandomVariant(): string {
+  return VARIANTS[Math.floor(Math.random() * VARIANTS.length)];
+}
 
 async function main() {
   console.log('🧹 Clearing old data...');
@@ -14,54 +20,85 @@ async function main() {
   await prisma.result.deleteMany();
   await prisma.race.deleteMany();
   await prisma.registration.deleteMany();
+  await prisma.bet.deleteMany();
   await prisma.user.deleteMany();
   await prisma.horse.deleteMany();
 
   console.log('🐎 Seeding horses...');
 
   const redHorse = await prisma.horse.create({
-    data: { name: 'Leaseloon Lightning', color: 'red' }
+    data: {
+      name: 'Leaseloon Lightning',
+      color: 'red',
+      variant: getRandomVariant()
+    }
   });
   const blueHorse = await prisma.horse.create({
-    data: { name: 'Commission Crusher', color: 'blue' }
+    data: {
+      name: 'Commission Crusher',
+      color: 'blue',
+      variant: getRandomVariant()
+    }
   });
   const greenHorse = await prisma.horse.create({
-    data: { name: 'Slack Galloper', color: 'green' }
+    data: {
+      name: 'Slack Galloper',
+      color: 'green',
+      variant: getRandomVariant()
+    }
   });
 
   await prisma.horse.createMany({
     data: [
-      { name: 'Elevator Pitcher', color: 'yellow' },
-      { name: 'Tour Sheet Trotter', color: 'purple' },
-      { name: 'Amenity Stampeder', color: 'orange' },
-      { name: 'Broker Blitz', color: 'pink' },
-      { name: 'Hot Desk Rocket', color: 'gray' },
-      { name: 'Sublease Sprinter', color: 'teal' },
-      { name: 'Cap Rate Comet', color: 'navy' },
-      { name: 'Buildout Bandit', color: 'lime' },
-      { name: 'SpaceIQ Speedster', color: 'cyan' },
-      { name: 'CoreNet Cruiser', color: 'maroon' },
-      { name: 'Amenity Arms Racer', color: 'olive' },
-      { name: 'Lease-Up Lightning', color: 'beige' },
-      { name: 'JLL Jockey Jet', color: 'white' },
-      { name: 'Stack Plan Slammer', color: 'indigo' },
-      { name: 'Fitwel Flyer', color: 'aqua' },
-      { name: 'Wayfinding Wonder', color: 'tan' },
-      { name: 'Occupier Outlaw', color: 'charcoal' },
-      { name: 'PropTech Prancer', color: 'silver' }
+      { name: 'Elevator Pitcher', color: 'yellow', variant: getRandomVariant() },
+      { name: 'Tour Sheet Trotter', color: 'purple', variant: getRandomVariant() },
+      { name: 'Amenity Stampeder', color: 'orange', variant: getRandomVariant() },
+      { name: 'Broker Blitz', color: 'pink', variant: getRandomVariant() },
+      { name: 'Hot Desk Rocket', color: 'gray', variant: getRandomVariant() },
+      { name: 'Sublease Sprinter', color: 'teal', variant: getRandomVariant() },
+      { name: 'Cap Rate Comet', color: 'navy', variant: getRandomVariant() },
+      { name: 'Buildout Bandit', color: 'lime', variant: getRandomVariant() },
+      { name: 'SpaceIQ Speedster', color: 'cyan', variant: getRandomVariant() },
+      { name: 'CoreNet Cruiser', color: 'maroon', variant: getRandomVariant() },
+      { name: 'Amenity Arms Racer', color: 'olive', variant: getRandomVariant() },
+      { name: 'Lease-Up Lightning', color: 'beige', variant: getRandomVariant() },
+      { name: 'JLL Jockey Jet', color: 'white', variant: getRandomVariant() },
+      { name: 'Stack Plan Slammer', color: 'indigo', variant: getRandomVariant() },
+      { name: 'Fitwel Flyer', color: 'aqua', variant: getRandomVariant() },
+      { name: 'Wayfinding Wonder', color: 'tan', variant: getRandomVariant() },
+      { name: 'Occupier Outlaw', color: 'charcoal', variant: getRandomVariant() },
+      { name: 'PropTech Prancer', color: 'silver', variant: getRandomVariant() }
     ]
   });
 
-  console.log('🙋‍♂️ Creating test users...');
+  console.log('🙋‍♂️ Creating test users with Lease Loons...');
 
   const colin = await prisma.user.create({
-    data: { firstName: 'Colin', lastName: 'DiBiase', nickname: 'CD', deviceId: 'device_cd' }
+    data: {
+      firstName: 'Colin',
+      lastName: 'DiBiase',
+      nickname: 'CD',
+      deviceId: 'device_cd',
+      currency: 1000 // 🪙 Lease Loons
+    }
   });
   const jamie = await prisma.user.create({
-    data: { firstName: 'Jamie', lastName: 'Leasewell', nickname: 'JL', deviceId: 'device_jl' }
+    data: {
+      firstName: 'Jamie',
+      lastName: 'Leasewell',
+      nickname: 'JL',
+      deviceId: 'device_jl',
+      currency: 1000
+    }
   });
   const riley = await prisma.user.create({
-    data: { firstName: 'Riley', lastName: 'Spacefinder', nickname: 'RS', deviceId: 'device_rs' }
+    data: {
+      firstName: 'Riley',
+      lastName: 'Spacefinder',
+      nickname: 'RS',
+      deviceId: 'device_rs',
+      currency: 1000
+    }
   });
 
   console.log('📝 Registering users to horses...');
@@ -75,6 +112,7 @@ async function main() {
   });
 
   console.log('🏁 Creating race (empty stub for now)...');
+
   await prisma.race.create({
     data: {}
   });

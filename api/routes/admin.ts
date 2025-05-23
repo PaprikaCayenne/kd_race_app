@@ -1,5 +1,5 @@
 // File: api/routes/admin.ts
-// Version: v0.7.31 — Always selects 4 random horses and generates proper paths
+// Version: v0.7.32 — Validated for WebSocket emit and track/horse layout
 
 import express, { Request, Response } from "express";
 import { Server } from "socket.io";
@@ -34,7 +34,7 @@ export function createAdminRoute(io: Server) {
 
   router.post("/start", express.json(), async (req: Request, res: Response) => {
     const timestamp = getTimestamp();
-    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.31`);
+    console.log(`[${timestamp}] 🏁 KD Backend Race Logic Version: v0.7.32`);
 
     const pass = req.headers["x-admin-pass"];
     if (pass !== process.env.API_ADMIN_PASS) {

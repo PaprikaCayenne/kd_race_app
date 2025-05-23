@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.7.0 — Restores per-horse path overlays for Toggle Visuals
+// Version: v1.7.1 — Passes `horse.variant` to enable coat coloring
 
 import { Sprite, Text, TextStyle, Graphics } from 'pixi.js';
 import { drawHorseSprite } from '@/utils/drawHorseSprite';
@@ -43,13 +43,13 @@ export function setupHorses({
     }
 
     const { getPointAtDistance, path } = pathData;
-    const { x, y } = getPointAtDistance(0); // rotation is no longer needed
+    const { x, y } = getPointAtDistance(0);
 
     const colorHex = parseColorToHex(horse.color);
-    const sprite = drawHorseSprite(colorHex, app);
+    const sprite = drawHorseSprite(colorHex, app, horse.variant || 'bay');
 
     sprite.anchor.set(0.5);
-    sprite.rotation = 0; // 🚫 Static right-facing
+    sprite.rotation = 0;
     sprite.x = x - sprite.width / 2;
     sprite.y = y;
     sprite.zIndex = 10;
@@ -81,7 +81,6 @@ export function setupHorses({
       debugDotsRef.current.push(debugDot);
     }
 
-    // ✅ NEW: Draw per-horse lane path overlay
     const line = new Graphics();
     line.lineStyle(1, colorHex, 0.6);
     path.forEach((pt, i) => {

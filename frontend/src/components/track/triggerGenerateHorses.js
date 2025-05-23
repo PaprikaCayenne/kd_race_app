@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/triggerGenerateHorses.js
-// Version: v2.3.1 — Adds `.hex` field per horse, logs hex for lane path and sprite usage
+// Version: v2.3.2 — Fixes 400 error by adding startAtPercent to POST body, logs POST payload
 
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
 import { setupHorses } from './setupHorses';
@@ -40,7 +40,15 @@ export async function triggerGenerateHorses({
       return;
     }
 
-    // 🛰 Legacy compatibility: call /api/admin/start
+    // ✅ Fixed: include required startAtPercent
+    const raceInitPayload = {
+      startAtPercent: 0,
+      width,
+      height
+    };
+
+    console.log('[KD] 📨 POST /api/admin/start', raceInitPayload);
+
     try {
       await fetch('/api/admin/start', {
         method: 'POST',
@@ -48,7 +56,7 @@ export async function triggerGenerateHorses({
           'Content-Type': 'application/json',
           'x-admin-pass': '6a2e8819c6fb4c15'
         },
-        body: JSON.stringify({ width, height })
+        body: JSON.stringify(raceInitPayload)
       });
     } catch (err) {
       console.error('[KD] ❌ Error triggering race:', err);

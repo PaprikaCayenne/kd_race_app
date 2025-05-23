@@ -1,5 +1,6 @@
 // File: frontend/src/utils/generateHorsePaths.js
-// Version: v3.3.1 — Fixes arcLength key mismatch (was pathLength)
+// Version: v3.5.1 — Corrects drift vector logic for all lanes using arc projection
+// Date: 2025-05-22
 
 export async function generateHorsePaths({
   horses,
@@ -14,20 +15,18 @@ export async function generateHorsePaths({
     return new Map();
   }
 
+  const DRIFT_LENGTH = 350;
   const horsePaths = new Map();
 
   horses.forEach((horse, i) => {
     let lane = lanes[i];
     if (!lane || lane.length < 2) {
-      console.warn(`[KD] ⚠️ Horse "${horse.name}" skipped — invalid lane path`);
+      console.warn(`[KD] ⚠️ Horse "${horse.name}" skipped - invalid lane path`);
       return;
     }
 
-    const isClosed =
-      lane[0].x === lane.at(-1).x && lane[0].y === lane.at(-1).y;
-    if (!isClosed) {
-      lane = [...lane, lane[0]];
-    }
+    const isClosed = lane[0].x === lane.at(-1).x && lane[0].y === lane.at(-1).y;
+    if (!isClosed) lane = [...lane, lane[0]];
 
     const arcPoints = [];
     let arcLength = 0;
@@ -42,10 +41,8 @@ export async function generateHorsePaths({
       arcPoints.push({ ...curr, arcLength });
     }
 
-    const startDistance = 0;
-
     const getPointAtDistance = (distance) => {
-      const d = Math.min(distance, arcLength);
+      const d = Math.min(distance, arcLength + DRIFT_LENGTH);
       let dist = 0;
 
       for (let k = 0; k < arcPoints.length - 1; k++) {
@@ -66,30 +63,45 @@ export async function generateHorsePaths({
         dist += segLen;
       }
 
-      const last = arcPoints.at(-1);
-      const preLast = arcPoints.at(-2) || last;
-      return {
-        x: last.x,
-        y: last.y,
-        rotation: Math.atan2(last.y - preLast.y, last.x - preLast.x)
-      };
+      // Project past arcLength using final segment direction
+      const pLast = arcPoints.at(-2);
+      const pEnd = arcPoints.at(-1);
+      const dx = pEnd.x - pLast.x;
+      const dy = pEnd.y - pLast.y;
+      const remaining = d - arcLength;
+      const norm = Math.sqrt(dx * dx + dy * dy) || 1;
+
+      const x = pEnd.x + (dx / norm) * remaining;
+      const y = pEnd.y + (dy / norm) * remaining;
+      const rotation = Math.atan2(dy, dx);
+
+      return { x, y, rotation };
     };
+
+    const trueFinishDistance = arcLength;
+    const driftDistance = arcLength + DRIFT_LENGTH;
+
+    const trueFinish = getPointAtDistance(trueFinishDistance);
+    trueFinish.arcLength = trueFinishDistance;
+
+    const driftEnd = getPointAtDistance(driftDistance);
+    driftEnd.arcLength = driftDistance;
 
     horsePaths.set(horse.id, {
       path: lane,
       arcPoints,
-      arcLength, // ✅ Was pathLength
+      arcLength,
       laneIndex: i,
+      driftLength: DRIFT_LENGTH,
+      driftEnd,
+      trueFinish,
       getPointAtDistance,
       getCurveFactorAt: () => 1.0,
-      startDistance
+      startDistance: 0
     });
 
-    console.log(
-      `[KD] 🐎 Horse ${horse.name} (dbId=${horse.id}) → startDistance=0 / arcLength=${arcLength.toFixed(
-        2
-      )}px (points=${lane.length})`
-    );
+    console.log(`[KD] 🎯 ${horse.name} true finish = ${trueFinishDistance.toFixed(2)} px @ (${trueFinish.x.toFixed(1)}, ${trueFinish.y.toFixed(1)})`);
+    console.log(`[KD] 🔴 ${horse.name} drift end = ${driftDistance.toFixed(2)} px @ (${driftEnd.x.toFixed(1)}, ${driftEnd.y.toFixed(1)})`);
   });
 
   return horsePaths;
