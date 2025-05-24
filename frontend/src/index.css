@@ -1,4 +1,11 @@
-/* frontend/src/index.css */
+/* 
+ * File: frontend/src/index.css
+ * Version: v1.0.0 — Tailwind setup for global styles
+ * Applies base, component, and utility layers.
+ */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* You can add custom styles below if needed */

@@ -1,5 +1,5 @@
 // File: frontend/src/pages/users/DashboardPage.jsx
-// Version: v1.0.0 — Displays user's nickname and balance after registration
+// Version: v1.1.0 — Mobile-friendly Derby-themed dashboard with JLL branding
 
 import { useEffect, useState } from 'react';
 import axios from 'axios';
@@ -21,19 +21,34 @@ export default function DashboardPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-600">Loading your dashboard...</p>
+      <div className="min-h-screen flex items-center justify-center bg-white text-gray-600">
+        Loading your dashboard...
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-white p-6 flex flex-col items-center justify-center">
-      <img src="/jll-logo.svg" alt="JLL Logo" className="h-12 mb-6" />
-      <div className="bg-gray-50 p-6 rounded shadow max-w-md w-full space-y-4 text-center">
-        <h1 className="text-2xl font-bold text-gray-800">Welcome, {user.nickname}!</h1>
-        <p className="text-gray-700">You have <span className="font-semibold text-green-600">{user.currency} Lease Loons</span>.</p>
-        <p className="text-sm text-gray-500">Hang tight! You'll be able to place your bets here when the race opens.</p>
+    <div className="min-h-screen bg-white px-4 py-6 flex flex-col items-center text-gray-900">
+      <img src="/jll-logo.png" alt="JLL Logo" className="h-12 mb-4" />
+      <h1 className="text-2xl font-serif font-bold text-red-700 mb-2">
+        Welcome, {user.nickname}!
+      </h1>
+
+      <div className="bg-red-50 border border-red-200 rounded-xl shadow px-6 py-4 text-center w-full max-w-md space-y-4">
+        <p className="text-lg">
+          You have
+          <span className="font-bold text-red-700 mx-2">
+            {user.currency} Lease Loons
+          </span>
+        </p>
+
+        <p className="text-sm text-gray-600">
+          Hang tight — betting opens when the race starts.
+        </p>
+      </div>
+
+      <div className="mt-8 w-full max-w-md text-center text-gray-500 text-sm">
+        🐎 Watch for updates on your next race.
       </div>
     </div>
   );

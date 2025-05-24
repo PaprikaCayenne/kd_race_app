@@ -1,5 +1,5 @@
 <!-- File: frontend/users.html -->
-<!-- Version: v1.0.2 — Fixed to load main-user.jsx for production builds -->
+<!-- Version: v1.0.3 — Uses Vite-compatible script injection -->
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -11,6 +11,7 @@
   </head>
   <body class="bg-white text-gray-900">
     <div id="root"></div>
-    <script type="module" src="/src/main-user.jsx"></script>
+    <!-- ✅ Let Vite inject real bundled output -->
+    <script type="module" src="./src/main-user.jsx"></script>
   </body>
 </html>
