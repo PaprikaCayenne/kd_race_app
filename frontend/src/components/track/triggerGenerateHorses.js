@@ -1,10 +1,11 @@
 // File: frontend/src/components/track/triggerGenerateHorses.js
-// Version: v2.3.2 — Fixes 400 error by adding startAtPercent to POST body, logs POST payload
+// Version: v2.4.1 — Uses getSpriteDimensions (drawHorseSprite) to measure sprite width before generating horse paths
 
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
 import { setupHorses } from './setupHorses';
 import { logInfo } from './debugConsole';
 import parseColorToHex from '@/utils/parseColorToHex';
+import { getSpriteDimensions } from '@/utils/spriteDimensionCache';
 
 export async function triggerGenerateHorses({
   app,
@@ -33,14 +34,13 @@ export async function triggerGenerateHorses({
       return;
     }
 
-    const { laneCount, lanes, spriteWidth, centerline } = trackData;
+    const { laneCount, lanes, centerline } = trackData;
 
     if (!Array.isArray(lanes) || lanes.length < laneCount) {
       console.error('[KD] ❌ Not enough valid lanes for horse generation');
       return;
     }
 
-    // ✅ Fixed: include required startAtPercent
     const raceInitPayload = {
       startAtPercent: 0,
       width,
@@ -63,7 +63,6 @@ export async function triggerGenerateHorses({
       return;
     }
 
-    // 🐴 Fetch and filter horses
     let horses = [];
     try {
       const res = await fetch('/api/horses');
@@ -98,7 +97,13 @@ export async function triggerGenerateHorses({
       return;
     }
 
-    // 🧭 Generate vector-based lane paths
+    const { width: spriteWidth } = getSpriteDimensions(
+      horses[0].hex,
+      horses[0].id,
+      app,
+      horses[0].variant || 'bay'
+    );
+
     const horsePaths = await generateHorsePaths({ horses, lanes, centerline, spriteWidth });
 
     if (!(horsePaths instanceof Map) || horsePaths.size === 0) {

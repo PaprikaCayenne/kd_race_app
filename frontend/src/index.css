@@ -1,11 +1,16 @@
 /* 
  * File: frontend/src/index.css
- * Version: v1.0.0 — Tailwind setup for global styles
- * Applies base, component, and utility layers.
+ * Version: v1.1.0 — Adds full-bleed green bg and resets padding/margin
+ * Applies Tailwind base + custom global style fixes
  */
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* You can add custom styles below if needed */
+/* ✅ Global HTML/body reset for seamless canvas layout */
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: #baf0ba; /* match canvas background */
+}

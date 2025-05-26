@@ -1,5 +1,8 @@
 // File: frontend/vite.config.js
-// Version: v0.6.0 — Multi-page config for / and /users
+// Version: v0.8.0 — Maps / to users.html and /race to race.html
+// https://kd.paprikacayenne.com/       → users.html (main-user.jsx)
+// https://kd.paprikacayenne.com/race   → race.html (main-race.jsx)
+
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -21,10 +24,13 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
-        main: path.resolve(__dirname, 'index.html'),
-        users: path.resolve(__dirname, 'users.html')
+        // 📱 Mobile UI at root
+        users: path.resolve(__dirname, 'users.html'),
+
+        // 🐎 Race screen at /race
+        race: path.resolve(__dirname, 'race.html')
       }
     },
-    outDir: 'dist'
+    outDir: 'frontend_build'
   }
 });

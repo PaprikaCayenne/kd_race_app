@@ -1,19 +1,17 @@
 // File: frontend/src/utils/generateHorsePaths.js
-// Version: v3.5.1 — Corrects drift vector logic for all lanes using arc projection
-// Date: 2025-05-22
+// Version: v3.7.1 — Finalized behind-the-line offset spawn with customizable startLinePadding
+
+import { getTangentAngle } from '@/utils/arcUtils';
 
 export async function generateHorsePaths({
   horses,
   lanes,
   centerline,
-  spriteWidth = 0
+  spriteWidth = 0,
+  startLinePadding = 10
 }) {
   if (!Array.isArray(horses) || !horses.length) return new Map();
   if (!Array.isArray(lanes) || !lanes.length) return new Map();
-  if (!centerline?.getPointAtDistance || typeof centerline.totalArcLength !== 'number') {
-    console.error('[KD] ❌ Invalid centerline passed to generateHorsePaths');
-    return new Map();
-  }
 
   const DRIFT_LENGTH = 350;
   const horsePaths = new Map();
@@ -63,23 +61,18 @@ export async function generateHorsePaths({
         dist += segLen;
       }
 
-      // Project past arcLength using final segment direction
-      const pLast = arcPoints.at(-2);
-      const pEnd = arcPoints.at(-1);
-      const dx = pEnd.x - pLast.x;
-      const dy = pEnd.y - pLast.y;
-      const remaining = d - arcLength;
-      const norm = Math.sqrt(dx * dx + dy * dy) || 1;
-
-      const x = pEnd.x + (dx / norm) * remaining;
-      const y = pEnd.y + (dy / norm) * remaining;
-      const rotation = Math.atan2(dy, dx);
+      // Fallback drift projection using tangent before arcLength
+      const angle = getTangentAngle(lane, arcLength - 1);
+      const x = arcPoints.at(-1).x + Math.cos(angle) * (distance - arcLength);
+      const y = arcPoints.at(-1).y + Math.sin(angle) * (distance - arcLength);
+      const rotation = angle;
 
       return { x, y, rotation };
     };
 
     const trueFinishDistance = arcLength;
     const driftDistance = arcLength + DRIFT_LENGTH;
+    const startDistance = -((spriteWidth / 2) + startLinePadding);
 
     const trueFinish = getPointAtDistance(trueFinishDistance);
     trueFinish.arcLength = trueFinishDistance;
@@ -97,7 +90,7 @@ export async function generateHorsePaths({
       trueFinish,
       getPointAtDistance,
       getCurveFactorAt: () => 1.0,
-      startDistance: 0
+      startDistance
     });
 
     console.log(`[KD] 🎯 ${horse.name} true finish = ${trueFinishDistance.toFixed(2)} px @ (${trueFinish.x.toFixed(1)}, ${trueFinish.y.toFixed(1)})`);

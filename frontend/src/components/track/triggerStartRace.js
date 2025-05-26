@@ -1,5 +1,6 @@
 // File: frontend/src/components/track/triggerStartRace.js
-// Version: v1.1.3 — Logs passed speedMultiplier for verification
+// Version: v1.1.4 — Adds debugVisible to playRace()
+// Date: 2025-05-24
 
 import { playRace } from '@/utils/playRace';
 
@@ -14,9 +15,10 @@ export function triggerStartRace({
   finishDotsRef,
   setRaceReady,
   setCanGenerate,
-  speedMultiplier
+  speedMultiplier,
+  debugVisible // ✅ ADD: receive debug toggle state
 }) {
-  console.log('[KD] ▶️ triggerStartRace.js v1.1.3');
+  console.log('[KD] ▶️ triggerStartRace.js v1.1.4');
 
   const app = appRef.current;
   const horses = horsesRef.current;
@@ -50,13 +52,11 @@ export function triggerStartRace({
 
   console.log('[KD] ✅ All horses have valid path data — preparing race');
   console.log('[KD] 🎯 speedMultiplier passed to playRace():', speedMultiplier);
+  console.log('[KD] 🎯 debugVisible passed to playRace():', debugVisible);
 
-  // 🔎 Deep trace logs for debugging ID mismatch issues
   console.log('[KD] 🔎 Final horse IDs in race:', horses.map(h => h.id));
   console.log('[KD] 🔎 horseSpritesRef keys:', Array.from(horseSpritesRef.current?.keys?.() ?? []));
   console.log('[KD] 🔎 horsePathsRef keys:', Array.from(horsePathsRef.current?.keys?.() ?? []));
-
-  // 🧩 Identity check for ref Map objects
   console.log('[KD] 🧩 horseSpritesRef identity at race start:', horseSpritesRef.current);
   console.log('[KD] 🧩 horsePathsRef identity at race start:', horsePathsRef.current);
 
@@ -72,6 +72,7 @@ export function triggerStartRace({
     onRaceEnd: () => setCanGenerate(true),
     debugPathLinesRef,
     finishDotsRef,
-    speedMultiplier
+    speedMultiplier,
+    debugVisible // ✅ PASS INTO playRace()
   });
 }

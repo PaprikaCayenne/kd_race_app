@@ -1,29 +1,25 @@
 # File: frontend/Dockerfile
-# Version: v0.2.0 — Install pako, build React app cleanly
+# Version: v1.4.1 — Clean single-stage builder for frontend_build extraction
 
-# Stage 1: builder
-FROM node:20 AS builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Install global tools
+# Install pnpm globally
 RUN npm install -g pnpm
 
-# Install frontend dependencies
-COPY frontend/package*.json ./frontend/
-RUN cd frontend && pnpm install --frozen-lockfile || pnpm install
+# Copy frontend package and lockfiles
+COPY frontend/package.json ./frontend/
+COPY pnpm-lock.yaml .
+COPY pnpm-workspace.yaml .
 
-# Copy frontend code
+# Install frontend-only dependencies
+RUN pnpm install --filter ./frontend...
+
+# Copy frontend source code
 COPY frontend ./frontend
 
-# Build frontend
-RUN cd frontend && pnpm run build
+# Build static files to /app/frontend/dist
+WORKDIR /app/frontend
+RUN pnpm run build
 
-# Stage 2: final minimal image
-FROM alpine
-WORKDIR /app
-
-# Only copy built static files
-COPY --from=builder /app/frontend/dist /app/frontend/dist
-
-# Expose the dist folder
-CMD ["sh", "-c", "echo 'Frontend built. Serve /app/frontend/dist with Nginx or a static server.' && sleep infinity"]
+# ✅ No final image — output will be extracted by external script

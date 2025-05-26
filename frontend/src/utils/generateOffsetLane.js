@@ -1,8 +1,8 @@
 // File: frontend/src/utils/generateOffsetLane.js
-// Version: v0.6.0 — Finalized 12 o’clock alignment logic with improved logs
+// Version: v0.7.0 — Fixes normal discontinuity using forward vector smoothing
 
 /**
- * Offsets a centerline path by a fixed number of pixels using vector normals.
+ * Offsets a centerline path by a fixed number of pixels using smoothed vector normals.
  * Then rotates the path so the closest point to true 12 o’clock becomes index [0].
  * @param {Array<{x: number, y: number}>} centerline - base path
  * @param {number} offset - lane offset in px (+ outward, - inward)
@@ -11,22 +11,32 @@
  */
 export function generateOffsetLane(centerline, offset, twelveOclockRef) {
   const offsetPath = [];
+  let prevAngle = null;
 
   for (let i = 0; i < centerline.length; i++) {
-    const p1 = centerline[i];
-    const p2 = centerline[(i + 1) % centerline.length];
+    const prev = centerline[(i - 1 + centerline.length) % centerline.length];
+    const next = centerline[(i + 1) % centerline.length];
 
-    const dx = p2.x - p1.x;
-    const dy = p2.y - p1.y;
-    const length = Math.sqrt(dx * dx + dy * dy);
-    if (length === 0) continue;
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
 
-    const normalX = -dy / length;
-    const normalY = dx / length;
+    let angle = Math.atan2(dy, dx);
 
+    // 🔁 Smooth angle to preserve continuity
+    if (prevAngle !== null) {
+      while (angle - prevAngle > Math.PI) angle -= 2 * Math.PI;
+      while (angle - prevAngle < -Math.PI) angle += 2 * Math.PI;
+    }
+    prevAngle = angle;
+
+    const normalAngle = angle + Math.PI / 2;
+    const normalX = Math.cos(normalAngle);
+    const normalY = Math.sin(normalAngle);
+
+    const pt = centerline[i];
     offsetPath.push({
-      x: p1.x + offset * normalX,
-      y: p1.y + offset * normalY
+      x: pt.x + offset * normalX,
+      y: pt.y + offset * normalY
     });
   }
 

@@ -1,5 +1,7 @@
-<!-- File: frontend/index.html -->
-<!-- Version: v0.9.88 — Removes manual version injection; handled by Vite define -->
+<!-- File: frontend/race.html -->
+<!-- Version: v1.1.0 — Entry point for race view at https://kd.paprikacayenne.com/race -->
+<!-- Injects: main-race.jsx to mount <App /> -->
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -10,6 +12,7 @@
   </head>
   <body class="bg-green-50 text-gray-900">
     <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <!-- ✅ Loads App from main-race.jsx -->
+    <script type="module" src="/src/main-race.jsx"></script>
   </body>
 </html>

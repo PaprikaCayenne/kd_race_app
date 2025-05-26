@@ -1,0 +1,9 @@
+{
+  "name": "kd-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "knip": "^5.58.0",
+    "ts-prune": "^0.10.3"
+  }
+}

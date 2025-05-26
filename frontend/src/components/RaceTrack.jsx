@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v2.0.1 — Connects Toggle Visuals button to debug dots in drawDerbyTrack
+// Version: v2.2.2 — Removes padding on outer div for edge-to-edge canvas
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from 'pixi.js';
@@ -10,25 +10,27 @@ import { toggleDebugLayers } from './track/toggleDebugLayers';
 import { triggerGenerateHorses } from './track/triggerGenerateHorses';
 import { triggerStartRace } from './track/triggerStartRace';
 import { initRaceListeners } from './track/initRaceListeners';
+import { updateDebugDots } from './track/updateDebugDots';
 import ReplayControls from './ReplayControls';
 
 import { getSpriteDimensions } from '@/utils/spriteDimensionCache';
 
-const VERSION = 'v2.0.1';
+const VERSION = 'v2.2.2';
 const socket = io('/race', { path: '/api/socket.io' });
 
 const TRACK_WIDTH = window.innerWidth;
-const TRACK_PADDING = 60;
-const TRACK_HEIGHT = 700;
+const TRACK_PADDING = 10;
+const TRACK_HEIGHT = 900;
 const CANVAS_HEIGHT = TRACK_HEIGHT + TRACK_PADDING * 2;
 
 const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
-const HORSE_PADDING = 5;
-const BOUNDARY_PADDING = 1;
+const HORSE_PADDING = 0;
+const BOUNDARY_PADDING = 0;
 const START_LINE_OFFSET = 100;
+const START_LINE_PADDING = 10;
 
-const SPEED_MULTIPLIER_DEFAULT = 1;
+const SPEED_MULTIPLIER_DEFAULT = 2;
 
 const RaceTrack = () => {
   const containerRef = useRef(null);
@@ -75,7 +77,7 @@ const RaceTrack = () => {
 
         const measuredWidths = await Promise.all(
           horsesRef.current.map(h =>
-            getSpriteDimensions(h.color, h.id, app).width
+            getSpriteDimensions(h.hex, h.id, app, h.variant || 'bay').width
           )
         );
         const maxSpriteWidth = Math.max(...measuredWidths);
@@ -91,7 +93,12 @@ const RaceTrack = () => {
           boundaryPadding: BOUNDARY_PADDING,
           trackPadding: TRACK_PADDING,
           startLineOffset: START_LINE_OFFSET,
-          debug: debugVisible === true // ✅ Ensures toggle connects
+          debug: debugVisible,
+          horses: horsesRef.current,
+          horsePaths: horsePathsRef.current,
+          debugDotsRef,
+          debugPathLinesRef,
+          labelSpritesRef
         });
 
         if (!track || !track.lanes || !track.centerline) {
@@ -137,6 +144,16 @@ const RaceTrack = () => {
       finishDotsRef,
       labelSpritesRef
     });
+
+    if (horsePathsRef.current.size > 0) {
+      updateDebugDots({
+        horses: horsesRef.current,
+        horsePaths: horsePathsRef.current,
+        app: appRef.current,
+        debugDotsRef,
+        debugVisible
+      });
+    }
   }, [debugVisible]);
 
   useEffect(() => {
@@ -198,7 +215,8 @@ const RaceTrack = () => {
       finishDotsRef,
       setRaceReady,
       setCanGenerate,
-      speedMultiplier
+      speedMultiplier,
+      debugVisible
     });
 
     if (typeof window !== 'undefined' && window.playRace) {
@@ -212,7 +230,7 @@ const RaceTrack = () => {
   };
 
   return (
-    <div ref={containerRef} className="p-4 relative">
+    <div ref={containerRef} className="relative">
       <canvas
         ref={canvasRef}
         style={{ height: `${CANVAS_HEIGHT}px` }}

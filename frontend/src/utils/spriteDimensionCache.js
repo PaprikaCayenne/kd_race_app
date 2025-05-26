@@ -1,27 +1,33 @@
 // File: frontend/src/utils/spriteDimensionCache.js
-// Version: v1.0.0 — Caches sprite dimensions per unique horse ID
+// Version: v1.2.0 — Replaces triangle logic with drawHorseSprite, restores getSpriteDimensions()
 
-import { createHorseSprite } from './createHorseSprite';
+import { drawHorseSprite } from './drawHorseSprite';
 
-const cache = new Map();
+export const spriteDimensionCache = new Map();
 
 /**
- * Loads and measures sprite dimensions for a horse color/id combo.
- * Uses cache to avoid remeasuring.
- * @param {string} color 
- * @param {string} horseId 
- * @param {PIXI.Application} app 
- * @returns {{ width: number, height: number }}
+ * Measures the width and height of a rendered horse sprite using drawHorseSprite,
+ * including variant and saddle color.
+ *
+ * @param {number} colorHex - Hex color for the saddle.
+ * @param {string|number} horseId - Horse ID used for caching.
+ * @param {PIXI.Application} appInstance - The current PixiJS application.
+ * @param {string} variant - Horse coat variant (e.g. 'bay', 'palomino').
+ * @returns {{width: number, height: number}}
  */
-export function getSpriteDimensions(color, horseId, app) {
-  if (cache.has(horseId)) {
-    return cache.get(horseId);
-  }
+export function getSpriteDimensions(colorHex, horseId, appInstance, variant = 'bay') {
+  const key = `${colorHex}-${variant}`;
+  if (spriteDimensionCache.has(key)) return spriteDimensionCache.get(key);
 
-  const sprite = createHorseSprite(color, horseId, app);
-  const dimensions = { width: sprite.width, height: sprite.height };
-  cache.set(horseId, dimensions);
-  sprite.destroy(); // Don’t leave temporary sprite in memory
+  const sprite = drawHorseSprite(colorHex, appInstance, variant);
+  appInstance?.stage?.addChild?.(sprite);
 
-  return dimensions;
+  const size = {
+    width: sprite.width,
+    height: sprite.height
+  };
+
+  spriteDimensionCache.set(key, size);
+  sprite.destroy?.();
+  return size;
 }

@@ -1,14 +1,12 @@
 // File: frontend/src/utils/playRace.js
-// Version: v2.10.1 — Adds finish times in seconds to race result logs
-// Date: 2025-05-23
-// Purpose: Shows accurate race timing in seconds per horse with ordinal labels
+// Version: v3.4.0 — Finalizes arc-based finish trigger with delta logging and drift safety
+// Date: 2025-05-25
 
 import { Graphics } from 'pixi.js';
 
-const DEBUG = true;
+const FINISH_PROXIMITY_PX = 4;
 const TICK_INTERVAL = 1000 / 30;
 const RACE_DURATION_SECONDS = 10;
-const FINISH_PROXIMITY_PX = 4;
 
 export function playRace({
   app,
@@ -17,12 +15,12 @@ export function playRace({
   labelSprites,
   horses,
   onRaceEnd,
-  speedMultiplier = 1
+  speedMultiplier = 1,
+  debugVisible = false
 }) {
   const finished = new Set();
   const results = [];
   const distanceMap = new Map();
-  const driftJumpMap = new Map();
   const speedMap = new Map();
 
   const ticksPerRace = RACE_DURATION_SECONDS * (1000 / TICK_INTERVAL);
@@ -31,7 +29,6 @@ export function playRace({
   horses.forEach((horse) => {
     const { id, name } = horse;
     const path = horsePaths.get(id);
-    const driftEnd = path?.driftEnd;
     const trueFinish = path?.trueFinish;
 
     if (!trueFinish || !path?.getPointAtDistance) {
@@ -40,37 +37,8 @@ export function playRace({
     }
 
     distanceMap.set(id, 0);
-    driftJumpMap.set(id, false);
-
     const normalizedSpeed = (trueFinish.arcLength / ticksPerRace) * speedMultiplier;
     speedMap.set(id, normalizedSpeed);
-
-    if (DEBUG && app?.stage) {
-      const blue = new Graphics();
-      blue.beginFill(0x0000ff).drawCircle(trueFinish.x, trueFinish.y, 5).endFill();
-      app.stage.addChild(blue);
-
-      const red = new Graphics();
-      red.lineStyle(2, 0xff0000).drawCircle(driftEnd.x, driftEnd.y, 7);
-      app.stage.addChild(red);
-
-      const orange = new Graphics();
-      orange.beginFill(0xffaa00, 0.4).drawCircle(trueFinish.x, trueFinish.y, 8).endFill();
-      orange.lineStyle(3, 0xff8800)
-        .moveTo(trueFinish.x - 10, trueFinish.y - 10)
-        .lineTo(trueFinish.x + 10, trueFinish.y + 10)
-        .moveTo(trueFinish.x + 10, trueFinish.y - 10)
-        .lineTo(trueFinish.x - 10, trueFinish.y + 10);
-      app.stage.addChild(orange);
-
-      const driftStart = path.getPointAtDistance(trueFinish.arcLength + 1);
-      const purple = new Graphics();
-      purple.beginFill(0x800080).drawCircle(driftStart.x, driftStart.y, 5).endFill();
-      app.stage.addChild(purple);
-
-      console.log(`[KD] 🎯 ${name} true finish = ${trueFinish.arcLength.toFixed(2)} px @ (${trueFinish.x.toFixed(1)}, ${trueFinish.y.toFixed(1)})`);
-      console.log(`[KD] 🟣 ${name} driftStart = (${driftStart.x.toFixed(1)}, ${driftStart.y.toFixed(1)})`);
-    }
   });
 
   const ticker = setInterval(() => {
@@ -80,26 +48,20 @@ export function playRace({
       const sprite = horseSprites.get(id);
       const label = labelSprites.get(id);
       const trueFinish = path?.trueFinish;
+      const driftEnd = path?.driftEnd;
 
-      if (!sprite || !label || !path?.getPointAtDistance || !trueFinish) return;
+      if (!sprite || !label || !path?.getPointAtDistance || !trueFinish || !driftEnd) return;
 
       let distance = distanceMap.get(id);
-      const isFinished = finished.has(id);
-      const hasJumped = driftJumpMap.get(id);
-      const maxDistance = path.driftEnd.arcLength;
       const speed = speedMap.get(id);
+      const maxDistance = driftEnd.arcLength;
 
-      if (isFinished && !hasJumped) {
-        distance = trueFinish.arcLength + 1;
-        driftJumpMap.set(id, true);
-      } else {
-        distance = Math.min(distance + speed, maxDistance);
-      }
-
+      // Advance distance forward without ever exceeding drift
+      distance = Math.min(distance + speed, maxDistance);
       distanceMap.set(id, distance);
 
       const point = path.getPointAtDistance(distance);
-      let next = path.getPointAtDistance(Math.min(distance + 1, maxDistance));
+      const next = path.getPointAtDistance(Math.min(distance + 1, maxDistance));
       if (!point || !next) return;
 
       sprite.x = point.x;
@@ -108,9 +70,11 @@ export function playRace({
       label.x = point.x;
       label.y = point.y - 20;
 
+      const isFinished = finished.has(id);
       const dx = point.x - trueFinish.x;
       const dy = point.y - trueFinish.y;
       const pixelDelta = Math.sqrt(dx * dx + dy * dy);
+      const arcDelta = Math.abs(distance - trueFinish.arcLength);
       const justCrossed = !isFinished && pixelDelta <= FINISH_PROXIMITY_PX;
 
       if (justCrossed) {
@@ -124,17 +88,24 @@ export function playRace({
 
         results.push({ id, name, finalSpeed: speed, finishTimeSec });
 
-        const redDelta = (path.driftEnd.arcLength - trueFinish.arcLength).toFixed(2);
+        if (debugVisible) {
+          const orangeX = new Graphics();
+          orangeX.lineStyle(3, 0xff8800)
+            .moveTo(point.x - 10, point.y - 10)
+            .lineTo(point.x + 10, point.y + 10)
+            .moveTo(point.x + 10, point.y - 10)
+            .lineTo(point.x - 10, point.y + 10);
+          app.stage.addChild(orangeX);
 
-        if (DEBUG) {
           console.log(`[KD] 🏁 ${name} finished ${results.length} at distance ${distance.toFixed(2)} (expected: ${trueFinish.arcLength.toFixed(2)})`);
           console.log(`[KD] 🟧 ${name} actual finish point = (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
           console.log(`[KD] 📏 ${name} pixel Δ to blue = ${pixelDelta.toFixed(2)} px`);
-          console.log(`[KD] 🧪 Δ to red = ${redDelta} px`);
+          console.log(`[KD] 📐 ${name} arc Δ = ${arcDelta.toFixed(2)} px`);
+          console.log(`[KD] 🧪 Δ to red = ${(driftEnd.arcLength - trueFinish.arcLength).toFixed(2)} px`);
         }
 
         if (results.length === horses.length) {
-          if (DEBUG) {
+          if (debugVisible) {
             console.log('[KD] ✅ All horses finished — onRaceEnd() triggered');
             results.forEach((r, i) =>
               console.log(`🏁 ${i + 1}${getOrdinal(i + 1)}: ${r.name} — ${r.finishTimeSec} seconds`)

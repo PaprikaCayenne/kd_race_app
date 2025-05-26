@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v2.1.1 — Fixes brown fill seam at 12 o’clock, full debug alignment
+// Version: v2.2.0 — Adds debug dots for trueFinish, driftEnd, and driftStart per horse
 
 import { Graphics } from 'pixi.js';
 import { generateCenterline } from '@/utils/generateTrackPathWithRoundedCorners';
@@ -18,6 +18,7 @@ export function drawDerbyTrack({
   debug = false,
   startLineOffset = 0,
   horses = [],
+  horsePaths = new Map(),
   debugDotsRef,
   debugPathLinesRef,
   labelSpritesRef
@@ -36,11 +37,7 @@ export function drawDerbyTrack({
   });
 
   const { path, getPointAtDistance, getCurveFactorAt, length: pathLength } = centerline;
-
-  if (!Array.isArray(path) || path.length < 2) {
-    console.error('[KD] ❌ drawDerbyTrack: Invalid centerline path:', centerline);
-    return null;
-  }
+  if (!Array.isArray(path) || path.length < 2) return null;
 
   const expectedTop = {
     x: width / 2,
@@ -48,49 +45,33 @@ export function drawDerbyTrack({
   };
   const dx = path[0].x - expectedTop.x;
   const dy = path[0].y - expectedTop.y;
-  const delta = Math.sqrt(dx * dx + dy * dy);
-  console.log(`[KD] 🎯 centerline[0]: (${path[0].x.toFixed(1)}, ${path[0].y.toFixed(1)}) vs expected (${expectedTop.x.toFixed(1)}, ${expectedTop.y.toFixed(1)}) → Δ=${delta.toFixed(2)}px`);
+  console.log(`[KD] 🎯 centerline[0]: (${path[0].x.toFixed(1)}, ${path[0].y.toFixed(1)}) vs expected (${expectedTop.x.toFixed(1)}, ${expectedTop.y.toFixed(1)}) → Δ=${Math.sqrt(dx * dx + dy * dy).toFixed(2)}px`);
 
   const lanes = generateAllLanes(path, laneCount, laneWidth, boundaryPadding, path[0]);
   const inner = generateOffsetLane(path, -halfTrack, path[0]);
   const outer = generateOffsetLane(path, +halfTrack, path[0]);
 
-  if (!lanes?.length || !inner?.length || !outer?.length) {
-    console.error('[KD] ❌ Invalid offset lanes.');
-    return null;
-  }
-
-  // 🧵 DEBUG: Check polygon closure delta
-  const gapDx = outer[0].x - inner.at(-1).x;
-  const gapDy = outer[0].y - inner.at(-1).y;
-  const gapDelta = Math.sqrt(gapDx * gapDx + gapDy * gapDy);
-  console.log(`[KD] 🔍 Fill seam gap Δ = ${gapDelta.toFixed(2)}px between outer[0] and inner[-1]`);
-
-  // 🎨 Fill polygon — force close
+  // 🎨 Fill polygon track
   const fillOuter = [...outer, outer[0]];
   const fillInner = [...inner].reverse();
-  fillInner.push(fillInner[0]); // force closure
-
-  const fillPolygon = [
-    ...fillOuter.flatMap(pt => [pt.x, pt.y]),
-    ...fillInner.flatMap(pt => [pt.x, pt.y])
-  ];
+  fillInner.push(fillInner[0]);
 
   trackContainer.beginFill(0xc49a6c);
-  trackContainer.drawPolygon(fillPolygon);
+  trackContainer.drawPolygon([
+    ...fillOuter.flatMap(pt => [pt.x, pt.y]),
+    ...fillInner.flatMap(pt => [pt.x, pt.y])
+  ]);
   trackContainer.endFill();
 
   // 🧱 Border lines
   trackContainer.lineStyle(4, 0x888888);
   outer.forEach((pt, i) => i === 0 ? trackContainer.moveTo(pt.x, pt.y) : trackContainer.lineTo(pt.x, pt.y));
   trackContainer.lineTo(outer[0].x, outer[0].y);
-
   inner.forEach((pt, i) => i === 0 ? trackContainer.moveTo(pt.x, pt.y) : trackContainer.lineTo(pt.x, pt.y));
   trackContainer.lineTo(inner[0].x, inner[0].y);
-
   app.stage.addChild(trackContainer);
 
-  // 🟢 Start line (green)
+  // 🟢 Start line
   const seg0 = path[0];
   const seg1 = path[1];
   const rotation = Math.atan2(seg1.y - seg0.y, seg1.x - seg0.x);
@@ -130,19 +111,18 @@ export function drawDerbyTrack({
       debugDotsRef.current.push(dot);
     };
 
-    addDot(path[0].x, path[0].y, 0x0000ff);
-    addDot(expectedTop.x, expectedTop.y, 0xff0000);
-    addDot(inner[0].x, inner[0].y, 0xff9900);
-    addDot(outer[0].x, outer[0].y, 0xff9900);
+    // 🟣 🟦 🔴 Finish, Drift, and Start Dots
+    horses.forEach((horse) => {
+      const pathData = horsePaths.get(horse.id);
+      if (!pathData) return;
 
-    horses.slice(0, laneCount).forEach((horse, i) => {
-      const lanePath = lanes[i];
       const colorHex = parseColorToHex(horse.color);
-      const laneLine = new Graphics();
-      laneLine.lineStyle(2, colorHex, 1);
-      lanePath.forEach((pt, j) => j === 0 ? laneLine.moveTo(pt.x, pt.y) : laneLine.lineTo(pt.x, pt.y));
-      app.stage.addChild(laneLine);
-      debugPathLinesRef.current.push(laneLine);
+      const { trueFinish, driftEnd } = pathData;
+      const driftStart = pathData.getPointAtDistance(pathData.arcLength); // purple = start of drift
+
+      if (trueFinish) addDot(trueFinish.x, trueFinish.y, 0x0000ff); // 🔵 Blue = true finish
+      if (driftEnd) addDot(driftEnd.x, driftEnd.y, 0xff0000);       // 🔴 Red = drift end
+      if (driftStart) addDot(driftStart.x, driftStart.y, 0x9900cc); // 🟣 Purple = drift start
     });
   }
 

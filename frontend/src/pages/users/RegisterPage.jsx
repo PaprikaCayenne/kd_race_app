@@ -1,5 +1,5 @@
 // File: frontend/src/pages/users/RegisterPage.jsx
-// Version: v1.4.0 — Responsive layout, bottom-left logo, redirect if registered, polished CTA
+// Version: v1.4.1 — JLL Grand Gallop registration form with updated branding
 
 import { useEffect, useState } from 'react';
 import axios from 'axios';
@@ -14,13 +14,11 @@ export default function RegisterPage() {
   const [submitted, setSubmitted] = useState(false);
   const [checking, setChecking] = useState(true);
 
-  // Generate or reuse device ID from localStorage
   const deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
 
   useEffect(() => {
     localStorage.setItem('deviceId', deviceId);
 
-    // Check if already registered
     axios
       .get(`/api/register/check?deviceId=${deviceId}`)
       .then((res) => {
@@ -68,25 +66,21 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen bg-white px-4 py-8 flex flex-col items-center text-gray-800 relative">
-      {/* Fixed logo in bottom-left corner */}
       <img
-        src="/jll-logo.png"
+        src="/JLL_logo.png"
         alt="JLL Logo"
         className="h-6 fixed bottom-4 left-4 opacity-80"
       />
 
-      {/* Header */}
       <h1 className="text-3xl sm:text-4xl font-bold text-red-700 mb-2 text-center">
         🏁 Join the JLL Grand Gallop
       </h1>
 
-      {/* Subtext */}
       <p className="text-gray-700 text-center mb-6 text-sm sm:text-base max-w-md">
-        Register below to compete in our company race event.  
-        You'll receive <strong>Lease Loons</strong> to place bets, and your nickname will show up on the leaderboard!
+        Register now to race, bet, and compete with your colleagues.  
+        You’ll get <strong>Lease Loons</strong> to wager with, and your nickname will show up on the leaderboard!
       </p>
 
-      {/* Form */}
       <form
         onSubmit={handleSubmit}
         className="w-full max-w-md bg-white border border-gray-200 p-6 rounded-xl shadow space-y-4"
@@ -119,7 +113,7 @@ export default function RegisterPage() {
           type="submit"
           className="w-full bg-red-700 text-white font-semibold text-lg py-3 rounded-lg hover:bg-red-800 transition active:scale-95"
         >
-          🎟️ Register Now
+          🎟️ Register for the Gallop
         </button>
       </form>
     </div>

@@ -7,7 +7,7 @@ import DashboardPage from './users/DashboardPage';
 
 function UsersApp() {
   return (
-    <Router basename="/users">
+    <Router basename="/">
       <Routes>
         <Route path="/" element={<RegisterPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />

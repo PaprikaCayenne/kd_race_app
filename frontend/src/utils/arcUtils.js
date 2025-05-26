@@ -1,5 +1,5 @@
 // File: frontend/src/utils/arcUtils.js
-// Version: v1.1.0 — Clamps arc distance; prevents invalid tangent; logs fallback cases
+// Version: v1.2.0 — Ignores 0-length segments and logs fallback edge cases
 
 export function getPointAtDistance(path, distance) {
   if (!Array.isArray(path) || path.length < 2) return null;
@@ -20,17 +20,21 @@ export function getPointAtDistance(path, distance) {
     const dy = p2.y - p1.y;
     const segLength = Math.sqrt(dx * dx + dy * dy);
 
+    if (segLength === 0) continue;
+
     if (remaining <= segLength) {
-      const t = segLength === 0 ? 0 : remaining / segLength;
+      const t = remaining / segLength;
       return {
         x: p1.x + dx * t,
         y: p1.y + dy * t
       };
     }
+
     remaining -= segLength;
   }
 
-  return path[path.length - 1]; // fallback
+  console.warn('[KD] ⚠️ getPointAtDistance() hit fallback — returning last point');
+  return path[path.length - 1];
 }
 
 export function getTangentAngle(path, distance) {
@@ -52,9 +56,12 @@ export function getTangentAngle(path, distance) {
     const dy = p2.y - p1.y;
     const segLength = Math.sqrt(dx * dx + dy * dy);
 
+    if (segLength === 0) continue;
+
     if (remaining <= segLength) {
       return Math.atan2(dy, dx);
     }
+
     remaining -= segLength;
   }
 

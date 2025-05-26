@@ -1,36 +1,36 @@
 #!/bin/bash
+# File: scripts/rebuild_all.sh
+# Version: v1.2.1 — Ensures Nginx bind mount resets for ./frontend_build
+
 set -e
+clear
+echo "♻️  Rebuilding full stack: frontend → ./frontend_build → Nginx bind..."
 
-echo "♻️  Rebuilding frontend assets..."
+# 🔁 Step 0: Clean local build output
+rm -rf ./frontend_build
+mkdir -p ./frontend_build
 
-# Clean temp
-rm -rf frontend_dist_temp
-mkdir -p frontend_dist_temp
-
-# Build the frontend Docker image from root context
+# 🏗️ Step 1: Build frontend via Docker
+echo -e "\n🏗️  Building frontend via Docker..."
 docker build -f frontend/Dockerfile -t kd_frontend_build_temp .
 
-# Create container and extract /app/frontend/dist into temp folder
+# 📦 Step 2: Extract /app/frontend/frontend_build from container
+echo -e "\n📦 Extracting built output from container..."
 docker create --name temp_kd_frontend kd_frontend_build_temp
-docker cp temp_kd_frontend:/app/frontend/dist/. ./frontend_dist_temp
+docker cp temp_kd_frontend:/app/frontend/frontend_build/. ./frontend_build
 docker rm temp_kd_frontend
 
-echo -e "\n🔍 Built files in ./frontend_dist_temp:"
-ls -l ./frontend_dist_temp
+# 🧹 Step 3: Restart backend and forcibly recreate Nginx
+echo -e "\n🔁 Restarting backend and forcing Nginx remount..."
+docker compose up -d kd_api
+docker compose down --remove-orphans kd_nginx
+docker compose up -d kd_nginx
 
-# Ensure Docker volume exists
-docker volume create kd_race_app_dist_build >/dev/null 2>&1 || true
+# ✅ Step 4: Confirm success
+echo -e "\n📦 Final contents of ./frontend_build:"
+ls -l ./frontend_build
 
-# Copy files from temp folder into Docker volume
-docker run --rm \
-  -v "$(pwd)/frontend_dist_temp:/copy" \
-  -v kd_race_app_dist_build:/app \
-  alpine sh -c "cp -r /copy/* /app/"
-
-echo -e "\n🚀 Starting backend and Nginx..."
-docker compose up -d kd_api kd_nginx
-
-echo -e "\n🧪 Verifying contents in dist volume:"
-docker run --rm -v kd_race_app_dist_build:/data alpine ls -l /data
+echo -e "\n🔎 What Nginx sees inside container:"
+docker exec kd_race_app-kd_nginx-1 ls -l /usr/share/nginx/html
 
 echo -e "\n✅ Deployment complete. Visit: https://kd.paprikacayenne.com/"

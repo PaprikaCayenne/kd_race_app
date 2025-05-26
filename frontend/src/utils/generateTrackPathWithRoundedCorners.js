@@ -1,5 +1,6 @@
 // File: frontend/src/utils/generateTrackPathWithRoundedCorners.js
-// Version: v2.5.1 — Starts path at 12 o'clock position
+// Version: v2.7.0 — Dynamic vertical layout based on lane width and padding
+// Date: 2025-05-24
 
 export function generateCenterline({
   canvasWidth,
@@ -11,14 +12,22 @@ export function generateCenterline({
   trackPadding = 0
 }) {
   const centerX = canvasWidth / 2;
-  const centerY = canvasHeight / 2;
 
+  // 🧮 Track thickness is used to space inner/outer
   const halfTrack = totalLaneWidth / 2;
+
+  // ✅ Step 1: Calculate how much vertical space is left *after* padding + halfTrack on both sides
+  const usableVertical = canvasHeight - 2 * (trackPadding + halfTrack);
+
+  // ✅ Step 2: Clamp trackHeight to fit if needed
+  const finalTrackHeight = Math.min(trackHeight, usableVertical);
+
+  // ✅ Step 3: Compute actual vertical bounds for the centerline
+  const top = trackPadding + halfTrack;
+  const bottom = top + finalTrackHeight;
+
   const left = trackPadding + halfTrack;
   const right = canvasWidth - trackPadding - halfTrack;
-
-  const top = centerY - trackHeight / 2;
-  const bottom = centerY + trackHeight / 2;
 
   const r = cornerRadius;
   const rawPoints = [];

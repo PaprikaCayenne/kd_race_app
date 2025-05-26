@@ -1,9 +1,10 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v1.7.1 — Passes `horse.variant` to enable coat coloring
+// Version: v1.9.0 — Uses startDistance for behind-the-line placement
 
 import { Sprite, Text, TextStyle, Graphics } from 'pixi.js';
 import { drawHorseSprite } from '@/utils/drawHorseSprite';
 import parseColorToHex from '@/utils/parseColorToHex';
+import { getTangentAngle } from '@/utils/arcUtils';
 
 export function setupHorses({
   app,
@@ -42,16 +43,17 @@ export function setupHorses({
       return;
     }
 
-    const { getPointAtDistance, path } = pathData;
-    const { x, y } = getPointAtDistance(0);
+    const { getPointAtDistance, arcLength, path, startDistance = 0 } = pathData;
+    const startPoint = getPointAtDistance(startDistance);
+    const angle = getTangentAngle(path, startDistance);
 
     const colorHex = parseColorToHex(horse.color);
     const sprite = drawHorseSprite(colorHex, app, horse.variant || 'bay');
 
     sprite.anchor.set(0.5);
-    sprite.rotation = 0;
-    sprite.x = x - sprite.width / 2;
-    sprite.y = y;
+    sprite.rotation = angle;
+    sprite.x = startPoint.x;
+    sprite.y = startPoint.y;
     sprite.zIndex = 10;
     app.stage.addChild(sprite);
     horseSpritesRef.current.set(horse.id, sprite);
