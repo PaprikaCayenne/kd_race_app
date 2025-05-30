@@ -1,8 +1,24 @@
 // File: frontend/src/pages/users/RegisterPage.jsx
-// Version: v1.4.1 — JLL Grand Gallop registration form with updated branding
+// Version: v1.6.2 — No flicker; delays render until deviceId is validated
 
 import { useEffect, useState } from 'react';
 import axios from 'axios';
+
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? match[2] : null;
+}
+
+// ✅ Generate or retrieve the deviceId once before render
+const deviceId =
+  localStorage.getItem('deviceId') ||
+  getCookie('deviceId') ||
+  crypto.randomUUID();
+
+localStorage.setItem('deviceId', deviceId);
+document.cookie = `deviceId=${deviceId}; path=/; max-age=31536000`;
+
+console.log('[REGISTER] deviceId:', deviceId);
 
 export default function RegisterPage() {
   const [form, setForm] = useState({
@@ -13,23 +29,20 @@ export default function RegisterPage() {
 
   const [submitted, setSubmitted] = useState(false);
   const [checking, setChecking] = useState(true);
-
-  const deviceId = localStorage.getItem('deviceId') || crypto.randomUUID();
+  const [lookupFailed, setLookupFailed] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem('deviceId', deviceId);
-
     axios
-      .get(`/api/register/check?deviceId=${deviceId}`)
+      .get(`/api/user/${deviceId}`)
       .then((res) => {
-        if (res?.data?.registered) {
-          window.location.href = '/users/dashboard';
+        if (res?.data?.id) {
+          window.location.href = '/dashboard';
         } else {
-          setChecking(false);
+          throw new Error('User not found');
         }
       })
-      .catch((err) => {
-        console.warn('Failed to check registration:', err);
+      .catch(() => {
+        setLookupFailed(true);
         setChecking(false);
       });
   }, []);
@@ -39,11 +52,12 @@ export default function RegisterPage() {
 
     try {
       await axios.post('/api/register', {
-        ...form,
-        deviceId
+        deviceId,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        nickname: form.nickname
       });
 
-      localStorage.setItem('deviceId', deviceId);
       setSubmitted(true);
     } catch (err) {
       alert('Registration failed');
@@ -52,17 +66,12 @@ export default function RegisterPage() {
   };
 
   if (submitted) {
-    window.location.href = '/users/dashboard';
+    window.location.href = '/dashboard';
     return null;
   }
 
-  if (checking) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-gray-600">
-        Checking registration...
-      </div>
-    );
-  }
+  // ✅ Prevent render flicker
+  if (checking) return null;
 
   return (
     <div className="min-h-screen bg-white px-4 py-8 flex flex-col items-center text-gray-800 relative">
@@ -80,6 +89,12 @@ export default function RegisterPage() {
         Register now to race, bet, and compete with your colleagues.  
         You’ll get <strong>Lease Loons</strong> to wager with, and your nickname will show up on the leaderboard!
       </p>
+
+      {lookupFailed && (
+        <p className="text-center text-sm text-gray-500 mb-4">
+          Could not find user. Please register below.
+        </p>
+      )}
 
       <form
         onSubmit={handleSubmit}

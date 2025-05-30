@@ -61,7 +61,6 @@ export function generateOffsetLane(centerline, offset, twelveOclockRef) {
   ];
 
   const delta = Math.sqrt(bestDist);
-  console.log(`[KD] ✅ generateOffsetLane(): snapped [0] to 12 o’clock → Δ=${delta.toFixed(2)}px`);
 
   return rotatedPath;
 }
@@ -81,13 +80,8 @@ export function generateAllLanes(centerline, laneCount = 4, laneWidth = 30, boun
   const totalLaneWidth = (laneCount * laneWidth) + (2 * boundaryPadding);
   const halfTrack = totalLaneWidth / 2;
 
-  console.log(`[KD] 🧭 Generating ${laneCount} lanes from centerline`);
-  console.log(`[KD] 🧭 Total width: ${totalLaneWidth}px (±${halfTrack}px from center)`);
-  console.log(`[KD] 📌 Reference 12 o’clock: (${twelveOclockRef.x.toFixed(1)}, ${twelveOclockRef.y.toFixed(1)})`);
-
   for (let i = 0; i < laneCount; i++) {
     const offset = -halfTrack + boundaryPadding + (i + 0.5) * laneWidth;
-    console.log(`[KD] 🧭 Lane ${i} offset: ${offset.toFixed(1)}px`);
     lanes.push(generateOffsetLane(centerline, offset, twelveOclockRef));
   }
 

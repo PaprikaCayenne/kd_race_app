@@ -1,22 +1,16 @@
 // File: frontend/src/App.jsx
-// Version: v0.5.0 — Uses RaceTrack.VERSION directly instead of global injection
+// Version: v0.6.3 — Removes version and race name display from top-right
 
-import React from 'react';
+import React, { useState } from 'react';
 import RaceTrack from './components/RaceTrack';
 
 function App() {
-  return (
-    <div className="min-h-screen bg-green-50 p-4">
-      <div className="relative">
-        {/* Top-right version info */}
-        <div className="absolute top-2 right-4 text-right text-xs">
-          <div className="text-green-600">Loaded: {RaceTrack.VERSION}</div>
-        </div>
-        {/* App Title */}
-      </div>
+  const [raceName, setRaceName] = useState(null);
 
+  return (
+    <div className="w-screen h-screen overflow-hidden bg-[#baf0ba]">
       {/* Race Track */}
-      <RaceTrack />
+      <RaceTrack setRaceName={setRaceName} />
     </div>
   );
 }

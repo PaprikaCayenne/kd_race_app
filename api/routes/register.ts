@@ -30,7 +30,7 @@ router.post("/", async (req: Request, res: Response) => {
           lastName,
           nickname: nickname || null,
           deviceId,
-          currency: STARTING_CURRENCY
+          leaseLoons: STARTING_CURRENCY
         },
       });
 
@@ -50,7 +50,7 @@ router.post("/", async (req: Request, res: Response) => {
       firstName: user.firstName,
       lastName: user.lastName,
       nickname: user.nickname,
-      currency: user.currency,
+      leaseLoons: user.leaseLoons,
       deviceId: user.deviceId
     });
   } catch (err) {

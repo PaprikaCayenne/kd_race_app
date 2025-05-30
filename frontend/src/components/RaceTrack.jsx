@@ -1,21 +1,18 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v2.2.2 — Removes padding on outer div for edge-to-edge canvas
+// Version: v3.2.0 — Adds polling for leaderboard every 5s for projector
+// Date: 2025-05-30
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from 'pixi.js';
 import { io } from 'socket.io-client';
 
 import { drawDerbyTrack } from './track/drawTrack';
-import { toggleDebugLayers } from './track/toggleDebugLayers';
-import { triggerGenerateHorses } from './track/triggerGenerateHorses';
-import { triggerStartRace } from './track/triggerStartRace';
 import { initRaceListeners } from './track/initRaceListeners';
-import { updateDebugDots } from './track/updateDebugDots';
-import ReplayControls from './ReplayControls';
-
 import { getSpriteDimensions } from '@/utils/spriteDimensionCache';
+import LeaderboardOverlay from './track/LeaderboardOverlay';
+import HorseRankingOverlay from './track/HorseRankingOverlay';
 
-const VERSION = 'v2.2.2';
+const VERSION = 'v3.2.0';
 const socket = io('/race', { path: '/api/socket.io' });
 
 const TRACK_WIDTH = window.innerWidth;
@@ -27,12 +24,10 @@ const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
 const HORSE_PADDING = 0;
 const BOUNDARY_PADDING = 0;
-const START_LINE_OFFSET = 100;
-const START_LINE_PADDING = 10;
+const START_LINE_OFFSET = 10;
+const RACE_DURATION_SECONDS = 180;
 
-const SPEED_MULTIPLIER_DEFAULT = 2;
-
-const RaceTrack = () => {
+const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const appRef = useRef(null);
@@ -45,17 +40,42 @@ const RaceTrack = () => {
   const startDotsRef = useRef([]);
 
   const trackDataRef = useRef(null);
+  const trackReadyRef = useRef(false);
+  const centerlineRef = useRef(null);
+
   const horsePathsRef = useRef(new Map());
   const horsesRef = useRef([]);
   const finishedHorsesRef = useRef(new Set());
   const usedHorseIdsRef = useRef(new Set());
+  const raceInfoRef = useRef(null);
 
-  const [debugVisible, setDebugVisible] = useState(false);
-  const [raceReady, setRaceReady] = useState(false);
-  const [canGenerate, setCanGenerate] = useState(true);
-  const [speedMultiplier, setSpeedMultiplier] = useState(SPEED_MULTIPLIER_DEFAULT);
-  const [replayHistory, setReplayHistory] = useState([]);
-  const [replayToPlay, setReplayToPlay] = useState(null);
+  const startLineRef = useRef(null);
+  const finishLineRef = useRef(null);
+
+  const [raceCompleted, setRaceCompleted] = useState(false);
+  const [lastFinishedRaceId, setLastFinishedRaceId] = useState(null);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [liveRanking, setLiveRanking] = useState([]);
+  const [raceNameDisplay, setRaceNameDisplay] = useState('');
+
+  // 🆕 Poll leaderboard every 5 seconds
+  useEffect(() => {
+    const fetchLeaderboard = async () => {
+      try {
+        const res = await fetch('/api/admin/leaderboard');
+        const data = await res.json();
+        if (data.success) {
+          setLeaderboard(data.leaderboard.slice(0, 5));
+        }
+      } catch (err) {
+        console.error('[KD] ❌ Failed to fetch leaderboard:', err);
+      }
+    };
+
+    fetchLeaderboard(); // initial
+    const interval = setInterval(fetchLeaderboard, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const app = new Application({
@@ -77,7 +97,7 @@ const RaceTrack = () => {
 
         const measuredWidths = await Promise.all(
           horsesRef.current.map(h =>
-            getSpriteDimensions(h.hex, h.id, app, h.variant || 'bay').width
+            getSpriteDimensions(h.saddleHex || '#888888', h.bodyHex || '#a0522d', h.id, app).width
           )
         );
         const maxSpriteWidth = Math.max(...measuredWidths);
@@ -93,7 +113,8 @@ const RaceTrack = () => {
           boundaryPadding: BOUNDARY_PADDING,
           trackPadding: TRACK_PADDING,
           startLineOffset: START_LINE_OFFSET,
-          debug: debugVisible,
+          spriteWidth: maxSpriteWidth,
+          debug: false,
           horses: horsesRef.current,
           horsePaths: horsePathsRef.current,
           debugDotsRef,
@@ -110,12 +131,25 @@ const RaceTrack = () => {
           ...track,
           laneCount: LANE_COUNT,
           laneWidth,
-          spriteWidth: maxSpriteWidth
+          spriteWidth: maxSpriteWidth,
+          startLineOffset: START_LINE_OFFSET
         };
+
+        centerlineRef.current = track.centerline;
+        startLineRef.current = track.startLine;
+        finishLineRef.current = track.finishLine;
+
+        console.log(
+          `[KD] 🎯 centerlineRef set with ${track.centerline?.path?.length || 0} points — ready for race:init`
+        );
+        trackReadyRef.current = true;
+        console.log('[KD] ✅ Track is ready');
 
         initRaceListeners({
           socket,
           appRef,
+          trackReadyRef,
+          centerlineRef,
           horseSpritesRef,
           labelSpritesRef,
           debugDotsRef,
@@ -127,130 +161,38 @@ const RaceTrack = () => {
           horsesRef,
           finishedHorsesRef,
           usedHorseIdsRef,
-          setRaceReady,
-          setCanGenerate,
-          debugVisible
+          raceInfoRef,
+          setRaceName: raceName  => {
+            setRaceName(raceName);
+            setRaceNameDisplay(raceName);
+          },
+          setRaceWarnings,
+          startLineRef,
+          finishLineRef,
+          raceDurationSeconds: RACE_DURATION_SECONDS,
+          debugVisible: false,
+          setRaceCompleted,
+          setLastFinishedRaceId,
+          setLiveRanking
         });
       });
-  }, []);
 
-  useEffect(() => {
-    toggleDebugLayers({
-      app: appRef.current,
-      debugVisible,
-      debugDotsRef,
-      debugPathLinesRef,
-      startDotsRef,
-      finishDotsRef,
-      labelSpritesRef
-    });
-
-    if (horsePathsRef.current.size > 0) {
-      updateDebugDots({
-        horses: horsesRef.current,
-        horsePaths: horsePathsRef.current,
-        app: appRef.current,
-        debugDotsRef,
-        debugVisible
-      });
-    }
-  }, [debugVisible]);
-
-  useEffect(() => {
-    if (!replayToPlay || !appRef.current) return;
-
-    import('../utils/playReplay').then(({ playReplay }) => {
-      playReplay({
-        app: appRef.current,
-        horseSprites: horseSpritesRef.current,
-        labelSprites: labelSpritesRef.current,
-        horsePaths: horsePathsRef.current,
-        replayData: replayToPlay.data
-      });
-    });
-  }, [replayToPlay]);
-
-  const handleGenerate = () => {
-    const { lanes, centerline, spriteWidth } = trackDataRef.current ?? {};
-    if (!lanes || !centerline || !spriteWidth) {
-      console.error('[KD] ❌ trackDataRef is incomplete — cannot generate horses');
-      return;
-    }
-
-    triggerGenerateHorses({
-      app: appRef.current,
-      trackData: {
-        ...trackDataRef.current,
-        lanes,
-        centerline,
-        spriteWidth
-      },
-      horsesRef,
-      horseSpritesRef,
-      labelSpritesRef,
-      finishedHorsesRef,
-      debugPathLinesRef,
-      debugDotsRef,
-      finishDotsRef,
-      startDotsRef,
-      horsePathsRef,
-      width: TRACK_WIDTH,
-      height: TRACK_HEIGHT,
-      setRaceReady,
-      setCanGenerate,
-      usedHorseIdsRef,
-      debugVisible
-    });
-  };
-
-  const handleStartRace = () => {
-    triggerStartRace({
-      appRef,
-      horsesRef,
-      horsePathsRef,
-      horseSpritesRef,
-      labelSpritesRef,
-      finishedHorsesRef,
-      debugPathLinesRef,
-      finishDotsRef,
-      setRaceReady,
-      setCanGenerate,
-      speedMultiplier,
-      debugVisible
-    });
-
-    if (typeof window !== 'undefined' && window.playRace) {
-      window.playRace.onReplayReady = (replayData) => {
-        setReplayHistory(prev => [...prev, {
-          timestamp: Date.now(),
-          data: replayData
-        }]);
-      };
-    }
-  };
+    return () => {
+      if (appRef.current) appRef.current.destroy(true, true);
+    };
+  }, [setRaceName, setRaceWarnings]);
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative w-screen overflow-hidden">
       <canvas
         ref={canvasRef}
         style={{ height: `${CANVAS_HEIGHT}px` }}
         className="block w-full"
       />
-      <div className="mt-4 space-x-2">
-        <button onClick={handleGenerate} disabled={!canGenerate} className="bg-blue-600 px-4 py-2 text-white rounded disabled:opacity-50">Generate Horses</button>
-        <button onClick={handleStartRace} disabled={!raceReady} className="bg-green-600 px-4 py-2 text-white rounded disabled:opacity-50">Start Race</button>
-        <button onClick={() => setDebugVisible(v => !v)} className="bg-gray-600 px-4 py-2 text-white rounded">Toggle Visuals</button>
-        <button onClick={() => setSpeedMultiplier(speedMultiplier === SPEED_MULTIPLIER_DEFAULT ? 4 : SPEED_MULTIPLIER_DEFAULT)} className="bg-purple-600 px-4 py-2 text-white rounded">
-          {speedMultiplier === SPEED_MULTIPLIER_DEFAULT ? 'Enable Test Speed' : 'Back to Live Speed'}
-        </button>
-      </div>
-      <ReplayControls
-        replays={replayHistory}
-        onReplaySelect={(replay) => {
-          console.log('[KD] 🎬 Playing saved replay', replay);
-          setReplayToPlay(replay);
-        }}
-      />
+      <LeaderboardOverlay users={leaderboard} />
+      {liveRanking.length > 0 && (
+        <HorseRankingOverlay ranking={liveRanking} raceName={raceNameDisplay} />
+      )}
     </div>
   );
 };

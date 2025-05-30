@@ -1,5 +1,5 @@
 # File: docker-compose.yml
-# Version: v0.8.1 — Uses ./frontend_build as canonical static output (must fully restart Nginx to rebind)
+# Version: v0.8.2 — Adds static container_name for kd_api
 
 services:
   # 🔧 Backend API
@@ -7,10 +7,11 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+    container_name: kd_race_app-kd_api-1  # ✅ Explicit name to match running container
     ports:
       - "4000:4000"
     volumes:
-      - ./frontend_build:/app/public:ro  # ✅ Used only for optional static file serving by Express
+      - ./frontend_build:/app/public:ro
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby
@@ -26,7 +27,7 @@ services:
     ports:
       - "8086:80"
     volumes:
-      - ./frontend_build:/usr/share/nginx/html:ro  # 🧠 Must restart container to rebind if this folder is wiped/rebuilt
+      - ./frontend_build:/usr/share/nginx/html:ro
       - ./nginx/kd.conf:/etc/nginx/conf.d/default.conf:ro
     restart: unless-stopped
     networks:

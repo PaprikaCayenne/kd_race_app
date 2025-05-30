@@ -1,5 +1,5 @@
 // File: api/routes/bet.ts
-// Version: v1.0.0 — Submit or update a bet for the active race
+// Version: v1.0.1 — Fixes composite key name for findUnique/upsert
 
 import express, { Request, Response } from "express";
 import prisma from "../lib/prisma";
@@ -19,22 +19,23 @@ router.post("/", async (req: Request, res: Response) => {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const race = await prisma.race.findFirst({
-      where: { locked: false },
+      where: { betsLocked: false },
       orderBy: { id: "desc" }
     });
     if (!race) return res.status(400).json({ error: "No active race available" });
 
     const existingBet = await prisma.bet.findUnique({
       where: {
-        userId_raceId: {
+        userId_raceId_horseId: {
           userId: user.id,
-          raceId: race.id
+          raceId: race.id,
+          horseId
         }
       }
     });
 
     const refund = existingBet?.amount || 0;
-    const adjustedBalance = user.currency + refund;
+    const adjustedBalance = user.leaseLoons + refund;
 
     if (adjustedBalance < amount) {
       return res.status(400).json({ error: "Insufficient Lease Loons" });
@@ -43,12 +44,13 @@ router.post("/", async (req: Request, res: Response) => {
     // Upsert bet
     await prisma.bet.upsert({
       where: {
-        userId_raceId: {
+        userId_raceId_horseId: {
           userId: user.id,
-          raceId: race.id
+          raceId: race.id,
+          horseId
         }
       },
-      update: { horseId, amount },
+      update: { amount },
       create: {
         userId: user.id,
         raceId: race.id,
@@ -60,7 +62,7 @@ router.post("/", async (req: Request, res: Response) => {
     // Update user balance
     await prisma.user.update({
       where: { id: user.id },
-      data: { currency: adjustedBalance - amount }
+      data: { leaseLoons: adjustedBalance - amount }
     });
 
     res.json({ success: true, newBalance: adjustedBalance - amount });

@@ -1,63 +1,44 @@
 // File: frontend/src/utils/drawHorseSprite.js
-// Version: v1.6.0 — Adds horse coat color variants based on `horse.variant`
+// Version: v1.7.1 — Guards hex values to prevent .replace crash
+// Date: 2025-05-27
 
 import { Graphics, Texture, Sprite } from 'pixi.js';
 
 const spriteCache = new Map();
 
-/** Variant color map */
-const VARIANT_COLORS = {
-  bay: {
-    body: 0x5c3a1a,
-    mane: 0x3a2312,
-  },
-  chestnut: {
-    body: 0xa0522d,
-    mane: 0x5c3a1a,
-  },
-  palomino: {
-    body: 0xe6c27a,
-    mane: 0xcaa04e,
-  },
-  black: {
-    body: 0x2b2b2b,
-    mane: 0x1a1a1a,
-  }
-};
-
 /**
- * Returns a PIXI.Sprite of a pixel-art horse with Stardew-style silhouette and coat variant.
- * @param {number} colorHex - Saddle color in 0xff0000 format.
+ * Returns a PIXI.Sprite of a pixel-art horse with customized colors.
+ * @param {string} saddleHex - Saddle color in "#RRGGBB" format.
+ * @param {string} bodyHex - Body color in "#RRGGBB" format.
  * @param {PIXI.Application} app - The PixiJS application instance.
- * @param {string} variant - One of 'bay', 'chestnut', 'palomino', 'black'
  * @returns {PIXI.Sprite}
  */
-export function drawHorseSprite(colorHex, app, variant = 'bay') {
-  const key = `${colorHex}_${variant}`;
+export function drawHorseSprite(saddleHex, bodyHex, app) {
+  const safeSaddle = typeof saddleHex === 'string' ? saddleHex.replace('#', '') : '000000';
+  const safeBody = typeof bodyHex === 'string' ? bodyHex.replace('#', '') : '000000';
+
+  const saddleColor = parseInt(safeSaddle, 16);
+  const bodyColor = parseInt(safeBody, 16);
+  const key = `${saddleColor}_${bodyColor}`;
+
   if (spriteCache.has(key)) {
     return new Sprite(spriteCache.get(key));
   }
 
   const gfx = new Graphics();
-  const { body: bodyColor, mane: maneColor } = VARIANT_COLORS[variant] || VARIANT_COLORS.bay;
+  const maneColor = 0x2a2a2a;
   const eyeColor = 0xffffff;
 
-  // --- Tail (same as mane)
-  gfx.beginFill(maneColor);
-  gfx.drawRoundedRect(4, 16, 4, 9, 2);
-  gfx.endFill();
+  // Tail
+  gfx.beginFill(maneColor).drawRoundedRect(4, 16, 4, 9, 2).endFill();
 
-  // --- Body
-  gfx.beginFill(bodyColor);
-  gfx.drawRoundedRect(10, 11, 26, 13, 4);
-  gfx.endFill();
+  // Body
+  gfx.beginFill(bodyColor).drawRoundedRect(10, 11, 26, 13, 4).endFill();
 
-  // --- Saddle
-  gfx.beginFill(colorHex);
-  gfx.drawRoundedRect(18, 13, 9, 6, 2);
-  gfx.endFill();
+  // Saddle
+  gfx.beginFill(saddleColor).drawRoundedRect(18, 13, 9, 6, 2).endFill();
 
-  // --- Legs
+  // Legs
   gfx.beginFill(bodyColor);
   gfx.drawRect(13, 23, 3, 7);
   gfx.drawRect(17, 23, 3, 7);
@@ -65,12 +46,10 @@ export function drawHorseSprite(colorHex, app, variant = 'bay') {
   gfx.drawRect(31, 23, 3, 7);
   gfx.endFill();
 
-  // --- Neck
-  gfx.beginFill(bodyColor);
-  gfx.drawRect(34, 12, 3, 9);
-  gfx.endFill();
+  // Neck
+  gfx.beginFill(bodyColor).drawRect(34, 12, 3, 9).endFill();
 
-  // --- Head (tapered)
+  // Head
   gfx.beginFill(bodyColor);
   gfx.moveTo(37, 12);
   gfx.lineTo(44, 10);
@@ -79,15 +58,11 @@ export function drawHorseSprite(colorHex, app, variant = 'bay') {
   gfx.lineTo(37, 12);
   gfx.endFill();
 
-  // --- Mane
-  gfx.beginFill(maneColor);
-  gfx.drawRect(37, 9, 2, 2);
-  gfx.endFill();
+  // Mane
+  gfx.beginFill(maneColor).drawRect(37, 9, 2, 2).endFill();
 
-  // --- Eye
-  gfx.beginFill(eyeColor);
-  gfx.drawRect(42, 12, 1, 1);
-  gfx.endFill();
+  // Eye
+  gfx.beginFill(eyeColor).drawRect(42, 12, 1, 1).endFill();
 
   const texture = app.renderer.generateTexture(gfx);
   spriteCache.set(key, texture);

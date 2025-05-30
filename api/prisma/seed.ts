@@ -1,19 +1,64 @@
 // File: prisma/seed.ts
-// Version: v0.6.7 — Seeds users with Lease Loons currency
+// Version: v1.0.0 — Production-safe seed with only horses and race names
+// Date: 2025-05-29
 
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
-const VARIANTS = ['bay', 'chestnut', 'palomino', 'black'];
+const BODY_COLORS = [
+  { name: 'bay', hex: '#8B4513' },
+  { name: 'chestnut', hex: '#954535' },
+  { name: 'palomino', hex: '#EEE8AA' },
+  { name: 'black', hex: '#111111' },
+  { name: 'white', hex: '#FAFAFA' },
+  { name: 'gray', hex: '#B0B0B0' },
+  { name: 'buckskin', hex: '#DAA520' },
+  { name: 'roan', hex: '#B76E79' }
+];
 
-function getRandomVariant(): string {
-  return VARIANTS[Math.floor(Math.random() * VARIANTS.length)];
-}
+const SADDLES = [
+  { name: 'red', hex: '#E53935' },
+  { name: 'blue', hex: '#1E88E5' },
+  { name: 'green', hex: '#43A047' },
+  { name: 'yellow', hex: '#FDD835' },
+  { name: 'purple', hex: '#8E24AA' },
+  { name: 'orange', hex: '#FB8C00' },
+  { name: 'pink', hex: '#F06292' },
+  { name: 'gray', hex: '#757575' },
+  { name: 'teal', hex: '#00897B' },
+  { name: 'navy', hex: '#303F9F' },
+  { name: 'lime', hex: '#C0CA33' },
+  { name: 'cyan', hex: '#00ACC1' },
+  { name: 'maroon', hex: '#6A1B9A' },
+  { name: 'olive', hex: '#827717' },
+  { name: 'beige', hex: '#F5F5DC' },
+  { name: 'white', hex: '#FFFFFF' },
+  { name: 'indigo', hex: '#3949AB' },
+  { name: 'aqua', hex: '#4DD0E1' },
+  { name: 'tan', hex: '#D2B48C' },
+  { name: 'charcoal', hex: '#444444' },
+  { name: 'silver', hex: '#C0C0C0' }
+];
+
+const HORSE_NAMES = [
+  'Leaseloon Lightning', 'Commission Crusher', 'Slack Galloper',
+  'Elevator Pitcher', 'Tour Sheet Trotter', 'Amenity Stampeder',
+  'Broker Blitz', 'Hot Desk Rocket', 'Sublease Sprinter',
+  'Cap Rate Comet', 'Buildout Bandit', 'SpaceIQ Speedster',
+  'CoreNet Cruiser', 'Amenity Arms Racer', 'Lease-Up Lightning',
+  'JLL Jockey Jet', 'Stack Plan Slammer', 'Fitwel Flyer',
+  'Wayfinding Wonder', 'Occupier Outlaw', 'PropTech Prancer'
+];
+
+const RACE_NAMES = [
+  "Lease Legends", "The Amenity Stakes", "Sublease Sprint", "Commission Clash",
+  "Hot Desk Derby", "CoreNet Cup", "Jockey Jam","Broker Bash", "The Stack Stampede", "Fitwel 400", "Wayfinding Whirl",
+  "Occupier Open", "Cap Rate Cup", "Tour Sheet Trial", "Pitch Parade",
+  "PropTech Pace", "Amenity Arms Invitational", "JLL Showdown", "Deskless Dash"
+];
 
 async function main() {
   console.log('🧹 Clearing old data...');
-
-  // Clear in correct FK order
   await prisma.replayFrame.deleteMany();
   await prisma.horsePath.deleteMany();
   await prisma.trackMeta.deleteMany();
@@ -23,101 +68,29 @@ async function main() {
   await prisma.bet.deleteMany();
   await prisma.user.deleteMany();
   await prisma.horse.deleteMany();
+  await prisma.raceName.deleteMany();
 
   console.log('🐎 Seeding horses...');
-
-  const redHorse = await prisma.horse.create({
-    data: {
-      name: 'Leaseloon Lightning',
-      color: 'red',
-      variant: getRandomVariant()
-    }
-  });
-  const blueHorse = await prisma.horse.create({
-    data: {
-      name: 'Commission Crusher',
-      color: 'blue',
-      variant: getRandomVariant()
-    }
-  });
-  const greenHorse = await prisma.horse.create({
-    data: {
-      name: 'Slack Galloper',
-      color: 'green',
-      variant: getRandomVariant()
-    }
+  const horseData = HORSE_NAMES.map((name, i) => {
+    const saddle = SADDLES[i];
+    const body = BODY_COLORS[i % BODY_COLORS.length];
+    return {
+      name,
+      saddleColor: saddle.name,
+      saddleHex: saddle.hex,
+      bodyColor: body.name,
+      bodyHex: body.hex
+    };
   });
 
-  await prisma.horse.createMany({
-    data: [
-      { name: 'Elevator Pitcher', color: 'yellow', variant: getRandomVariant() },
-      { name: 'Tour Sheet Trotter', color: 'purple', variant: getRandomVariant() },
-      { name: 'Amenity Stampeder', color: 'orange', variant: getRandomVariant() },
-      { name: 'Broker Blitz', color: 'pink', variant: getRandomVariant() },
-      { name: 'Hot Desk Rocket', color: 'gray', variant: getRandomVariant() },
-      { name: 'Sublease Sprinter', color: 'teal', variant: getRandomVariant() },
-      { name: 'Cap Rate Comet', color: 'navy', variant: getRandomVariant() },
-      { name: 'Buildout Bandit', color: 'lime', variant: getRandomVariant() },
-      { name: 'SpaceIQ Speedster', color: 'cyan', variant: getRandomVariant() },
-      { name: 'CoreNet Cruiser', color: 'maroon', variant: getRandomVariant() },
-      { name: 'Amenity Arms Racer', color: 'olive', variant: getRandomVariant() },
-      { name: 'Lease-Up Lightning', color: 'beige', variant: getRandomVariant() },
-      { name: 'JLL Jockey Jet', color: 'white', variant: getRandomVariant() },
-      { name: 'Stack Plan Slammer', color: 'indigo', variant: getRandomVariant() },
-      { name: 'Fitwel Flyer', color: 'aqua', variant: getRandomVariant() },
-      { name: 'Wayfinding Wonder', color: 'tan', variant: getRandomVariant() },
-      { name: 'Occupier Outlaw', color: 'charcoal', variant: getRandomVariant() },
-      { name: 'PropTech Prancer', color: 'silver', variant: getRandomVariant() }
-    ]
+  await prisma.horse.createMany({ data: horseData });
+
+  console.log('🏷️ Seeding race names...');
+  await prisma.raceName.createMany({
+    data: RACE_NAMES.map(name => ({ name }))
   });
 
-  console.log('🙋‍♂️ Creating test users with Lease Loons...');
-
-  const colin = await prisma.user.create({
-    data: {
-      firstName: 'Colin',
-      lastName: 'DiBiase',
-      nickname: 'CD',
-      deviceId: 'device_cd',
-      currency: 1000 // 🪙 Lease Loons
-    }
-  });
-  const jamie = await prisma.user.create({
-    data: {
-      firstName: 'Jamie',
-      lastName: 'Leasewell',
-      nickname: 'JL',
-      deviceId: 'device_jl',
-      currency: 1000
-    }
-  });
-  const riley = await prisma.user.create({
-    data: {
-      firstName: 'Riley',
-      lastName: 'Spacefinder',
-      nickname: 'RS',
-      deviceId: 'device_rs',
-      currency: 1000
-    }
-  });
-
-  console.log('📝 Registering users to horses...');
-
-  await prisma.registration.createMany({
-    data: [
-      { userId: colin.id, horseId: redHorse.id },
-      { userId: jamie.id, horseId: blueHorse.id },
-      { userId: riley.id, horseId: greenHorse.id }
-    ]
-  });
-
-  console.log('🏁 Creating race (empty stub for now)...');
-
-  await prisma.race.create({
-    data: {}
-  });
-
-  console.log('✅ Seed complete');
+  console.log('✅ Production seed complete.');
 }
 
 main()

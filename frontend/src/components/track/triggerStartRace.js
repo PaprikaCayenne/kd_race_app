@@ -1,78 +1,38 @@
 // File: frontend/src/components/track/triggerStartRace.js
-// Version: v1.1.4 — Adds debugVisible to playRace()
-// Date: 2025-05-24
-
-import { playRace } from '@/utils/playRace';
+// Version: v2.0.0 — Emits admin:start-race with paths, not playRace()
+// Date: 2025-05-28
 
 export function triggerStartRace({
-  appRef,
+  socket,
+  raceInfoRef,
   horsesRef,
-  horsePathsRef,
-  horseSpritesRef,
-  labelSpritesRef,
-  finishedHorsesRef,
-  debugPathLinesRef,
-  finishDotsRef,
-  setRaceReady,
-  setCanGenerate,
-  speedMultiplier,
-  debugVisible // ✅ ADD: receive debug toggle state
+  horsePathsRef
 }) {
-  console.log('[KD] ▶️ triggerStartRace.js v1.1.4');
-
-  const app = appRef.current;
+  const raceId = raceInfoRef.current?.raceId;
   const horses = horsesRef.current;
   const horsePaths = horsePathsRef.current;
 
-  if (!app || !horses?.length) {
-    console.warn('[KD] ❌ No app or horses available to start race');
+  if (!raceId || !horses || !horsePaths) {
+    console.warn('[KD] ❌ Missing raceId, horses, or horsePaths — cannot emit admin:start-race');
     return;
   }
 
-  if (!(horsePaths instanceof Map)) {
-    console.error('[KD] ❌ horsePathsRef must be a Map');
-    return;
+  // Convert Map to plain object
+  const plainHorsePaths = {};
+  for (const [horseId, pathData] of horsePaths.entries()) {
+    if (typeof horseId !== 'string') continue;
+    const { arcLength, trueFinish } = pathData;
+    plainHorsePaths[horseId] = {
+      arcLength,
+      trueFinish,
+      getPointAtDistance: pathData.getPointAtDistance // function remains intact
+    };
   }
 
-  console.log('[KD] 🧪 Validating path data for horses (dbId, localId):');
-  const missing = horses.filter(h => {
-    const pathData = horsePaths.get(h.id);
-    const valid = pathData?.path && pathData.path.length >= 2;
-    console.log(`   ↪️ Horse ${h.name} | dbId=${h.id} | localId=${h.localId} | Path valid: ${!!valid}`);
-    return !valid;
-  });
-
-  if (missing.length > 0) {
-    console.warn('[KD] ⚠️ Some horses are missing path data — race not started.');
-    missing.forEach(h => {
-      console.warn(`[KD] ⚠️ Missing path for horse ${h.name} | dbId=${h.id} | localId=${h.localId}`);
-    });
-    return;
-  }
-
-  console.log('[KD] ✅ All horses have valid path data — preparing race');
-  console.log('[KD] 🎯 speedMultiplier passed to playRace():', speedMultiplier);
-  console.log('[KD] 🎯 debugVisible passed to playRace():', debugVisible);
-
-  console.log('[KD] 🔎 Final horse IDs in race:', horses.map(h => h.id));
-  console.log('[KD] 🔎 horseSpritesRef keys:', Array.from(horseSpritesRef.current?.keys?.() ?? []));
-  console.log('[KD] 🔎 horsePathsRef keys:', Array.from(horsePathsRef.current?.keys?.() ?? []));
-  console.log('[KD] 🧩 horseSpritesRef identity at race start:', horseSpritesRef.current);
-  console.log('[KD] 🧩 horsePathsRef identity at race start:', horsePathsRef.current);
-
-  setRaceReady(false);
-
-  playRace({
-    app,
-    horseSprites: horseSpritesRef.current,
-    horsePaths: horsePathsRef.current,
-    labelSprites: labelSpritesRef.current,
-    finishedHorses: finishedHorsesRef.current,
-    horses: horsesRef.current,
-    onRaceEnd: () => setCanGenerate(true),
-    debugPathLinesRef,
-    finishDotsRef,
-    speedMultiplier,
-    debugVisible // ✅ PASS INTO playRace()
+  console.log('[KD] 🚀 Emitting admin:start-race with horsePaths for race', raceId);
+  socket.emit('admin:start-race', {
+    raceId,
+    horses,
+    horsePaths: plainHorsePaths
   });
 }

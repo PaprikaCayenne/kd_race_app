@@ -1,5 +1,6 @@
 // File: api/index.ts
-// Version: v0.8.3 — Mounts user, register, and betting routes properly
+// Version: v0.8.6 — Adds leaderboard route to /api/leaderboard
+// Date: 2025-05-30
 
 import express from "express";
 import dotenv from "dotenv";
@@ -10,9 +11,11 @@ import horsesRoute from "./routes/horses.js";
 import registerRoute from "./routes/register.js";
 import userRoute from "./routes/user.js";
 import betRoute from "./routes/bet.js";
-import { createAdminRoute } from "./routes/admin.js";
+import adminRoute from "./routes/admin.js";
 import replayRoute from "./routes/replay.js";
+import racesRoute from "./routes/races.js";
 import trackRoute from "./routes/track.js";
+import leaderboardRoute from "./routes/leaderboard.js"; // ✅ NEW
 import { setupRaceNamespace } from "./sockets/race.js";
 import { execSync } from "child_process";
 
@@ -46,11 +49,12 @@ app.use((req, res, next) => {
 // 🔗 Mount REST API routes
 app.use("/api/horses", horsesRoute);
 app.use("/api/register", registerRoute);
-app.use("/api/user", userRoute);              // ✅ NEW: fetch user & balance
-app.use("/api/admin", createAdminRoute(io));
+app.use("/api/user", userRoute);
+app.use("/api/admin", adminRoute);
 app.use("/api", replayRoute);
-app.use("/api/track", trackRoute);
 app.use("/api/bet", betRoute);
+app.use("/api/race", racesRoute);
+app.use("/api/leaderboard", leaderboardRoute); // ✅ ADDED
 
 setupRaceNamespace(io);
 

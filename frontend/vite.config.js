@@ -1,7 +1,8 @@
 // File: frontend/vite.config.js
-// Version: v0.8.0 — Maps / to users.html and /race to race.html
+// Version: v0.8.1 — Adds /admin entrypoint for AdminPage
 // https://kd.paprikacayenne.com/       → users.html (main-user.jsx)
 // https://kd.paprikacayenne.com/race   → race.html (main-race.jsx)
+// https://kd.paprikacayenne.com/admin  → admin.html (main-admin.jsx)
 
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -28,7 +29,10 @@ export default defineConfig({
         users: path.resolve(__dirname, 'users.html'),
 
         // 🐎 Race screen at /race
-        race: path.resolve(__dirname, 'race.html')
+        race: path.resolve(__dirname, 'race.html'),
+
+        // 🛠️ Admin UI at /admin
+        admin: path.resolve(__dirname, 'admin.html')
       }
     },
     outDir: 'frontend_build'

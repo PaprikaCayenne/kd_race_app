@@ -1,6 +1,3 @@
-// File: prisma/schema.prisma
-// Version: v0.5.0 — Adds user currency, betting model, and race lock support
-
 generator client {
   provider = "prisma-client-js"
   output   = "../node_modules/.prisma/client"
@@ -17,7 +14,8 @@ model User {
   lastName      String
   nickname      String?
   deviceId      String          @unique
-  currency      Int             @default(100) // 🪙 Lease Coins
+  leaseLoons    Int             @default(1000) // 🪙 Lease Loons
+  isAdmin       Boolean         @default(false)
   createdAt     DateTime        @default(now())
   registrations Registration[]
   bets          Bet[]
@@ -28,8 +26,10 @@ model User {
 model Horse {
   id            Int             @id @default(autoincrement())
   name          String
-  color         String
-  variant       String          @default("bay")
+  bodyColor     String
+  bodyHex       String
+  saddleColor   String
+  saddleHex     String          @unique
   registrations Registration[]
   results       Result[]
   replayFrames  ReplayFrame[]
@@ -45,29 +45,49 @@ model Registration {
   userId     Int
   horse      Horse    @relation(fields: [horseId], references: [id])
   horseId    Int
+  race       Race     @relation(fields: [raceId], references: [id])
+  raceId     BigInt   @db.BigInt
   createdAt  DateTime @default(now())
 
   @@map("registrations")
 }
 
 model Race {
-  id         BigInt        @id @default(autoincrement()) @db.BigInt
-  startedAt  DateTime?
-  endedAt    DateTime?
-  locked     Boolean       @default(false) // 🔒 Prevent new bets when locked
-  results    Result[]
-  replay     ReplayFrame[]
-  horsePaths HorsePath[]
-  trackMeta  TrackMeta?
-  bets       Bet[]
+  id           BigInt        @id @default(autoincrement()) @db.BigInt
+  name         String        @unique
+  type         String        @default("heat")
+  isFinal      Boolean       @default(false)
+  isTest       Boolean       @default(false)
+  generatedAt  DateTime      @default(now())
+  startedAt    DateTime?
+  endedAt      DateTime?
+  betsLocked   Boolean       @default(false)
+  betClosesAt  DateTime?
+
+  registrations Registration[]
+  results        Result[]
+  replay         ReplayFrame[]
+  horsePaths     HorsePath[]
+  trackMeta      TrackMeta?
+  bets           Bet[]
 
   @@map("races")
+}
+
+model RaceName {
+  id       Int      @id @default(autoincrement())
+  name     String   @unique
+  used     Boolean  @default(false)
+  usedAt   DateTime?
+
+  @@map("race_names")
 }
 
 model Result {
   id       Int     @id @default(autoincrement())
   raceId   BigInt  @db.BigInt
   horseId  Int
+  localId  Int
   position Int
   timeMs   Int
 
@@ -129,6 +149,6 @@ model Bet {
   amount    Int
   createdAt DateTime @default(now())
 
-  @@unique([userId, raceId]) // 🧠 One bet per user per race
+  @@unique([userId, raceId, horseId])
   @@map("bets")
 }

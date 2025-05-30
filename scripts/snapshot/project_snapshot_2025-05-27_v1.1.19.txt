@@ -1,0 +1,3539 @@
+📦 Generating full source snapshot for kd_race_app
+Timestamp: Tue May 27 07:38:01 PM CDT 2025
+Root: /docker/stacks/kd_race_app
+Version: v1.1.19
+==================================================
+
+
+==== FILE: api/bet.ts ====
+
+// File: api/routes/bet.ts
+// Version: v1.1.0 — Supports multi-horse betting with lock and balance validation
+
+import express, { Request, Response } from "express";
+import prisma from "../lib/prisma";
+
+const router = express.Router();
+
+// POST /api/bet — upsert a bet for one horse in the current race
+router.post("/", async (req: Request, res: Response) => {
+  const { deviceId, horseId, amount } = req.body;
+
+  if (!deviceId || !horseId || typeof amount !== "number") {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  if (amount < 0 || amount % 50 !== 0) {
+    return res.status(400).json({ error: "Amount must be in 50 LL increments" });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { deviceId } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const race = await prisma.race.findFirst({
+      where: { locked: false },
+      orderBy: { id: "desc" }
+    });
+
+    if (!race || (race.betClosesAt && new Date() >= race.betClosesAt)) {
+      return res.status(403).json({ error: "Betting is closed" });
+    }
+
+    const existingBet = await prisma.bet.findUnique({
+      where: {
+        userId_raceId_horseId: {
+          userId: user.id,
+          raceId: race.id,
+          horseId
+        }
+      }
+    });
+
+    const oldAmount = existingBet?.amount || 0;
+    const refund = oldAmount;
+    const availableBalance = user.currency + refund;
+
+    if (amount > availableBalance) {
+      return res.status(400).json({ error: "Insufficient Lease Loons" });
+    }
+
+    // Upsert the bet
+    await prisma.bet.upsert({
+      where: {
+        userId_raceId_horseId: {
+          userId: user.id,
+          raceId: race.id,
+          horseId
+        }
+      },
+      update: { amount },
+      create: {
+        userId: user.id,
+        raceId: race.id,
+        horseId,
+        amount
+      }
+    });
+
+    // Update user currency
+    const newBalance = availableBalance - amount;
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { currency: newBalance }
+    });
+
+    res.json({ success: true, newBalance });
+  } catch (err) {
+    console.error("❌ Betting error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+export default router;
+
+
+==== FILE: api/Dockerfile ====
+
+# File: api/Dockerfile
+# Version: v0.8.0 – Add TypeScript and tsx runtime support
+
+FROM node:20
+
+# Set working directory
+WORKDIR /app
+
+# Install dependencies (includes tsx for TypeScript runtime)
+COPY ./package*.json ./
+RUN npm install
+
+# Copy all source files and Prisma schema
+COPY . .
+COPY ./prisma ./prisma
+
+# Generate Prisma client
+RUN npx prisma generate --schema=./prisma/schema.prisma
+
+# Expose API port
+EXPOSE 4000
+
+# Run with tsx so we can execute TypeScript files directly
+CMD ["npx", "tsx", "index.ts"]
+
+
+==== FILE: api/index.ts ====
+
+// File: api/index.ts
+// Version: v0.8.4 — Correctly mounts admin route using default export
+
+import express from "express";
+import dotenv from "dotenv";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import cors from "cors";
+import horsesRoute from "./routes/horses.js";
+import registerRoute from "./routes/register.js";
+import userRoute from "./routes/user.js";
+import betRoute from "./routes/bet.js";
+import adminRoute from "./routes/admin.js";           // ✅ updated import
+import replayRoute from "./routes/replay.js";
+import trackRoute from "./routes/track.js";
+import { setupRaceNamespace } from "./sockets/race.js";
+import { execSync } from "child_process";
+
+dotenv.config();
+
+if (process.env.NODE_ENV !== "production") {
+  try {
+    console.log("🛠️ Running prisma generate...");
+    execSync("npx prisma generate", { stdio: "inherit" });
+  } catch (err) {
+    console.error("❌ Prisma generate failed:", err);
+  }
+}
+
+const app = express();
+const server = createServer(app);
+
+const io = new Server(server, {
+  cors: { origin: "*" },
+  path: "/api/socket.io"
+});
+
+app.use(cors());
+app.use(express.json());
+
+app.use((req, res, next) => {
+  if (req.url.startsWith("/api/socket.io")) return next();
+  next();
+});
+
+// 🔗 Mount REST API routes
+app.use("/api/horses", horsesRoute);
+app.use("/api/register", registerRoute);
+app.use("/api/user", userRoute);              
+app.use("/api/admin", adminRoute);           // ✅ updated usage
+app.use("/api", replayRoute);
+app.use("/api/bet", betRoute);
+
+setupRaceNamespace(io);
+
+const PORT = process.env.PORT || 4000;
+server.listen(PORT, () => {
+  console.log(`🔥 KD API running at http://localhost:${PORT}`);
+});
+
+
+==== FILE: api/lib/prisma.ts ====
+
+// File: api/lib/prisma.ts
+// Version: v0.1.0 – Converted to TypeScript
+
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+export default prisma;
+
+
+==== FILE: api/package.json ====
+
+{
+  "name": "kd_api",
+  "version": "1.1.2",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "start": "tsx index.ts",
+    "dev": "tsx watch index.ts",
+    "postinstall": "echo 'Skipping prisma generate during install'",
+    "generate": "prisma generate",
+    "migrate": "prisma migrate dev",
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.6.0",
+    "dotenv": "^16.5.0",
+    "express": "^4.19.2",
+    "pg": "^8.14.1",
+    "seedrandom": "^3.0.5",
+    "socket.io": "^4.7.2",
+    "pako": "^2.1.0",
+    "tsx": "^4.8.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.6.0",
+    "typescript": "^5.4.2"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}
+
+
+==== FILE: api/prisma/seed.ts ====
+
+// File: prisma/seed.ts
+// Version: v0.8.0 — Adds persistent race names to RaceName table
+
+import { PrismaClient } from '@prisma/client';
+const prisma = new PrismaClient();
+
+const VARIANTS = ['bay', 'chestnut', 'palomino', 'black'];
+function getRandomVariant(): string {
+  return VARIANTS[Math.floor(Math.random() * VARIANTS.length)];
+}
+
+const BODY_COLORS = [
+  { name: 'bay', hex: '#8B4513' },
+  { name: 'chestnut', hex: '#954535' },
+  { name: 'palomino', hex: '#EEE8AA' },
+  { name: 'black', hex: '#111111' },
+  { name: 'white', hex: '#FAFAFA' },
+  { name: 'gray', hex: '#B0B0B0' },
+  { name: 'buckskin', hex: '#DAA520' },
+  { name: 'roan', hex: '#B76E79' }
+];
+
+const SADDLES = [
+  { name: 'red', hex: '#E53935' },
+  { name: 'blue', hex: '#1E88E5' },
+  { name: 'green', hex: '#43A047' },
+  { name: 'yellow', hex: '#FDD835' },
+  { name: 'purple', hex: '#8E24AA' },
+  { name: 'orange', hex: '#FB8C00' },
+  { name: 'pink', hex: '#F06292' },
+  { name: 'gray', hex: '#757575' },
+  { name: 'teal', hex: '#00897B' },
+  { name: 'navy', hex: '#303F9F' },
+  { name: 'lime', hex: '#C0CA33' },
+  { name: 'cyan', hex: '#00ACC1' },
+  { name: 'maroon', hex: '#6A1B9A' },
+  { name: 'olive', hex: '#827717' },
+  { name: 'beige', hex: '#F5F5DC' },
+  { name: 'white', hex: '#FFFFFF' },
+  { name: 'indigo', hex: '#3949AB' },
+  { name: 'aqua', hex: '#4DD0E1' },
+  { name: 'tan', hex: '#D2B48C' },
+  { name: 'charcoal', hex: '#444444' },
+  { name: 'silver', hex: '#C0C0C0' }
+];
+
+const HORSE_NAMES = [
+  'Leaseloon Lightning', 'Commission Crusher', 'Slack Galloper',
+  'Elevator Pitcher', 'Tour Sheet Trotter', 'Amenity Stampeder',
+  'Broker Blitz', 'Hot Desk Rocket', 'Sublease Sprinter',
+  'Cap Rate Comet', 'Buildout Bandit', 'SpaceIQ Speedster',
+  'CoreNet Cruiser', 'Amenity Arms Racer', 'Lease-Up Lightning',
+  'JLL Jockey Jet', 'Stack Plan Slammer', 'Fitwel Flyer',
+  'Wayfinding Wonder', 'Occupier Outlaw', 'PropTech Prancer'
+];
+
+const RACE_NAMES = [
+  "Lease Legends", "The Amenity Stakes", "Sublease Sprint", "Commission Clash",
+  "Hot Desk Derby", "CoreNet Cup", "Jockey Jam", "Gallop Gala",
+  "Broker Bash", "The Stack Stampede", "Fitwel 400", "Wayfinding Whirl",
+  "Occupier Open", "Cap Rate Cup", "Tour Sheet Trial", "Pitch Parade",
+  "PropTech Pace", "Amenity Arms Invitational", "JLL Showdown", "Deskless Dash"
+];
+
+async function main() {
+  console.log('🧹 Clearing old data...');
+  await prisma.replayFrame.deleteMany();
+  await prisma.horsePath.deleteMany();
+  await prisma.trackMeta.deleteMany();
+  await prisma.result.deleteMany();
+  await prisma.race.deleteMany();
+  await prisma.registration.deleteMany();
+  await prisma.bet.deleteMany();
+  await prisma.user.deleteMany();
+  await prisma.horse.deleteMany();
+  await prisma.raceName.deleteMany();
+
+  console.log('🐎 Seeding horses...');
+  const horseData = HORSE_NAMES.map((name, i) => {
+    const saddle = SADDLES[i];
+    const body = BODY_COLORS[i % BODY_COLORS.length];
+
+    return {
+      name,
+      saddleColor: saddle.name,
+      saddleHex: saddle.hex,
+      bodyColor: body.name,
+      bodyHex: body.hex,
+      variant: getRandomVariant()
+    };
+  });
+
+  await prisma.horse.createMany({ data: horseData });
+
+  console.log('🏷️ Seeding race names...');
+  await prisma.raceName.createMany({
+    data: RACE_NAMES.map(name => ({ name }))
+  });
+
+  console.log('🙋‍♂️ Creating test users...');
+  const colin = await prisma.user.create({
+    data: {
+      firstName: 'Colin',
+      lastName: 'DiBiase',
+      nickname: 'CD',
+      deviceId: 'device_cd',
+      currency: 1000
+    }
+  });
+  const jamie = await prisma.user.create({
+    data: {
+      firstName: 'Jamie',
+      lastName: 'Leasewell',
+      nickname: 'JL',
+      deviceId: 'device_jl',
+      currency: 1000
+    }
+  });
+  const riley = await prisma.user.create({
+    data: {
+      firstName: 'Riley',
+      lastName: 'Spacefinder',
+      nickname: 'RS',
+      deviceId: 'device_rs',
+      currency: 1000
+    }
+  });
+
+  console.log('📝 Registering users...');
+  await prisma.registration.createMany({
+    data: [
+      { userId: colin.id, horseId: 1 },
+      { userId: jamie.id, horseId: 2 },
+      { userId: riley.id, horseId: 3 }
+    ]
+  });
+
+  console.log('🏁 Creating test race...');
+  await prisma.race.create({
+    data: {
+      name: 'Test Race',
+      isTest: true
+    }
+  });
+
+  console.log('✅ Seed complete');
+}
+
+main()
+  .catch((e) => {
+    console.error('❌ Error seeding database:', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });
+
+
+==== FILE: api/routes/admin.ts ====
+
+// File: api/routes/admin.ts
+// Version: v0.8.1 — Uses RaceName model for random, non-repeating race names
+
+import express, { Request, Response } from "express";
+import prisma from "../lib/prisma.js";
+import { raceNamespace } from "../sockets/race.js";
+
+const router = express.Router();
+
+function isAuthorized(req: Request): boolean {
+  return req.headers["x-admin-pass"] === process.env.API_ADMIN_PASS;
+}
+
+// ✅ Fetch random unused race name from DB
+async function getRandomUnusedRaceName(): Promise<string> {
+  const unused = await prisma.raceName.findMany({
+    where: { used: false }
+  });
+
+  if (unused.length === 0) {
+    throw new Error("No unused race names available");
+  }
+
+  const chosen = unused[Math.floor(Math.random() * unused.length)];
+
+  await prisma.raceName.update({
+    where: { id: chosen.id },
+    data: { used: true }
+  });
+
+  return chosen.name;
+}
+
+// ✅ Find horses that haven't yet raced
+async function getUnusedHorses(): Promise<any[]> {
+  const usedHorseIds = await prisma.result.findMany({
+    select: { horseId: true }
+  });
+
+  const usedIds = new Set(usedHorseIds.map(r => r.horseId));
+  const allHorses = await prisma.horse.findMany();
+  return allHorses.filter(h => !usedIds.has(h.id));
+}
+
+router.post("/generate-race", async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) return res.status(403).json({ error: "Unauthorized" });
+
+  try {
+    const name = await getRandomUnusedRaceName();
+
+    const unusedHorses = await getUnusedHorses();
+    if (unusedHorses.length < 4) {
+      return res.status(400).json({ error: "Not enough unused horses available" });
+    }
+
+    const selected = unusedHorses.slice(0, 4);
+    const race = await prisma.race.create({
+      data: {
+        name,
+        type: "heat",
+        isFinal: false,
+        isTest: false
+      }
+    });
+
+    res.status(200).json({
+      message: "Race created",
+      raceId: race.id,
+      name,
+      horses: selected
+    });
+  } catch (err) {
+    console.error("❌ Error generating race:", err);
+    res.status(500).json({ error: "Failed to generate race" });
+  }
+});
+
+// ... [Other endpoints like /start-race, /lock-bets, etc.] ...
+
+export default router;
+
+
+==== FILE: api/routes/bet.ts ====
+
+// File: api/routes/bet.ts
+// Version: v1.0.0 — Submit or update a bet for the active race
+
+import express, { Request, Response } from "express";
+import prisma from "../lib/prisma";
+
+const router = express.Router();
+
+// POST /api/bet
+router.post("/", async (req: Request, res: Response) => {
+  const { deviceId, horseId, amount } = req.body;
+
+  if (!deviceId || !horseId || typeof amount !== "number" || amount <= 0) {
+    return res.status(400).json({ error: "deviceId, horseId, and amount > 0 are required" });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { deviceId } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const race = await prisma.race.findFirst({
+      where: { locked: false },
+      orderBy: { id: "desc" }
+    });
+    if (!race) return res.status(400).json({ error: "No active race available" });
+
+    const existingBet = await prisma.bet.findUnique({
+      where: {
+        userId_raceId: {
+          userId: user.id,
+          raceId: race.id
+        }
+      }
+    });
+
+    const refund = existingBet?.amount || 0;
+    const adjustedBalance = user.currency + refund;
+
+    if (adjustedBalance < amount) {
+      return res.status(400).json({ error: "Insufficient Lease Loons" });
+    }
+
+    // Upsert bet
+    await prisma.bet.upsert({
+      where: {
+        userId_raceId: {
+          userId: user.id,
+          raceId: race.id
+        }
+      },
+      update: { horseId, amount },
+      create: {
+        userId: user.id,
+        raceId: race.id,
+        horseId,
+        amount
+      }
+    });
+
+    // Update user balance
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { currency: adjustedBalance - amount }
+    });
+
+    res.json({ success: true, newBalance: adjustedBalance - amount });
+  } catch (err) {
+    console.error("Betting error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+export default router;
+
+
+==== FILE: api/routes/horses.ts ====
+
+// File: api/routes/horses.ts
+// Version: v0.2.0 – Convert to TypeScript and add types to Prisma call
+
+import express, { Request, Response } from "express";
+import prisma from "../lib/prisma";
+
+const router = express.Router();
+
+// GET /api/horses → List all horses
+router.get("/", async (_req: Request, res: Response) => {
+  try {
+    const horses = await prisma.horse.findMany({
+      orderBy: { id: "asc" },
+    });
+    res.json(horses);
+  } catch (error) {
+    console.error("❌ Error fetching horses:", error);
+    res.status(500).json({ error: "Failed to fetch horses" });
+  }
+});
+
+export default router;
+
+
+==== FILE: api/routes/races.ts ====
+
+// File: api/routes/races.ts
+// Version: v1.1.1 — Adds fallback for /api/race/current when no race exists
+
+import express, { Request, Response } from "express";
+import prisma from "../lib/prisma";
+
+const router = express.Router();
+
+// GET /api/race/:raceId/replay — Returns all tick frames for a race
+router.get("/race/:raceId/replay", async (req: Request, res: Response) => {
+  const { raceId } = req.params;
+
+  if (!raceId || isNaN(Number(raceId))) {
+    return res.status(400).json({ error: "Invalid or missing raceId" });
+  }
+
+  try {
+    const frames = await prisma.replayFrame.findMany({
+      where: { raceId: BigInt(raceId) },
+      select: {
+        horseId: true,
+        pct: true,
+        timeMs: true
+      },
+      orderBy: { timeMs: "asc" }
+    });
+
+    res.json({ frames });
+  } catch (err) {
+    console.error("❌ [Replay] Failed to fetch frames:", err);
+    res.status(500).json({ error: "Failed to fetch replay frames" });
+  }
+});
+
+// GET /api/races — Returns metadata for available replays
+router.get("/races", async (_req: Request, res: Response) => {
+  try {
+    const races = await prisma.race.findMany({
+      orderBy: { startedAt: "desc" },
+      select: {
+        id: true,
+        startedAt: true
+      }
+    });
+
+    const formatted = races.map((r, idx) => {
+      const date = new Date(r.startedAt);
+      const name = `Race: ${races.length - idx} – ${date.toLocaleString("en-US", {
+        month: "2-digit",
+        day: "2-digit",
+        year: "2-digit",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true
+      })}`;
+      return { raceId: r.id.toString(), name };
+    });
+
+    res.json(formatted);
+  } catch (err) {
+    console.error("❌ [Replay] Failed to fetch race list:", err);
+    res.status(500).json({ error: "Failed to fetch races" });
+  }
+});
+
+// ✅ GET /api/race/current — returns betting race, or fallback
+router.get("/race/current", async (_req: Request, res: Response) => {
+  try {
+    const race = await prisma.race.findFirst({
+      where: { locked: false },
+      orderBy: { id: "desc" },
+      include: {
+        horsePaths: {
+          select: {
+            horse: {
+              select: {
+                id: true,
+                name: true,
+                color: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!race) {
+      return res.json({
+        raceId: null,
+        locked: true,
+        horses: [],
+        countdownSeconds: 0
+      });
+    }
+
+    const now = new Date();
+    const closesAt = race.betClosesAt;
+    const locked = closesAt ? now >= closesAt : false;
+
+    const horses = race.horsePaths.map(h => ({
+      id: h.horse.id,
+      name: h.horse.name,
+      color: h.horse.color
+    }));
+
+    const countdownSeconds = !locked && closesAt
+      ? Math.max(0, Math.floor((closesAt.getTime() - now.getTime()) / 1000))
+      : undefined;
+
+    res.json({
+      raceId: race.id.toString(),
+      locked,
+      horses,
+      countdownSeconds
+    });
+  } catch (err) {
+    console.error("❌ [Race] Failed to fetch current race:", err);
+    res.status(500).json({ error: "Failed to fetch current race" });
+  }
+});
+
+export default router;
+
+
+==== FILE: api/routes/register.ts ====
+
+// File: api/routes/register.ts
+// Version: v0.3.1 — Sets starting Lease Loons via configurable constant
+
+import express, { Request, Response } from "express";
+import prisma from "../lib/prisma";
+
+const router = express.Router();
+
+// 💰 Starting Lease Loons for all new users
+const STARTING_CURRENCY = 1000;
+
+router.post("/", async (req: Request, res: Response) => {
+  const { firstName, lastName, nickname, horseId, deviceId } = req.body;
+
+  if (!firstName || !lastName || !deviceId) {
+    return res.status(400).json({
+      error: "firstName, lastName, and deviceId are required",
+    });
+  }
+
+  try {
+    let user = await prisma.user.findUnique({
+      where: { deviceId },
+    });
+
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          firstName,
+          lastName,
+          nickname: nickname || null,
+          deviceId,
+          currency: STARTING_CURRENCY
+        },
+      });
+
+      // Optional: register to a horse if provided
+      if (horseId) {
+        await prisma.registration.create({
+          data: {
+            userId: user.id,
+            horseId,
+          },
+        });
+      }
+    }
+
+    res.json({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      nickname: user.nickname,
+      currency: user.currency,
+      deviceId: user.deviceId
+    });
+  } catch (err) {
+    console.error("Registration error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+export default router;
+
+
+==== FILE: api/routes/replay.ts ====
+
+// File: api/routes/replay.ts
+// Version: v0.7.3 – Converted to TypeScript with typed responses
+
+import express, { Request, Response } from "express";
+import { PrismaClient } from "@prisma/client";
+
+const router = express.Router();
+const prisma = new PrismaClient();
+
+// GET /api/race/:raceId/replay — Returns all tick frames for a race
+router.get("/race/:raceId/replay", async (req: Request, res: Response) => {
+  const { raceId } = req.params;
+
+  if (!raceId || isNaN(Number(raceId))) {
+    return res.status(400).json({ error: "Invalid or missing raceId" });
+  }
+
+  try {
+    const frames = await prisma.replayFrame.findMany({
+      where: { raceId: BigInt(raceId) },
+      select: {
+        horseId: true,
+        pct: true,
+        timeMs: true
+      },
+      orderBy: { timeMs: "asc" }
+    });
+
+    res.json({ frames });
+  } catch (err) {
+    console.error("❌ [Replay] Failed to fetch frames:", err);
+    res.status(500).json({ error: "Failed to fetch replay frames" });
+  }
+});
+
+// GET /api/races — Returns metadata for available replays
+router.get("/races", async (_req: Request, res: Response) => {
+  try {
+    const races = await prisma.race.findMany({
+      orderBy: { startedAt: "desc" },
+      select: {
+        id: true,
+        startedAt: true
+      }
+    });
+
+    const formatted = races.map((r, idx) => {
+      const date = new Date(r.startedAt);
+      const name = `Race: ${races.length - idx} – ${date.toLocaleString("en-US", {
+        month: "2-digit",
+        day: "2-digit",
+        year: "2-digit",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true
+      })}`;
+      return { raceId: r.id.toString(), name };
+    });
+
+    res.json(formatted);
+  } catch (err) {
+    console.error("❌ [Replay] Failed to fetch race list:", err);
+    res.status(500).json({ error: "Failed to fetch races" });
+  }
+});
+
+export default router;
+
+
+==== FILE: api/routes/results.ts ====
+
+// File: api/routes/results.ts
+// Version: v0.1.0 – Converted to TypeScript for type safety
+
+import express, { Request, Response } from "express";
+import { pool } from "../db.js";
+
+const router = express.Router();
+
+// GET /api/race/:raceId/results → Fetch race result leaderboard
+router.get("/:raceId/results", async (req: Request, res: Response) => {
+  const raceId = parseInt(req.params.raceId, 10);
+
+  if (isNaN(raceId)) {
+    return res.status(400).json({ error: "Invalid race ID" });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT r.position, r.time_ms, h.id AS horse_id, h.name, h.color
+       FROM results r
+       JOIN horses h ON r.horse_id = h.id
+       WHERE r.race_id = $1
+       ORDER BY r.position`,
+      [raceId]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Error fetching race results:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+export default router;
+
+
+==== FILE: api/routes/user.ts ====
+
+// File: api/routes/user.ts
+// Version: v1.1.4 — Uses case-insensitive lookup to fix 404 bug for deviceId
+
+import express, { Request, Response } from "express";
+import prisma from "../lib/prisma";
+
+const router = express.Router();
+
+router.get("/:deviceId", async (req: Request, res: Response) => {
+  const { deviceId } = req.params;
+
+  try {
+    const user = await prisma.user.findFirst({
+      where: {
+        deviceId: {
+          equals: deviceId,
+          mode: "insensitive"
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Find the most recent race with betting open
+    const race = await prisma.race.findFirst({
+      where: { betsLocked: false },
+      orderBy: { id: "desc" }
+    });
+
+    let bets = [];
+    if (race) {
+      bets = await prisma.bet.findMany({
+        where: {
+          userId: user.id,
+          raceId: race.id
+        },
+        select: {
+          raceId: true,
+          horseId: true,
+          amount: true
+        }
+      });
+    }
+
+    res.json({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      nickname: user.nickname,
+      currency: user.currency,
+      bets: bets
+    });
+  } catch (err) {
+    console.error("User fetch error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/all", async (req: Request, res: Response) => {
+  const token = req.headers["x-admin-pass"];
+  if (token !== process.env.API_ADMIN_PASS) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const users = await prisma.user.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        deviceId: true,
+        firstName: true,
+        lastName: true,
+        nickname: true,
+        currency: true
+      }
+    });
+
+    res.json(users);
+  } catch (err) {
+    console.error("User list fetch error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+export default router;
+
+
+==== FILE: api/sockets/race.ts ====
+
+// File: api/sockets/race.ts
+// Version: v2.0.0 — Uses frontend-supplied horse paths, clean WebSocket tick logic
+
+import { Server, Socket } from "socket.io";
+import { PrismaClient } from "@prisma/client";
+
+const prisma = new PrismaClient();
+
+const DEBUG = true;
+const debugLog = (...args: any[]) => DEBUG && console.log(...args);
+const errorLog = (...args: any[]) => console.error("❌", ...args);
+
+export let raceNamespace: ReturnType<Server["of"]>;
+
+export function setupRaceNamespace(io: Server): void {
+  raceNamespace = io.of("/race");
+
+  raceNamespace.on("connection", (socket: Socket) => {
+    debugLog("✅ [WS] Client connected to /race:", socket.id);
+
+    socket.on("startRace", async ({
+      raceId,
+      horses,
+      horsePaths
+    }: {
+      raceId: string;
+      horses: { id: number; name: string; color: string }[];
+      horsePaths: Record<
+        number,
+        {
+          arcLength: number;
+          trueFinish: { x: number; y: number; rotation: number };
+          getPointAtDistance: (distance: number) => { x: number; y: number; rotation: number };
+        }
+      >;
+    }) => {
+      debugLog(`🏁 [Race] startRace received – RaceID: ${raceId}`);
+      debugLog("🐎 Horses:", horses);
+
+      try {
+        await prisma.race.create({
+          data: {
+            id: BigInt(raceId),
+            startedAt: new Date()
+          }
+        });
+        debugLog("💾 [DB] Race inserted");
+      } catch (err) {
+        errorLog("[DB] Failed to insert race:", err);
+        return;
+      }
+
+      raceNamespace.emit("race:init", {
+        raceId,
+        horses,
+        horsePaths
+      });
+      debugLog("📤 [Race] race:init emitted with supplied horse paths");
+
+      const startTime = Date.now();
+      const horseStates: Record<number, number> = {};
+
+      for (const horse of horses) {
+        horseStates[horse.id] = 0;
+      }
+
+      const interval = setInterval(async () => {
+        let allFinished = true;
+
+        for (const horse of horses) {
+          const currentPct = horseStates[horse.id];
+          if (currentPct >= 100) continue;
+
+          const delta = 1.2 + Math.random() * 2.2;
+          const nextPct = Math.min(currentPct + delta, 100);
+          horseStates[horse.id] = nextPct;
+
+          const timeMs = Date.now() - startTime;
+
+          try {
+            await prisma.replayFrame.create({
+              data: {
+                raceId: BigInt(raceId),
+                horseId: horse.id,
+                pct: nextPct,
+                timeMs
+              }
+            });
+          } catch (err) {
+            errorLog("❌ [DB] Failed to store replay frame:", err);
+          }
+
+          raceNamespace.emit("race:tick", {
+            raceId,
+            horseId: horse.id,
+            pct: nextPct
+          });
+          debugLog(`↪️ [Tick] Horse ${horse.id} → ${nextPct.toFixed(1)}%`);
+
+          if (nextPct < 100) allFinished = false;
+        }
+
+        if (allFinished) {
+          clearInterval(interval);
+          debugLog("🏁 [Race] All horses finished");
+
+          const leaderboard = Object.entries(horseStates)
+            .sort(([, a], [, b]) => b - a)
+            .map(([horseId], index) => ({
+              horseId: parseInt(horseId),
+              position: index + 1,
+              timeMs: 3000 + index * 250
+            }));
+
+          raceNamespace.emit("race:finish", leaderboard);
+          debugLog("📤 [Race] race:finish emitted", leaderboard);
+
+          try {
+            await prisma.race.update({
+              where: { id: BigInt(raceId) },
+              data: { endedAt: new Date() }
+            });
+
+            for (const { horseId, position, timeMs } of leaderboard.slice(0, 3)) {
+              await prisma.result.create({
+                data: {
+                  raceId: BigInt(raceId),
+                  horseId,
+                  position,
+                  timeMs
+                }
+              });
+              debugLog(`💾 [DB] Result saved: Horse ${horseId}, Pos ${position}, ${timeMs}ms`);
+            }
+          } catch (err) {
+            errorLog("[DB] Error saving results:", err);
+          }
+        }
+      }, 1000 / 30);
+    });
+  });
+}
+
+
+==== FILE: api/tsconfig.json ====
+
+// File: api/tsconfig.json
+// Version: v0.2.0 – Support full TypeScript migration across routes, sockets, and utils
+
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "allowJs": false,
+    "checkJs": false,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*", "prisma/**/*", "types/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
+
+
+==== FILE: docker-compose.yml ====
+
+# File: docker-compose.yml
+# Version: v0.8.2 — Adds static container_name for kd_api
+
+services:
+  # 🔧 Backend API
+  kd_api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: kd_race_app-kd_api-1  # ✅ Explicit name to match running container
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./frontend_build:/app/public:ro
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby
+      - API_ADMIN_PASS=${API_ADMIN_PASS}
+    restart: unless-stopped
+    networks:
+      - kd_net
+
+  # 🌐 Nginx reverse proxy
+  kd_nginx:
+    image: nginx:alpine
+    container_name: kd_race_app-kd_nginx-1
+    ports:
+      - "8086:80"
+    volumes:
+      - ./frontend_build:/usr/share/nginx/html:ro
+      - ./nginx/kd.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    networks:
+      - kd_net
+
+networks:
+  kd_net:
+    driver: bridge
+
+
+==== FILE: .env ====
+
+# File: .env
+# Version: v1.1.1 — Config for KD Race App including secure API admin password
+
+# 🔐 PostgreSQL password for derby_admin user
+DB_PASS=3K!JXoRiP3ir@7yf
+
+# 🔑 Secure admin password used to authorize /api/admin endpoints
+API_ADMIN_PASS=6a2e8819c6fb4c15
+
+# ✅ Prevent Prisma from trying to install client at runtime
+PRISMA_GENERATE_SKIP_AUTOINSTALL=true
+
+# 👤 Docker UID/GID for proper file ownership from kd_frontend_builder
+PUID=1007
+PGID=1003
+
+# 📌 Note:
+# DATABASE_URL is dynamically constructed in docker-compose.yml
+# Format: postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby
+
+
+==== FILE: frontend/admin.html ====
+
+<!-- File: frontend/admin.html -->
+<!-- Version: v1.0.1 — Fixed Vite build by using main-admin.jsx entrypoint -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JLL Grand Gallop – Admin Panel</title>
+    <link rel="icon" type="image/png" href="/JLL_logo.png" />
+  </head>
+  <body class="bg-white text-gray-900">
+    <div id="root"></div>
+    <script type="module" src="/src/main-admin.jsx"></script>
+  </body>
+</html>
+
+
+==== FILE: frontend/Dockerfile ====
+
+# File: frontend/Dockerfile
+# Version: v1.4.1 — Clean single-stage builder for frontend_build extraction
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+# Install pnpm globally
+RUN npm install -g pnpm
+
+# Copy frontend package and lockfiles
+COPY frontend/package.json ./frontend/
+COPY pnpm-lock.yaml .
+COPY pnpm-workspace.yaml .
+
+# Install frontend-only dependencies
+RUN pnpm install --filter ./frontend...
+
+# Copy frontend source code
+COPY frontend ./frontend
+
+# Build static files to /app/frontend/dist
+WORKDIR /app/frontend
+RUN pnpm run build
+
+# ✅ No final image — output will be extracted by external script
+
+
+==== FILE: frontend/package.json ====
+
+{
+  "type": "module",
+  "name": "kd-frontend",
+  "version": "1.0.5",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "pixi.js": "^7.4.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.3",
+    "seedrandom": "^3.0.5",
+    "socket.io-client": "^4.7.2",
+    "pako": "^2.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.0.3",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.24",
+    "tailwindcss": "^3.3.2",
+    "vite": "^5.2.9"
+  }
+}
+
+==== FILE: frontend/race.html ====
+
+<!-- File: frontend/race.html -->
+<!-- Version: v1.1.0 — Entry point for race view at https://kd.paprikacayenne.com/race -->
+<!-- Injects: main-race.jsx to mount <App /> -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KD Race App</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body class="bg-green-50 text-gray-900">
+    <div id="root"></div>
+    <!-- ✅ Loads App from main-race.jsx -->
+    <script type="module" src="/src/main-race.jsx"></script>
+  </body>
+</html>
+
+
+==== FILE: frontend/src/App.jsx ====
+
+// File: frontend/src/App.jsx
+// Version: v0.6.0 — Removes extra padding and matches canvas background
+
+import React from 'react';
+import RaceTrack from './components/RaceTrack';
+
+function App() {
+  return (
+    <div className="w-screen h-screen overflow-hidden bg-[#baf0ba]">
+      {/* Top-right version info */}
+      <div className="absolute top-2 right-4 text-right text-xs z-10">
+        <div className="text-green-700">Loaded: {RaceTrack.VERSION}</div>
+      </div>
+
+      {/* Race Track */}
+      <RaceTrack />
+    </div>
+  );
+}
+
+export default App;
+
+
+==== FILE: frontend/src/components/HorseBetTile.jsx ====
+
+// File: frontend/src/components/HorseBetTile.jsx
+// Version: v1.0.0 — Displays one horse tile with bet controls
+
+import React from 'react';
+
+function getColorClasses(color) {
+  // Map common colors to Tailwind CSS classes, fallback to gray
+  const map = {
+    red: ['bg-red-100', 'border-red-300', 'text-red-700', 'bg-red-600'],
+    blue: ['bg-blue-100', 'border-blue-300', 'text-blue-700', 'bg-blue-600'],
+    green: ['bg-green-100', 'border-green-300', 'text-green-700', 'bg-green-600'],
+    yellow: ['bg-yellow-100', 'border-yellow-300', 'text-yellow-700', 'bg-yellow-600'],
+    purple: ['bg-purple-100', 'border-purple-300', 'text-purple-700', 'bg-purple-600'],
+    orange: ['bg-orange-100', 'border-orange-300', 'text-orange-700', 'bg-orange-600'],
+    pink: ['bg-pink-100', 'border-pink-300', 'text-pink-700', 'bg-pink-600'],
+    gray: ['bg-gray-100', 'border-gray-300', 'text-gray-700', 'bg-gray-600'],
+    teal: ['bg-teal-100', 'border-teal-300', 'text-teal-700', 'bg-teal-600'],
+    navy: ['bg-blue-900', 'border-blue-800', 'text-blue-50', 'bg-blue-800'],
+    lime: ['bg-lime-100', 'border-lime-300', 'text-lime-700', 'bg-lime-600'],
+    cyan: ['bg-cyan-100', 'border-cyan-300', 'text-cyan-700', 'bg-cyan-600'],
+    maroon: ['bg-red-900', 'border-red-800', 'text-red-50', 'bg-red-800'],
+    olive: ['bg-olive-100', 'border-olive-300', 'text-olive-700', 'bg-olive-600'],
+    beige: ['bg-yellow-50', 'border-yellow-100', 'text-yellow-600', 'bg-yellow-100'],
+    white: ['bg-white', 'border-gray-300', 'text-gray-900', 'bg-gray-300'],
+    indigo: ['bg-indigo-100', 'border-indigo-300', 'text-indigo-700', 'bg-indigo-600'],
+    aqua: ['bg-cyan-100', 'border-cyan-300', 'text-cyan-700', 'bg-cyan-600'],
+    tan: ['bg-yellow-200', 'border-yellow-300', 'text-yellow-800', 'bg-yellow-700'],
+    charcoal: ['bg-gray-800', 'border-gray-700', 'text-gray-100', 'bg-gray-700'],
+    silver: ['bg-gray-300', 'border-gray-400', 'text-gray-800', 'bg-gray-400'],
+  };
+  return map[color?.toLowerCase()] || map.gray;
+}
+
+export default function HorseBetTile({ horse, bet, onChange, disabled, maxIncrement }) {
+  const [bgClass, borderClass, textClass, dotBgClass] = getColorClasses(horse.color);
+
+  const increment = 50;
+
+  function dec() {
+    if (disabled) return;
+    const newBet = Math.max(0, bet - increment);
+    onChange(horse.id, newBet);
+  }
+
+  function inc() {
+    if (disabled) return;
+    const newBet = bet + increment;
+    if (maxIncrement !== undefined && newBet > maxIncrement) return;
+    onChange(horse.id, newBet);
+  }
+
+  return (
+    <div className={`${bgClass} ${borderClass} border rounded-xl p-4 w-full max-w-md flex flex-col items-center space-y-3`}>
+      <div className="flex items-center space-x-2 text-lg font-semibold">
+        <span className="text-2xl">🐎</span>
+        <span className={`${dotBgClass} rounded-full w-4 h-4 inline-block`}></span>
+        <span className={`${textClass}`}>{horse.name}</span>
+      </div>
+
+      <div className="text-xl font-bold text-gray-900">
+        Bet: {bet} Lease Loons
+      </div>
+
+      <div className="flex space-x-4">
+        <button
+          onClick={dec}
+          disabled={disabled || bet === 0}
+          className="px-4 py-2 bg-gray-300 rounded disabled:opacity-50"
+          type="button"
+        >
+          -50
+        </button>
+        <button
+          onClick={inc}
+          disabled={disabled || (maxIncrement !== undefined && bet + increment > maxIncrement)}
+          className="px-4 py-2 bg-red-600 text-white rounded disabled:opacity-50"
+          type="button"
+        >
+          +50
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+==== FILE: frontend/src/components/RaceTrack.jsx ====
+
+// File: frontend/src/components/RaceTrack.jsx
+// Version: v2.5.0 — Removes debug layers and replay logic for admin-controlled UI
+// Date: 2025-05-27
+
+import React, { useEffect, useRef } from 'react';
+import { Application } from 'pixi.js';
+import { io } from 'socket.io-client';
+
+import { drawDerbyTrack } from './track/drawTrack';
+import { initRaceListeners } from './track/initRaceListeners';
+import { getSpriteDimensions } from '@/utils/spriteDimensionCache';
+
+const VERSION = 'v2.5.0';
+const socket = io('/race', { path: '/api/socket.io' });
+
+const TRACK_WIDTH = window.innerWidth;
+const TRACK_PADDING = 10;
+const TRACK_HEIGHT = 900;
+const CANVAS_HEIGHT = TRACK_HEIGHT + TRACK_PADDING * 2;
+
+const CORNER_RADIUS = 200;
+const LANE_COUNT = 4;
+const HORSE_PADDING = 0;
+const BOUNDARY_PADDING = 0;
+const START_LINE_OFFSET = 100;
+
+const RaceTrack = () => {
+  const containerRef = useRef(null);
+  const canvasRef = useRef(null);
+  const appRef = useRef(null);
+
+  const horseSpritesRef = useRef(new Map());
+  const labelSpritesRef = useRef(new Map());
+  const debugDotsRef = useRef([]);
+  const debugPathLinesRef = useRef([]);
+  const finishDotsRef = useRef([]);
+  const startDotsRef = useRef([]);
+
+  const trackDataRef = useRef(null);
+  const horsePathsRef = useRef(new Map());
+  const horsesRef = useRef([]);
+  const finishedHorsesRef = useRef(new Set());
+  const usedHorseIdsRef = useRef(new Set());
+
+  useEffect(() => {
+    const app = new Application({
+      view: canvasRef.current,
+      backgroundColor: 0xbaf0ba,
+      width: containerRef.current.offsetWidth,
+      height: CANVAS_HEIGHT,
+      resolution: window.devicePixelRatio || 1,
+      autoDensity: true
+    });
+    app.stage.sortableChildren = true;
+    app.start();
+    appRef.current = app;
+
+    fetch('/api/horses')
+      .then(res => res.json())
+      .then(async horses => {
+        horsesRef.current = horses.slice(0, LANE_COUNT);
+
+        const measuredWidths = await Promise.all(
+          horsesRef.current.map(h =>
+            getSpriteDimensions(h.hex, h.id, app, h.variant || 'bay').width
+          )
+        );
+        const maxSpriteWidth = Math.max(...measuredWidths);
+        const laneWidth = maxSpriteWidth + HORSE_PADDING;
+
+        const track = drawDerbyTrack({
+          app,
+          width: TRACK_WIDTH,
+          height: TRACK_HEIGHT,
+          cornerRadius: CORNER_RADIUS,
+          laneCount: LANE_COUNT,
+          laneWidth,
+          boundaryPadding: BOUNDARY_PADDING,
+          trackPadding: TRACK_PADDING,
+          startLineOffset: START_LINE_OFFSET,
+          debug: false,
+          horses: horsesRef.current,
+          horsePaths: horsePathsRef.current,
+          debugDotsRef,
+          debugPathLinesRef,
+          labelSpritesRef
+        });
+
+        if (!track || !track.lanes || !track.centerline) {
+          console.error('[KD] ❌ drawDerbyTrack failed:', track);
+          return;
+        }
+
+        trackDataRef.current = {
+          ...track,
+          laneCount: LANE_COUNT,
+          laneWidth,
+          spriteWidth: maxSpriteWidth
+        };
+
+        initRaceListeners({
+          socket,
+          appRef,
+          horseSpritesRef,
+          labelSpritesRef,
+          debugDotsRef,
+          debugPathLinesRef,
+          finishDotsRef,
+          startDotsRef,
+          trackDataRef,
+          horsePathsRef,
+          horsesRef,
+          finishedHorsesRef,
+          usedHorseIdsRef,
+          debugVisible: false
+        });
+      });
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative w-screen overflow-hidden">
+      <canvas
+        ref={canvasRef}
+        style={{ height: `${CANVAS_HEIGHT}px` }}
+        className="block w-full"
+      />
+    </div>
+  );
+};
+
+RaceTrack.VERSION = VERSION;
+export default RaceTrack;
+
+
+==== FILE: frontend/src/components/ReplayControls.jsx ====
+
+// File: frontend/src/components/ReplayControls.jsx
+// Version: v0.1.2 — Fixes export to use default so RaceTrack can import cleanly
+
+import React, { useState } from 'react';
+
+export default function ReplayControls({ replays, onReplaySelect }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const formatTimestamp = (ts) => {
+    const date = new Date(ts);
+    const options = {
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: true
+    };
+    return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${date.toLocaleTimeString('en-US', options)}`;
+  };
+
+  return (
+    <div className="absolute top-2 right-2 bg-white/80 backdrop-blur-sm p-2 rounded-xl shadow-md z-20">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full px-3 py-1.5 bg-indigo-600 text-white text-sm rounded"
+      >
+        {expanded ? 'Hide Replays' : 'Show Replays'}
+      </button>
+      {expanded && (
+        <ul className="mt-2 max-h-64 overflow-y-auto w-56">
+          {replays.map((replay, index) => (
+            <li
+              key={replay.timestamp}
+              className="border-b py-1 px-2 hover:bg-gray-100 cursor-pointer text-sm"
+              onClick={() => onReplaySelect(replay)}
+            >
+              Race #{index + 1} — {formatTimestamp(replay.timestamp)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+
+==== FILE: frontend/src/components/track/drawTrack.js ====
+
+// File: frontend/src/components/track/drawTrack.js
+// Version: v2.4.1 — Removes broken debugConsole import for production
+// Date: 2025-05-27
+
+import { Graphics } from 'pixi.js';
+import { generateCenterline } from '@/utils/generateTrackPathWithRoundedCorners';
+import { generateAllLanes, generateOffsetLane } from '@/utils/generateOffsetLane';
+import parseColorToHex from '@/utils/parseColorToHex';
+
+export function drawDerbyTrack({
+  app,
+  width,
+  height,
+  cornerRadius,
+  laneCount,
+  laneWidth,
+  boundaryPadding = 0,
+  trackPadding = 0,
+  debug = false,
+  startLineOffset = 0,
+  horses = [],
+  horsePaths = new Map(),
+  debugDotsRef,
+  debugPathLinesRef,
+  labelSpritesRef
+}) {
+  const trackContainer = new Graphics();
+  const totalLaneWidth = (laneWidth * laneCount) + 2 * boundaryPadding;
+  const halfTrack = totalLaneWidth / 2;
+
+  const centerline = generateCenterline({
+    canvasWidth: width,
+    canvasHeight: height + 2 * trackPadding,
+    trackHeight: height,
+    totalLaneWidth,
+    cornerRadius,
+    trackPadding
+  });
+
+  const { path, getPointAtDistance, getCurveFactorAt, length: pathLength } = centerline;
+  if (!Array.isArray(path) || path.length < 2) return null;
+
+  const lanes = generateAllLanes(path, laneCount, laneWidth, boundaryPadding, path[0]);
+  const inner = generateOffsetLane(path, -halfTrack, path[0]);
+  const outer = generateOffsetLane(path, +halfTrack, path[0]);
+
+  const fillOuter = [...outer, outer[0]];
+  const fillInner = [...inner].reverse();
+  fillInner.push(fillInner[0]);
+
+  trackContainer.beginFill(0xc49a6c);
+  trackContainer.drawPolygon([
+    ...fillOuter.flatMap(pt => [pt.x, pt.y]),
+    ...fillInner.flatMap(pt => [pt.x, pt.y])
+  ]);
+  trackContainer.endFill();
+
+  trackContainer.lineStyle(4, 0x888888);
+  outer.forEach((pt, i) => i === 0 ? trackContainer.moveTo(pt.x, pt.y) : trackContainer.lineTo(pt.x, pt.y));
+  trackContainer.lineTo(outer[0].x, outer[0].y);
+  inner.forEach((pt, i) => i === 0 ? trackContainer.moveTo(pt.x, pt.y) : trackContainer.lineTo(pt.x, pt.y));
+  trackContainer.lineTo(inner[0].x, inner[0].y);
+  app.stage.addChild(trackContainer);
+
+  const seg0 = path[0];
+  const seg1 = path[1];
+  const rotation = Math.atan2(seg1.y - seg0.y, seg1.x - seg0.x);
+  const normal = { x: -Math.sin(rotation), y: Math.cos(rotation) };
+  const halfLine = totalLaneWidth / 2;
+
+  const startA = {
+    x: seg0.x + normal.x * halfLine,
+    y: seg0.y + normal.y * halfLine
+  };
+  const startB = {
+    x: seg0.x - normal.x * halfLine,
+    y: seg0.y - normal.y * halfLine
+  };
+
+  const startLine = new Graphics();
+  startLine.lineStyle(4, 0x00ff00);
+  startLine.moveTo(startA.x, startA.y);
+  startLine.lineTo(startB.x, startB.y);
+  startLine.zIndex = 100;
+  app.stage.addChild(startLine);
+
+  if (debug) {
+    const centerlineGraphic = new Graphics();
+    centerlineGraphic.lineStyle(1, 0x000000, 0.8);
+    path.forEach((pt, i) => i === 0 ? centerlineGraphic.moveTo(pt.x, pt.y) : centerlineGraphic.lineTo(pt.x, pt.y));
+    centerlineGraphic.lineTo(path[0].x, path[0].y);
+    app.stage.addChild(centerlineGraphic);
+    debugPathLinesRef.current.push(centerlineGraphic);
+  }
+
+  return {
+    lanes,
+    centerline,
+    getPointAtDistance,
+    getCurveFactorAt,
+    pathLength
+  };
+}
+
+
+==== FILE: frontend/src/components/track/initRaceListeners.js ====
+
+// File: frontend/src/components/track/initRaceListeners.js
+// Version: v1.4.3 — Removes broken logInfo import, adds inline fallback
+// Date: 2025-05-27
+
+import { inflate } from 'pako';
+import { setupHorses } from './setupHorses';
+import { generateHorsePaths } from '@/utils/generateHorsePaths';
+
+// ✅ Inline fallback logger
+const logInfo = (...args) => console.log('[KD]', ...args);
+
+export function initRaceListeners({
+  socket,
+  appRef,
+  horseSpritesRef,
+  labelSpritesRef,
+  debugDotsRef,
+  debugPathLinesRef,
+  finishDotsRef,
+  startDotsRef,
+  trackDataRef,
+  horsePathsRef,
+  horsesRef,
+  finishedHorsesRef,
+  debugVisible
+}) {
+  socket.on('race:init', async (data) => {
+    const inflated = inflate(new Uint8Array(data), { to: 'string' });
+    const payload = JSON.parse(inflated);
+    const app = appRef.current;
+
+    if (!trackDataRef?.current) {
+      console.error('[KD] ❌ trackDataRef is missing — cannot build horsePaths');
+      return;
+    }
+
+    const { lanes, centerline, spriteWidth } = trackDataRef.current;
+
+    const horsePaths = await generateHorsePaths({
+      horses: payload.horses,
+      lanes,
+      centerline,
+      spriteWidth
+    });
+
+    horsePathsRef.current = horsePaths;
+
+    if (app?.__raceTicker) {
+      if (debugVisible) logInfo('🔁 Clearing old ticker before loading new horses');
+      app.ticker.remove(app.__raceTicker);
+      app.__raceTicker = null;
+    }
+
+    setupHorses({
+      app,
+      horses: payload.horses,
+      debugVisible,
+      horseSpritesRef,
+      labelSpritesRef,
+      debugDotsRef,
+      debugPathLinesRef,
+      finishDotsRef,
+      startDotsRef,
+      horsePathsRef,
+      horsesRef,
+      finishedHorsesRef
+    });
+
+    horsesRef.current = payload.horses;
+  });
+}
+
+
+==== FILE: frontend/src/components/track/setupHorses.js ====
+
+// File: frontend/src/components/track/setupHorses.js
+// Version: v2.2.0 — Uses saddleHex for sprite coloring, removes parseColorToHex
+// Date: 2025-05-27
+
+import { Sprite, Text, TextStyle, Graphics } from 'pixi.js';
+import { drawHorseSprite } from '@/utils/drawHorseSprite';
+import { getTangentAngle } from '@/utils/arcUtils';
+
+export function setupHorses({
+  app,
+  horses,
+  horsePaths,
+  horseSpritesRef,
+  labelSpritesRef,
+  finishedHorsesRef,
+  debugPathLinesRef,
+  debugDotsRef,
+  finishDotsRef,
+  startDotsRef,
+  horsePathsRef,
+  lanes,
+  debugVisible = false
+}) {
+  horseSpritesRef.current?.clear?.();
+  labelSpritesRef.current?.clear?.();
+  finishedHorsesRef.current?.clear?.();
+
+  horseSpritesRef.current = new Map();
+  labelSpritesRef.current = new Map();
+  finishedHorsesRef.current = new Set();
+  debugPathLinesRef.current = [];
+  debugDotsRef.current = [];
+  finishDotsRef.current = [];
+  startDotsRef.current = [];
+  horsePathsRef.current = horsePaths;
+
+  horses.forEach((horse) => {
+    const pathData = horsePaths.get(horse.id);
+    if (!pathData || !Array.isArray(pathData.path) || pathData.path.length < 2) {
+      if (debugVisible) {
+        console.warn(`[KD] ⚠️ Invalid path for horse ${horse.name}`);
+      }
+      return;
+    }
+
+    const { getPointAtDistance, path, startDistance = 0 } = pathData;
+    const startPoint = getPointAtDistance(startDistance);
+    const angle = getTangentAngle(path, startDistance);
+
+    const colorHex = horse.saddleHex; // ✅ use official hex
+    const sprite = drawHorseSprite(colorHex, app, horse.variant || 'bay');
+
+    sprite.anchor.set(0.5);
+    sprite.rotation = angle;
+    sprite.x = startPoint.x;
+    sprite.y = startPoint.y;
+    sprite.zIndex = 10;
+    app.stage.addChild(sprite);
+    horseSpritesRef.current.set(horse.id, sprite);
+
+    const label = new Text(horse.name, new TextStyle({
+      fill: '#000',
+      fontSize: 12,
+      fontWeight: 'bold',
+      stroke: '#fff',
+      strokeThickness: 2
+    }));
+    label.anchor.set(0.5);
+    label.x = sprite.x;
+    label.y = sprite.y - 20;
+    label.zIndex = 11;
+    labelSpritesRef.current.set(horse.id, label);
+    if (debugVisible) app.stage.addChild(label);
+
+    // 🟢 Debug start dot
+    if (debugVisible) {
+      const debugDot = new Graphics();
+      debugDot.beginFill(colorHex).drawCircle(0, 0, 4).endFill();
+      debugDot.position.set(sprite.x, sprite.y);
+      debugDot.zIndex = 5;
+      app.stage.addChild(debugDot);
+      debugDotsRef.current.push(debugDot);
+    }
+
+    // 🔍 Debug path line
+    const line = new Graphics();
+    line.lineStyle(1, colorHex, 0.6);
+    path.forEach((pt, i) => {
+      if (i === 0) line.moveTo(pt.x, pt.y);
+      else line.lineTo(pt.x, pt.y);
+    });
+    line.zIndex = 1;
+    debugPathLinesRef.current.push(line);
+    if (debugVisible) app.stage.addChild(line);
+  });
+}
+
+
+==== FILE: frontend/src/index.css ====
+
+/* frontend/src/index.css */
+/* Version: v1.1.1 — Unified white background */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow-x: hidden;
+  background-color: #ffffff;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+
+==== FILE: frontend/src/main-admin.jsx ====
+
+// File: frontend/src/main-admin.jsx
+// Version: v1.0.0 — Mounts AdminPage directly for /admin entrypoint
+
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import AdminPage from './pages/AdminPage.jsx';
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <AdminPage />
+  </React.StrictMode>
+);
+
+
+==== FILE: frontend/src/main-race.jsx ====
+
+// File: frontend/src/main-race.jsx
+// Version: v1.1.0 — Loads projector-facing race UI
+// Route: https://kd.paprikacayenne.com/race
+// Mounts: <App /> into #root
+// Injected via: race.html → <script type="module" src="/src/main-race.jsx"></script>
+
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App.jsx';
+import './index.css';
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
+
+
+==== FILE: frontend/src/main-user.jsx ====
+
+// File: frontend/src/main-user.jsx
+// Version: v1.3.0 — Loads full SPA at root: / and /dashboard
+
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import RegisterPage from './pages/users/RegisterPage.jsx';
+import DashboardPage from './pages/users/DashboardPage.jsx';
+import './index.css';
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<RegisterPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
+      </Routes>
+    </BrowserRouter>
+  </React.StrictMode>
+);
+
+
+==== FILE: frontend/src/pages/AdminPage.jsx ====
+
+// File: frontend/src/pages/AdminPage.jsx
+// Version: v1.1.0 — Adds UI login with friendly password "jll", uses secure token for API calls
+
+import { useEffect, useState } from 'react';
+import axios from 'axios';
+
+const UI_PASSWORD = "jll";                  // Friendly password for UI login
+const SECURE_API_PASS = "6a2e8819c6fb4c15"; // Real API token for backend calls
+
+export default function AdminPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [status, setStatus] = useState('');
+
+  // On mount, prompt for UI password
+  useEffect(() => {
+    const storedPass = localStorage.getItem('adminUIAuthenticated');
+    if (storedPass === 'true') {
+      setIsAuthenticated(true);
+      fetchUsers();
+    } else {
+      const entered = prompt("Enter admin UI password:");
+      if (entered === UI_PASSWORD) {
+        localStorage.setItem('adminUIAuthenticated', 'true');
+        setIsAuthenticated(true);
+        fetchUsers();
+      } else {
+        alert("Wrong password, access denied.");
+      }
+    }
+  }, []);
+
+  // Headers always use the secure API token
+  const headers = {
+    'x-admin-pass': SECURE_API_PASS
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const res = await axios.get('/api/user/all', { headers });
+      setUsers(res.data);
+      setStatus('');
+    } catch (err) {
+      console.error('Failed to fetch users', err);
+      setStatus('Error loading users.');
+    }
+  };
+
+  const handleAdminAction = async (endpoint) => {
+    try {
+      await axios.post(`/api/admin/${endpoint}`, {}, { headers });
+      setStatus(`✅ ${endpoint} succeeded`);
+    } catch (err) {
+      console.error(err);
+      setStatus(`❌ ${endpoint} failed`);
+    }
+  };
+
+  const updateUser = async (deviceId, updates) => {
+    try {
+      await axios.put(`/api/admin/user/${deviceId}`, updates, { headers });
+      setStatus(`✅ User ${deviceId} updated`);
+      fetchUsers();
+    } catch (err) {
+      console.error(err);
+      setStatus(`❌ Failed to update user ${deviceId}`);
+    }
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="p-4 max-w-4xl mx-auto text-gray-800">
+        <h1 className="text-xl font-bold">Access Denied</h1>
+        <p>You must enter the correct admin UI password to continue.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 max-w-4xl mx-auto space-y-6 text-gray-800">
+      <h1 className="text-2xl font-bold">🐎 JLL Derby Admin Panel</h1>
+      <div className="space-x-3">
+        <button className="px-4 py-2 bg-blue-600 text-white rounded" onClick={() => handleAdminAction('generate-horses')}>Generate Horses</button>
+        <button className="px-4 py-2 bg-green-600 text-white rounded" onClick={() => handleAdminAction('open-bets')}>Open Bets</button>
+        <button className="px-4 py-2 bg-yellow-600 text-white rounded" onClick={() => handleAdminAction('close-bets')}>Close Bets</button>
+        <button className="px-4 py-2 bg-red-600 text-white rounded" onClick={() => handleAdminAction('start-race')}>Start Race</button>
+        <button className="px-4 py-2 bg-gray-800 text-white rounded" onClick={() => handleAdminAction('clear-horses')}>Clear Horses</button>
+      </div>
+
+      <div className="text-sm text-gray-500">{status}</div>
+
+      <h2 className="text-xl font-semibold mt-6">👥 Users</h2>
+      <table className="w-full text-left border mt-2">
+        <thead className="bg-gray-100">
+          <tr>
+            <th className="p-2 border">Device ID</th>
+            <th className="p-2 border">First</th>
+            <th className="p-2 border">Last</th>
+            <th className="p-2 border">Nickname</th>
+            <th className="p-2 border">Lease Loons</th>
+            <th className="p-2 border">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {users.map(u => (
+            <tr key={u.deviceId}>
+              <td className="p-2 border">{u.deviceId}</td>
+              <td className="p-2 border"><input className="w-full" defaultValue={u.firstName} onBlur={e => updateUser(u.deviceId, { firstName: e.target.value })} /></td>
+              <td className="p-2 border"><input className="w-full" defaultValue={u.lastName} onBlur={e => updateUser(u.deviceId, { lastName: e.target.value })} /></td>
+              <td className="p-2 border"><input className="w-full" defaultValue={u.nickname} onBlur={e => updateUser(u.deviceId, { nickname: e.target.value })} /></td>
+              <td className="p-2 border"><input className="w-16" type="number" defaultValue={u.currency} onBlur={e => updateUser(u.deviceId, { currency: parseInt(e.target.value) })} /></td>
+              <td className="p-2 border text-center text-sm text-gray-500">auto-save</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+
+==== FILE: frontend/src/pages/users/DashboardPage.jsx ====
+
+// File: frontend/src/pages/users/DashboardPage.jsx
+// Version: v1.3.7 — No flicker + preserves all polling, bets, and state
+
+import { useEffect, useState, useCallback } from "react";
+import axios from "axios";
+import HorseBetTile from "../../components/HorseBetTile.jsx";
+
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+  return match ? match[2] : null;
+}
+
+// ✅ Avoid overwriting with new ID if one already exists
+let deviceId = localStorage.getItem("deviceId") || getCookie("deviceId");
+
+if (!deviceId) {
+  deviceId = crypto.randomUUID();
+  localStorage.setItem("deviceId", deviceId);
+  document.cookie = `deviceId=${deviceId}; path=/; max-age=31536000`;
+}
+
+console.log("[DASHBOARD] deviceId:", deviceId);
+
+export default function DashboardPage() {
+  const [user, setUser] = useState(null);
+  const [race, setRace] = useState({ horses: [] });
+  const [bets, setBets] = useState({});
+  const [balance, setBalance] = useState(0);
+  const [countdown, setCountdown] = useState(0);
+  const [checkingUser, setCheckingUser] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // ✅ Initial user + race load
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        setLoading(true);
+        const [userRes, raceRes] = await Promise.allSettled([
+          axios.get(`/api/user/${deviceId}`),
+          axios.get("/api/race/current")
+        ]);
+
+        if (userRes.status === "fulfilled") {
+          setUser(userRes.value.data);
+          setBalance(userRes.value.data.currency);
+
+          const initialBets = {};
+          if (userRes.value.data.bets && Array.isArray(userRes.value.data.bets)) {
+            userRes.value.data.bets.forEach((bet) => {
+              initialBets[bet.horseId] = bet.amount;
+            });
+          }
+          setBets(initialBets);
+        } else {
+          setUser(null);
+        }
+
+        if (raceRes.status === "fulfilled") {
+          const raceData = raceRes.value.data || { horses: [] };
+          setRace(raceData);
+          setCountdown(raceData.countdownSeconds || 0);
+        } else {
+          setRace({ horses: [] });
+        }
+      } catch (err) {
+        console.error("Failed to fetch dashboard data:", err);
+      } finally {
+        setCheckingUser(false); // ✅ End flicker lock here
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+    const interval = setInterval(() => fetchData(), 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timerId = setInterval(() => {
+      setCountdown((c) => (c > 0 ? c - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timerId);
+  }, [countdown]);
+
+  const bettingLocked = race?.locked || countdown === 0;
+  const totalBets = Object.values(bets).reduce((sum, amt) => sum + amt, 0);
+  const availableBalance = balance - totalBets;
+
+  const handleBetChange = useCallback(
+    async (horseId, newAmount) => {
+      if (bettingLocked || !deviceId) return;
+      if (newAmount < 0) newAmount = 0;
+      if (newAmount % 50 !== 0) return;
+      if (newAmount - (bets[horseId] || 0) > availableBalance) return;
+
+      setBets((b) => ({ ...b, [horseId]: newAmount }));
+      setBalance((bal) => bal + (bets[horseId] || 0) - newAmount);
+
+      try {
+        setSubmitting(true);
+        await axios.post("/api/bet", { deviceId, horseId, amount: newAmount });
+      } catch (err) {
+        console.error("Failed to submit bet:", err);
+        setBets((b) => ({ ...b, [horseId]: bets[horseId] || 0 }));
+        setBalance((bal) => bal - (bets[horseId] || 0) + newAmount);
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [bets, availableBalance, bettingLocked]
+  );
+
+  // ✅ Block render flicker
+  if (checkingUser) {
+    return null;
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center text-red-600 space-y-4 text-center px-4">
+        <p className="text-lg font-semibold">Could not find user. Please register first.</p>
+        <button
+          onClick={() => (window.location.href = "/")}
+          className="bg-red-600 text-white px-6 py-2 rounded font-semibold shadow hover:bg-red-700 transition"
+        >
+          🔁 Register Again
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-white px-4 py-6 flex flex-col items-center text-gray-900 space-y-6">
+      <img src="/JLL_logo.png" alt="JLL Logo" className="h-12 mb-4" />
+      <h1 className="text-2xl font-serif font-bold text-red-700 text-center">
+        Welcome {user.firstName} {user.lastName} ({user.nickname})!
+      </h1>
+
+      <div className="bg-red-50 border border-red-200 rounded-xl shadow px-6 py-4 text-center w-full max-w-md">
+        <p className="text-lg font-semibold">
+          Lease Loons Balance: <span className="text-red-700">{balance}</span>
+        </p>
+        {bettingLocked ? (
+          <p className="text-sm text-gray-600 mt-2">Betting is locked.</p>
+        ) : (
+          <p className="text-sm text-gray-600 mt-2">
+            You have{" "}
+            <span className="font-bold text-red-700">{availableBalance}</span>{" "}
+            Lease Loons remaining to bet.
+          </p>
+        )}
+        {countdown > 0 && !bettingLocked && (
+          <p className="mt-2 text-red-700 font-mono text-lg">
+            Time remaining: {countdown}s
+          </p>
+        )}
+      </div>
+
+      <div className="w-full max-w-md space-y-4">
+        {race?.horses?.length > 0 ? (
+          race.horses.map((horse) => (
+            <HorseBetTile
+              key={horse.id}
+              horse={horse}
+              bet={bets[horse.id] || 0}
+              disabled={bettingLocked || submitting}
+              maxIncrement={availableBalance + (bets[horse.id] || 0)}
+              onChange={handleBetChange}
+            />
+          ))
+        ) : (
+          <div className="text-gray-600 text-center py-8">
+            🐎 The JLL Grand Gallop has not yet started.
+            <br />
+            Please check back soon to see which horses are competing!
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+==== FILE: frontend/src/pages/users/RegisterPage.jsx ====
+
+// File: frontend/src/pages/users/RegisterPage.jsx
+// Version: v1.6.2 — No flicker; delays render until deviceId is validated
+
+import { useEffect, useState } from 'react';
+import axios from 'axios';
+
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? match[2] : null;
+}
+
+// ✅ Generate or retrieve the deviceId once before render
+const deviceId =
+  localStorage.getItem('deviceId') ||
+  getCookie('deviceId') ||
+  crypto.randomUUID();
+
+localStorage.setItem('deviceId', deviceId);
+document.cookie = `deviceId=${deviceId}; path=/; max-age=31536000`;
+
+console.log('[REGISTER] deviceId:', deviceId);
+
+export default function RegisterPage() {
+  const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
+    nickname: ''
+  });
+
+  const [submitted, setSubmitted] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [lookupFailed, setLookupFailed] = useState(false);
+
+  useEffect(() => {
+    axios
+      .get(`/api/user/${deviceId}`)
+      .then((res) => {
+        if (res?.data?.id) {
+          window.location.href = '/dashboard';
+        } else {
+          throw new Error('User not found');
+        }
+      })
+      .catch(() => {
+        setLookupFailed(true);
+        setChecking(false);
+      });
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    try {
+      await axios.post('/api/register', {
+        deviceId,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        nickname: form.nickname
+      });
+
+      setSubmitted(true);
+    } catch (err) {
+      alert('Registration failed');
+      console.error(err);
+    }
+  };
+
+  if (submitted) {
+    window.location.href = '/dashboard';
+    return null;
+  }
+
+  // ✅ Prevent render flicker
+  if (checking) return null;
+
+  return (
+    <div className="min-h-screen bg-white px-4 py-8 flex flex-col items-center text-gray-800 relative">
+      <img
+        src="/JLL_logo.png"
+        alt="JLL Logo"
+        className="h-6 fixed bottom-4 left-4 opacity-80"
+      />
+
+      <h1 className="text-3xl sm:text-4xl font-bold text-red-700 mb-2 text-center">
+        🏁 Join the JLL Grand Gallop
+      </h1>
+
+      <p className="text-gray-700 text-center mb-6 text-sm sm:text-base max-w-md">
+        Register now to race, bet, and compete with your colleagues.  
+        You’ll get <strong>Lease Loons</strong> to wager with, and your nickname will show up on the leaderboard!
+      </p>
+
+      {lookupFailed && (
+        <p className="text-center text-sm text-gray-500 mb-4">
+          Could not find user. Please register below.
+        </p>
+      )}
+
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-md bg-white border border-gray-200 p-6 rounded-xl shadow space-y-4"
+      >
+        <input
+          type="text"
+          required
+          placeholder="First Name"
+          className="w-full border border-gray-300 px-4 py-3 rounded text-base placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-300"
+          value={form.firstName}
+          onChange={(e) => setForm({ ...form, firstName: e.target.value })}
+        />
+        <input
+          type="text"
+          required
+          placeholder="Last Name"
+          className="w-full border border-gray-300 px-4 py-3 rounded text-base placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-300"
+          value={form.lastName}
+          onChange={(e) => setForm({ ...form, lastName: e.target.value })}
+        />
+        <input
+          type="text"
+          required
+          placeholder="Nickname (for leaderboard)"
+          className="w-full border border-gray-300 px-4 py-3 rounded text-base placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-300"
+          value={form.nickname}
+          onChange={(e) => setForm({ ...form, nickname: e.target.value })}
+        />
+        <button
+          type="submit"
+          className="w-full bg-red-700 text-white font-semibold text-lg py-3 rounded-lg hover:bg-red-800 transition active:scale-95"
+        >
+          🎟️ Register for the Gallop
+        </button>
+      </form>
+    </div>
+  );
+}
+
+
+==== FILE: frontend/src/utils/arcUtils.js ====
+
+// File: frontend/src/utils/arcUtils.js
+// Version: v1.2.0 — Ignores 0-length segments and logs fallback edge cases
+
+export function getPointAtDistance(path, distance) {
+  if (!Array.isArray(path) || path.length < 2) return null;
+
+  const totalLength = path.reduce((sum, p, i) => {
+    if (i === 0) return 0;
+    const dx = p.x - path[i - 1].x;
+    const dy = p.y - path[i - 1].y;
+    return sum + Math.sqrt(dx * dx + dy * dy);
+  }, 0);
+
+  let remaining = Math.max(0, Math.min(distance, totalLength));
+
+  for (let i = 1; i < path.length; i++) {
+    const p1 = path[i - 1];
+    const p2 = path[i];
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const segLength = Math.sqrt(dx * dx + dy * dy);
+
+    if (segLength === 0) continue;
+
+    if (remaining <= segLength) {
+      const t = remaining / segLength;
+      return {
+        x: p1.x + dx * t,
+        y: p1.y + dy * t
+      };
+    }
+
+    remaining -= segLength;
+  }
+
+  console.warn('[KD] ⚠️ getPointAtDistance() hit fallback — returning last point');
+  return path[path.length - 1];
+}
+
+export function getTangentAngle(path, distance) {
+  if (!Array.isArray(path) || path.length < 2) return 0;
+
+  const totalLength = path.reduce((sum, p, i) => {
+    if (i === 0) return 0;
+    const dx = p.x - path[i - 1].x;
+    const dy = p.y - path[i - 1].y;
+    return sum + Math.sqrt(dx * dx + dy * dy);
+  }, 0);
+
+  let remaining = Math.max(0, Math.min(distance, totalLength));
+
+  for (let i = 1; i < path.length; i++) {
+    const p1 = path[i - 1];
+    const p2 = path[i];
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const segLength = Math.sqrt(dx * dx + dy * dy);
+
+    if (segLength === 0) continue;
+
+    if (remaining <= segLength) {
+      return Math.atan2(dy, dx);
+    }
+
+    remaining -= segLength;
+  }
+
+  const last = path.at(-1);
+  const prev = path.at(-2) || last;
+  return Math.atan2(last.y - prev.y, last.x - prev.x);
+}
+
+
+==== FILE: frontend/src/utils/calculateFrontOffsetPoint.ts ====
+
+// File: shared/utils/calculateFrontOffsetPoint.ts
+// Version: v0.1.0 — Calculates offset point behind the start line using sprite width and track direction
+
+import type { Point } from "@/types/geometry";
+
+/**
+ * Returns a point offset backward from the start line along the track direction vector.
+ * Used to align the front tip of the horse sprite behind the start line.
+ *
+ * @param startPoint Where the horse's front should be
+ * @param direction Normalized direction vector of the track at that point
+ * @param spriteWidth Width of the horse sprite (used to estimate front offset)
+ */
+export default function calculateFrontOffsetPoint(
+  startPoint: Point,
+  direction: Point,
+  spriteWidth: number
+): Point {
+  const offsetDistance = spriteWidth / 2;
+  return {
+    x: startPoint.x - direction.x * offsetDistance,
+    y: startPoint.y - direction.y * offsetDistance
+  };
+}
+
+
+==== FILE: frontend/src/utils/drawHorseSprite.js ====
+
+// File: frontend/src/utils/drawHorseSprite.js
+// Version: v1.6.0 — Adds horse coat color variants based on `horse.variant`
+
+import { Graphics, Texture, Sprite } from 'pixi.js';
+
+const spriteCache = new Map();
+
+/** Variant color map */
+const VARIANT_COLORS = {
+  bay: {
+    body: 0x5c3a1a,
+    mane: 0x3a2312,
+  },
+  chestnut: {
+    body: 0xa0522d,
+    mane: 0x5c3a1a,
+  },
+  palomino: {
+    body: 0xe6c27a,
+    mane: 0xcaa04e,
+  },
+  black: {
+    body: 0x2b2b2b,
+    mane: 0x1a1a1a,
+  }
+};
+
+/**
+ * Returns a PIXI.Sprite of a pixel-art horse with Stardew-style silhouette and coat variant.
+ * @param {number} colorHex - Saddle color in 0xff0000 format.
+ * @param {PIXI.Application} app - The PixiJS application instance.
+ * @param {string} variant - One of 'bay', 'chestnut', 'palomino', 'black'
+ * @returns {PIXI.Sprite}
+ */
+export function drawHorseSprite(colorHex, app, variant = 'bay') {
+  const key = `${colorHex}_${variant}`;
+  if (spriteCache.has(key)) {
+    return new Sprite(spriteCache.get(key));
+  }
+
+  const gfx = new Graphics();
+  const { body: bodyColor, mane: maneColor } = VARIANT_COLORS[variant] || VARIANT_COLORS.bay;
+  const eyeColor = 0xffffff;
+
+  // --- Tail (same as mane)
+  gfx.beginFill(maneColor);
+  gfx.drawRoundedRect(4, 16, 4, 9, 2);
+  gfx.endFill();
+
+  // --- Body
+  gfx.beginFill(bodyColor);
+  gfx.drawRoundedRect(10, 11, 26, 13, 4);
+  gfx.endFill();
+
+  // --- Saddle
+  gfx.beginFill(colorHex);
+  gfx.drawRoundedRect(18, 13, 9, 6, 2);
+  gfx.endFill();
+
+  // --- Legs
+  gfx.beginFill(bodyColor);
+  gfx.drawRect(13, 23, 3, 7);
+  gfx.drawRect(17, 23, 3, 7);
+  gfx.drawRect(27, 23, 3, 7);
+  gfx.drawRect(31, 23, 3, 7);
+  gfx.endFill();
+
+  // --- Neck
+  gfx.beginFill(bodyColor);
+  gfx.drawRect(34, 12, 3, 9);
+  gfx.endFill();
+
+  // --- Head (tapered)
+  gfx.beginFill(bodyColor);
+  gfx.moveTo(37, 12);
+  gfx.lineTo(44, 10);
+  gfx.lineTo(44, 18);
+  gfx.lineTo(37, 16);
+  gfx.lineTo(37, 12);
+  gfx.endFill();
+
+  // --- Mane
+  gfx.beginFill(maneColor);
+  gfx.drawRect(37, 9, 2, 2);
+  gfx.endFill();
+
+  // --- Eye
+  gfx.beginFill(eyeColor);
+  gfx.drawRect(42, 12, 1, 1);
+  gfx.endFill();
+
+  const texture = app.renderer.generateTexture(gfx);
+  spriteCache.set(key, texture);
+  return new Sprite(texture);
+}
+
+
+==== FILE: frontend/src/utils/generateHorsePaths.js ====
+
+// File: frontend/src/utils/generateHorsePaths.js
+// Version: v3.8.0 — Removes logs, finalizes drift and behind-line placement
+// Date: 2025-05-26
+
+import { getTangentAngle } from '@/utils/arcUtils';
+
+export async function generateHorsePaths({
+  horses,
+  lanes,
+  centerline,
+  spriteWidth = 0,
+  startLinePadding = 10
+}) {
+  if (!Array.isArray(horses) || !horses.length) return new Map();
+  if (!Array.isArray(lanes) || !lanes.length) return new Map();
+
+  const DRIFT_LENGTH = 350;
+  const horsePaths = new Map();
+
+  horses.forEach((horse, i) => {
+    let lane = lanes[i];
+    if (!lane || lane.length < 2) return;
+
+    const isClosed = lane[0].x === lane.at(-1).x && lane[0].y === lane.at(-1).y;
+    if (!isClosed) lane = [...lane, lane[0]];
+
+    const arcPoints = [];
+    let arcLength = 0;
+
+    for (let j = 0; j < lane.length; j++) {
+      const curr = lane[j];
+      const prev = lane[j - 1] || lane[lane.length - 2];
+      const dx = curr.x - prev.x;
+      const dy = curr.y - prev.y;
+      const segLen = Math.sqrt(dx * dx + dy * dy);
+      arcLength += segLen;
+      arcPoints.push({ ...curr, arcLength });
+    }
+
+    const getPointAtDistance = (distance) => {
+      const d = Math.min(distance, arcLength + DRIFT_LENGTH);
+      let dist = 0;
+
+      for (let k = 0; k < arcPoints.length - 1; k++) {
+        const p0 = arcPoints[k];
+        const p1 = arcPoints[k + 1];
+        const dx = p1.x - p0.x;
+        const dy = p1.y - p0.y;
+        const segLen = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist + segLen >= d) {
+          const t = (d - dist) / segLen;
+          const x = p0.x + dx * t;
+          const y = p0.y + dy * t;
+          const rotation = Math.atan2(dy, dx);
+          return { x, y, rotation };
+        }
+
+        dist += segLen;
+      }
+
+      const angle = getTangentAngle(lane, arcLength - 1);
+      const x = arcPoints.at(-1).x + Math.cos(angle) * (distance - arcLength);
+      const y = arcPoints.at(-1).y + Math.sin(angle) * (distance - arcLength);
+      const rotation = angle;
+
+      return { x, y, rotation };
+    };
+
+    const trueFinishDistance = arcLength;
+    const driftDistance = arcLength + DRIFT_LENGTH;
+    const startDistance = -((spriteWidth / 2) + startLinePadding);
+
+    const trueFinish = getPointAtDistance(trueFinishDistance);
+    trueFinish.arcLength = trueFinishDistance;
+
+    const driftEnd = getPointAtDistance(driftDistance);
+    driftEnd.arcLength = driftDistance;
+
+    horsePaths.set(horse.id, {
+      path: lane,
+      arcPoints,
+      arcLength,
+      laneIndex: i,
+      driftLength: DRIFT_LENGTH,
+      driftEnd,
+      trueFinish,
+      getPointAtDistance,
+      getCurveFactorAt: () => 1.0,
+      startDistance
+    });
+  });
+
+  return horsePaths;
+}
+
+
+==== FILE: frontend/src/utils/generateOffsetLane.js ====
+
+// File: frontend/src/utils/generateOffsetLane.js
+// Version: v0.7.0 — Fixes normal discontinuity using forward vector smoothing
+
+/**
+ * Offsets a centerline path by a fixed number of pixels using smoothed vector normals.
+ * Then rotates the path so the closest point to true 12 o’clock becomes index [0].
+ * @param {Array<{x: number, y: number}>} centerline - base path
+ * @param {number} offset - lane offset in px (+ outward, - inward)
+ * @param {{x: number, y: number}} twelveOclockRef - fixed canvas anchor
+ * @returns {Array<{x: number, y: number}>}
+ */
+export function generateOffsetLane(centerline, offset, twelveOclockRef) {
+  const offsetPath = [];
+  let prevAngle = null;
+
+  for (let i = 0; i < centerline.length; i++) {
+    const prev = centerline[(i - 1 + centerline.length) % centerline.length];
+    const next = centerline[(i + 1) % centerline.length];
+
+    const dx = next.x - prev.x;
+    const dy = next.y - prev.y;
+
+    let angle = Math.atan2(dy, dx);
+
+    // 🔁 Smooth angle to preserve continuity
+    if (prevAngle !== null) {
+      while (angle - prevAngle > Math.PI) angle -= 2 * Math.PI;
+      while (angle - prevAngle < -Math.PI) angle += 2 * Math.PI;
+    }
+    prevAngle = angle;
+
+    const normalAngle = angle + Math.PI / 2;
+    const normalX = Math.cos(normalAngle);
+    const normalY = Math.sin(normalAngle);
+
+    const pt = centerline[i];
+    offsetPath.push({
+      x: pt.x + offset * normalX,
+      y: pt.y + offset * normalY
+    });
+  }
+
+  // 🔁 Rotate path so closest point to 12 o'clock anchor is at index 0
+  let bestIdx = 0;
+  let bestDist = Infinity;
+
+  for (let i = 0; i < offsetPath.length; i++) {
+    const pt = offsetPath[i];
+    const dx = pt.x - twelveOclockRef.x;
+    const dy = pt.y - twelveOclockRef.y;
+    const distSq = dx * dx + dy * dy;
+    if (distSq < bestDist) {
+      bestDist = distSq;
+      bestIdx = i;
+    }
+  }
+
+  const rotatedPath = [
+    ...offsetPath.slice(bestIdx),
+    ...offsetPath.slice(0, bestIdx)
+  ];
+
+  const delta = Math.sqrt(bestDist);
+  console.log(`[KD] ✅ generateOffsetLane(): snapped [0] to 12 o’clock → Δ=${delta.toFixed(2)}px`);
+
+  return rotatedPath;
+}
+
+/**
+ * Generates all lanes spaced evenly around the centerline and aligned to true 12 o’clock.
+ * @param {Array<{x: number, y: number}>} centerline
+ * @param {number} laneCount
+ * @param {number} laneWidth
+ * @param {number} boundaryPadding
+ * @param {{x: number, y: number}} twelveOclockRef - fixed visual anchor
+ * @returns {Array<Array<{x: number, y: number}>>}
+ */
+export function generateAllLanes(centerline, laneCount = 4, laneWidth = 30, boundaryPadding = 0, twelveOclockRef) {
+  const lanes = [];
+
+  const totalLaneWidth = (laneCount * laneWidth) + (2 * boundaryPadding);
+  const halfTrack = totalLaneWidth / 2;
+
+  console.log(`[KD] 🧭 Generating ${laneCount} lanes from centerline`);
+  console.log(`[KD] 🧭 Total width: ${totalLaneWidth}px (±${halfTrack}px from center)`);
+  console.log(`[KD] 📌 Reference 12 o’clock: (${twelveOclockRef.x.toFixed(1)}, ${twelveOclockRef.y.toFixed(1)})`);
+
+  for (let i = 0; i < laneCount; i++) {
+    const offset = -halfTrack + boundaryPadding + (i + 0.5) * laneWidth;
+    console.log(`[KD] 🧭 Lane ${i} offset: ${offset.toFixed(1)}px`);
+    lanes.push(generateOffsetLane(centerline, offset, twelveOclockRef));
+  }
+
+  return lanes;
+}
+
+
+==== FILE: frontend/src/utils/generateTrackPathWithRoundedCorners.js ====
+
+// File: frontend/src/utils/generateTrackPathWithRoundedCorners.js
+// Version: v2.8.0 — Fixes horizontal track overflow by applying padding symmetrically
+// Date: 2025-05-26
+
+export function generateCenterline({
+  canvasWidth,
+  canvasHeight,
+  trackHeight,
+  totalLaneWidth,
+  cornerRadius = 100,
+  segmentsPerCurve = 12,
+  trackPadding = 0
+}) {
+  const centerX = canvasWidth / 2;
+
+  const halfTrack = totalLaneWidth / 2;
+
+  const usableVertical = canvasHeight - 2 * (trackPadding + halfTrack);
+  const finalTrackHeight = Math.min(trackHeight, usableVertical);
+
+  const top = trackPadding + halfTrack;
+  const bottom = top + finalTrackHeight;
+
+  // ✅ FIX: Clamp left/right within padded range
+  const usableWidth = canvasWidth - 2 * trackPadding;
+  const left = trackPadding + halfTrack;
+  const right = canvasWidth - trackPadding - halfTrack;
+
+  const r = cornerRadius;
+  const rawPoints = [];
+
+  rawPoints.push({ x: centerX, y: top });
+
+  for (let i = 1; i <= segmentsPerCurve; i++) {
+    const t = i / segmentsPerCurve;
+    const angle = Math.PI * 1.5 + (Math.PI / 2) * t;
+    rawPoints.push({
+      x: right - r + Math.cos(angle) * r,
+      y: top + r + Math.sin(angle) * r
+    });
+  }
+
+  for (let i = 1; i <= segmentsPerCurve; i++) {
+    const t = i / segmentsPerCurve;
+    const angle = 0 + (Math.PI / 2) * t;
+    rawPoints.push({
+      x: right - r + Math.cos(angle) * r,
+      y: bottom - r + Math.sin(angle) * r
+    });
+  }
+
+  for (let i = 1; i <= segmentsPerCurve; i++) {
+    const t = i / segmentsPerCurve;
+    const angle = Math.PI / 2 + (Math.PI / 2) * t;
+    rawPoints.push({
+      x: left + r + Math.cos(angle) * r,
+      y: bottom - r + Math.sin(angle) * r
+    });
+  }
+
+  for (let i = 1; i <= segmentsPerCurve; i++) {
+    const t = i / segmentsPerCurve;
+    const angle = Math.PI + (Math.PI / 2) * t;
+    rawPoints.push({
+      x: left + r + Math.cos(angle) * r,
+      y: top + r + Math.sin(angle) * r
+    });
+  }
+
+  rawPoints.push(rawPoints[0]);
+
+  if (rawPoints.length < 2) {
+    console.error('[KD] ❌ generateCenterline: Not enough points to compute path');
+    return { path: [], totalArcLength: 0, length: 0 };
+  }
+
+  const path = [];
+  let totalLength = 0;
+
+  for (let i = 0; i < rawPoints.length; i++) {
+    const curr = rawPoints[i];
+    const prev = i > 0 ? rawPoints[i - 1] : rawPoints[0];
+    const dx = curr.x - prev.x;
+    const dy = curr.y - prev.y;
+    const segmentLength = Math.sqrt(dx * dx + dy * dy);
+    totalLength += segmentLength;
+
+    path.push({
+      ...curr,
+      arcLength: totalLength
+    });
+  }
+
+  const getPointAtDistance = (distance) => {
+    const dist = distance % totalLength;
+
+    for (let i = 0; i < path.length - 1; i++) {
+      const p0 = path[i];
+      const p1 = path[i + 1];
+      const segLen = p1.arcLength - p0.arcLength;
+
+      if (dist <= p1.arcLength) {
+        const t = (dist - p0.arcLength) / segLen;
+        const x = p0.x + (p1.x - p0.x) * t;
+        const y = p0.y + (p1.y - p0.y) * t;
+        const rotation = Math.atan2(p1.y - p0.y, p1.x - p0.x);
+        return { x, y, rotation };
+      }
+    }
+
+    const last = path.at(-1);
+    const preLast = path.at(-2) || last;
+    return {
+      x: last.x,
+      y: last.y,
+      rotation: Math.atan2(last.y - preLast.y, last.x - preLast.x)
+    };
+  };
+
+  console.log(`[KD] 🎯 centerline[0] set to 12 o’clock → (${path[0].x.toFixed(1)}, ${path[0].y.toFixed(1)})`);
+  console.log(`[KD] 🔁 Full arc length: ${totalLength.toFixed(2)} px | Points: ${path.length}`);
+
+  return {
+    path,
+    length: path.length,
+    totalArcLength: totalLength,
+    getPointAtDistance,
+    getCurveFactorAt: () => 1.0
+  };
+}
+
+
+==== FILE: frontend/src/utils/parseColorToHex.js ====
+
+// File: frontend/src/utils/parseColorToHex.js
+// Version: v1.1.0 — Matches full horse color list from seed.ts
+
+const NAMED_COLORS = {
+  red: 0xff0000,
+  blue: 0x0000ff,
+  green: 0x00ff00,
+  yellow: 0xffff00,
+  purple: 0x800080,
+  orange: 0xffa500,
+  pink: 0xff69b4,
+  black: 0x000000,
+  white: 0xffffff,
+  gray: 0x808080,
+  teal: 0x008080,
+  navy: 0x000080,
+  lime: 0x00ff00,
+  cyan: 0x00ffff,
+  maroon: 0x800000,
+  olive: 0x808000,
+  beige: 0xf5f5dc,
+  indigo: 0x4b0082,
+  aqua: 0x00ffff,
+  tan: 0xd2b48c,
+  charcoal: 0x36454f,
+  silver: 0xc0c0c0
+};
+
+export default function parseColorToHex(name) {
+  if (!name) return 0xaaaaaa;
+  const clean = name.trim().toLowerCase();
+  return NAMED_COLORS[clean] ?? 0xaaaaaa;
+}
+
+
+==== FILE: frontend/src/utils/playRace.js ====
+
+// File: frontend/src/utils/playRace.js
+// Version: v3.6.0 — Final cleanup for admin-controlled flow, no debug dots
+// Date: 2025-05-27
+
+const FINISH_PROXIMITY_PX = 4;
+const TICK_INTERVAL = 1000 / 30;
+const RACE_DURATION_SECONDS = 10;
+
+export function playRace({
+  app,
+  horseSprites,
+  horsePaths,
+  labelSprites,
+  horses,
+  onRaceEnd,
+  speedMultiplier = 1,
+  debugVisible = false
+}) {
+  const finished = new Set();
+  const results = [];
+  const distanceMap = new Map();
+  const speedMap = new Map();
+
+  const ticksPerRace = RACE_DURATION_SECONDS * (1000 / TICK_INTERVAL);
+  const raceStartTime = performance.now();
+
+  horses.forEach((horse) => {
+    const key = horse.id.toString();
+    const path = horsePaths.get(key);
+    const trueFinish = path?.trueFinish;
+
+    if (!trueFinish || !path?.getPointAtDistance) {
+      console.error(`[KD] ❌ Missing trueFinish or getPointAtDistance for ${horse.name}`);
+      return;
+    }
+
+    distanceMap.set(key, 0);
+    const normalizedSpeed = (trueFinish.arcLength / ticksPerRace) * speedMultiplier;
+    speedMap.set(key, normalizedSpeed);
+  });
+
+  const ticker = setInterval(() => {
+    horses.forEach((horse) => {
+      const key = horse.id.toString();
+      const path = horsePaths.get(key);
+      const sprite = horseSprites.get(key);
+      const label = labelSprites.get(key);
+      const trueFinish = path?.trueFinish;
+      const driftEnd = path?.driftEnd;
+
+      if (!sprite || !label || !path?.getPointAtDistance || !trueFinish || !driftEnd) return;
+
+      let distance = distanceMap.get(key);
+      const speed = speedMap.get(key);
+      const maxDistance = driftEnd.arcLength;
+
+      distance = Math.min(distance + speed, maxDistance);
+      distanceMap.set(key, distance);
+
+      const point = path.getPointAtDistance(distance);
+      const next = path.getPointAtDistance(Math.min(distance + 1, maxDistance));
+      if (!point || !next) return;
+
+      sprite.x = point.x;
+      sprite.y = point.y;
+      sprite.rotation = Math.atan2(next.y - point.y, next.x - point.x);
+      label.x = point.x;
+      label.y = point.y - 20;
+
+      const isFinished = finished.has(key);
+      const dx = point.x - trueFinish.x;
+      const dy = point.y - trueFinish.y;
+      const pixelDelta = Math.sqrt(dx * dx + dy * dy);
+      const justCrossed = !isFinished && pixelDelta <= FINISH_PROXIMITY_PX;
+
+      if (justCrossed) {
+        finished.add(key);
+        sprite.tint = 0x888888;
+        label.style.fill = 0x888888;
+
+        const now = performance.now();
+        const elapsed = now - raceStartTime;
+        const finishTimeSec = (elapsed / 1000).toFixed(2);
+
+        results.push({ id: horse.id, name: horse.name, finalSpeed: speed, finishTimeSec });
+
+        if (results.length === horses.length) {
+          console.log('[KD] ✅ All horses finished — onRaceEnd() triggered');
+          results.forEach((r, i) =>
+            console.log(`🏁 ${i + 1}${getOrdinal(i + 1)}: ${r.name} — ${r.finishTimeSec} seconds`)
+          );
+          onRaceEnd(results);
+          clearInterval(ticker);
+        }
+      }
+    });
+  }, TICK_INTERVAL);
+}
+
+function getOrdinal(n) {
+  return ['st', 'nd', 'rd'][((n + 90) % 100 - 10) % 10 - 1] || 'th';
+}
+
+
+==== FILE: frontend/src/utils/playReplay.js ====
+
+// File: frontend/src/utils/playReplay.js
+// Version: v0.2.0 — Uses arc-distance replays via getPointAtDistance()
+
+export function playReplay({ app, horseSprites, labelSprites, horsePaths, replayData }) {
+  if (app.__replayTicker) {
+    console.log('[KD] 🔁 Clearing previous replay');
+    app.ticker.remove(app.__replayTicker);
+    app.__replayTicker = null;
+  }
+
+  const startTime = performance.now();
+  const horseIds = Object.keys(replayData);
+  const framePointers = Object.fromEntries(horseIds.map(id => [id, 0]));
+
+  const ticker = () => {
+    const now = performance.now();
+    const timeElapsed = now - startTime;
+
+    horseIds.forEach(id => {
+      const frames = replayData[id];
+      if (!frames || frames.length === 0) return;
+
+      while (
+        framePointers[id] < frames.length - 1 &&
+        frames[framePointers[id] + 1].time < timeElapsed
+      ) {
+        framePointers[id]++;
+      }
+
+      const curr = frames[framePointers[id]];
+      const next = frames[framePointers[id] + 1] || curr;
+      const lerpT = (timeElapsed - curr.time) / ((next.time - curr.time) || 1);
+      const interpDistance = curr.distance + ((next.distance - curr.distance) * lerpT);
+
+      const path = horsePaths.get(Number(id));
+      if (!path || typeof path.getPointAtDistance !== 'function') return;
+
+      const { x, y, rotation } = path.getPointAtDistance(interpDistance);
+
+      const sprite = horseSprites.get(Number(id));
+      if (sprite) {
+        sprite.position.set(x, y);
+        sprite.rotation = rotation;
+      }
+
+      const label = labelSprites.get(Number(id));
+      if (label) {
+        label.position.set(x, y - 20);
+      }
+    });
+  };
+
+  app.ticker.add(ticker);
+  app.__replayTicker = ticker;
+}
+
+
+==== FILE: frontend/src/utils/spriteDimensionCache.js ====
+
+// File: frontend/src/utils/spriteDimensionCache.js
+// Version: v1.2.0 — Replaces triangle logic with drawHorseSprite, restores getSpriteDimensions()
+
+import { drawHorseSprite } from './drawHorseSprite';
+
+export const spriteDimensionCache = new Map();
+
+/**
+ * Measures the width and height of a rendered horse sprite using drawHorseSprite,
+ * including variant and saddle color.
+ *
+ * @param {number} colorHex - Hex color for the saddle.
+ * @param {string|number} horseId - Horse ID used for caching.
+ * @param {PIXI.Application} appInstance - The current PixiJS application.
+ * @param {string} variant - Horse coat variant (e.g. 'bay', 'palomino').
+ * @returns {{width: number, height: number}}
+ */
+export function getSpriteDimensions(colorHex, horseId, appInstance, variant = 'bay') {
+  const key = `${colorHex}-${variant}`;
+  if (spriteDimensionCache.has(key)) return spriteDimensionCache.get(key);
+
+  const sprite = drawHorseSprite(colorHex, appInstance, variant);
+  appInstance?.stage?.addChild?.(sprite);
+
+  const size = {
+    width: sprite.width,
+    height: sprite.height
+  };
+
+  spriteDimensionCache.set(key, size);
+  sprite.destroy?.();
+  return size;
+}
+
+
+==== FILE: frontend/tailwind.config.js ====
+
+// File: frontend/tailwind.config.js
+module.exports = {
+  content: [
+    './index.html',
+    './users.html',
+    './src/**/*.{js,jsx,ts,tsx}'
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+};
+
+
+==== FILE: frontend/users.html ====
+
+<!-- File: frontend/users.html -->
+<!-- Version: v1.1.3 — Fixed Vite build by using main-user.jsx entrypoint -->
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JLL Grand Gallop – Register</title>
+    <link rel="icon" type="image/png" href="/JLL_logo.png" />
+  </head>
+  <body class="bg-white text-gray-900">
+    <div id="root"></div>
+    <script type="module" src="/src/main-user.jsx"></script>
+  </body>
+</html>
+
+
+==== FILE: frontend/vite.config.js ====
+
+// File: frontend/vite.config.js
+// Version: v0.8.1 — Adds /admin entrypoint for AdminPage
+// https://kd.paprikacayenne.com/       → users.html (main-user.jsx)
+// https://kd.paprikacayenne.com/race   → race.html (main-race.jsx)
+// https://kd.paprikacayenne.com/admin  → admin.html (main-admin.jsx)
+
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src')
+    }
+  },
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    proxy: {
+      '/api': 'http://localhost:4000'
+    }
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        // 📱 Mobile UI at root
+        users: path.resolve(__dirname, 'users.html'),
+
+        // 🐎 Race screen at /race
+        race: path.resolve(__dirname, 'race.html'),
+
+        // 🛠️ Admin UI at /admin
+        admin: path.resolve(__dirname, 'admin.html')
+      }
+    },
+    outDir: 'frontend_build'
+  }
+});
+
+
+==== FILE: nginx/kd.conf ====
+
+# File: nginx/kd.conf
+# Version: v0.8.0 — Aligns / to registration and /race to race display
+
+server {
+    listen 80;
+    server_name kd.paprikacayenne.com;
+
+    root /usr/share/nginx/html;
+    index users.html;
+
+    # 📱 Mobile SPA fallback to index.html (Lease Loons Registration)
+    location / {
+        try_files $uri $uri/ /users.html;
+    }
+
+    # 🐎 Race track SPA fallback to race.html (Race Viewer)
+    location /race {
+        try_files $uri /race.html;
+    }
+
+    location /race/ {
+        try_files $uri /race.html;
+    }
+
+    # 🔁 Proxy all /api/ calls to the backend
+    location /api/ {
+        proxy_pass http://kd_api:4000/;
+        proxy_http_version 1.1;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # 🔌 Proxy WebSocket connections
+    location /socket.io/ {
+        proxy_pass http://kd_api:4000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # 📦 Enable gzip compression
+    gzip on;
+    gzip_types
+        text/plain
+        text/css
+        application/json
+        application/javascript
+        text/xml
+        application/xml
+        application/xml+rss
+        text/javascript;
+}
+
+
+==== FILE: package.json ====
+
+{
+  "name": "kd-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "knip": "^5.58.0",
+    "ts-prune": "^0.10.3"
+  }
+}
+
+
+==== FILE: package-lock.json ====
+
+{
+  "name": "app",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {}
+}
+
+
+==== FILE: scripts/api_rebuild.sh ====
+
+#!/bin/bash
+
+# File: scripts/api_rebuild.sh
+# Version: v1.0.0 - Simple rebuild and restart of kd_api service
+
+set -e
+
+# Navigate to the correct project directory
+cd /docker/stacks/kd_race_app
+
+# Rebuild the API service
+echo "\n🔨 Rebuilding kd_api..."
+docker compose build kd_api
+
+# Restart the API service in detached mode
+echo "\n🚀 Restarting kd_api..."
+docker compose up -d kd_api
+
+
+
+==== FILE: scripts/generate_code_snapshot.sh ====
+
+#!/bin/bash
+
+# File: scripts/generate_code_snapshot.sh
+# Version: v1.2.0 — Auto-increments version and saves to snapshot folder
+
+DATE=$(date +%F)
+SNAPSHOT_DIR="scripts/snapshot"
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+
+mkdir -p "$SNAPSHOT_DIR"
+
+# Get the latest version number for today’s date
+last_version=$(ls "$SNAPSHOT_DIR" 2>/dev/null | grep "project_snapshot_${DATE}_" | \
+  sed -E "s/^project_snapshot_${DATE}_v//; s/\.txt$//" | \
+  sort -V | tail -n1)
+
+if [[ -z "$last_version" ]]; then
+  VERSION="v1.0.0"
+else
+  IFS='.' read -r major minor patch <<< "$last_version"
+  patch=$((patch + 1))
+  VERSION="v${major}.${minor}.${patch}"
+fi
+
+OUTPUT="$SNAPSHOT_DIR/project_snapshot_${DATE}_${VERSION}.txt"
+
+echo "📦 Generating full source snapshot for kd_race_app" > "$OUTPUT"
+echo "Timestamp: $(date)" >> "$OUTPUT"
+echo "Root: $ROOT" >> "$OUTPUT"
+echo "Version: $VERSION" >> "$OUTPUT"
+echo "==================================================" >> "$OUTPUT"
+
+find "$ROOT" \
+  -type f \
+  \( -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" \
+     -o -name "*.html" -o -name "*.css" -o -name "Dockerfile" -o -name "docker-compose.yml" \
+     -o -name "*.conf" -o -name ".env" -o -name "*.sh" \) \
+  ! -path "*/node_modules/*" \
+  ! -path "$ROOT/volumes/*" \
+  ! -path "$ROOT/frontend/dist/*" \
+  ! -path "$ROOT/frontend_dist_temp/*" \
+  | sort | while read -r file; do
+    rel_path="${file#$ROOT/}"
+    echo -e "\n\n==== FILE: $rel_path ====\n" >> "$OUTPUT"
+    cat "$file" >> "$OUTPUT"
+done
+
+echo "✅ Snapshot written to: $OUTPUT"
+
+
+==== FILE: scripts/hard_reset_db.sh ====
+
+#!/bin/bash
+
+# File: scripts/hard_reset_db.sh
+# Version: v1.3.1 — Adds API image rebuild and removes Prisma caching issues
+
+clear
+echo "🚨 WARNING: This will WIPE the derby database and rebuild the full stack."
+read -p "Type 'yes' to continue: " confirm
+
+if [[ "$confirm" != "yes" ]]; then
+  echo "❌ Cancelled"
+  exit 1
+fi
+
+echo "📦 Resetting database via Prisma..."
+docker compose exec kd_api npx prisma db push --force-reset || { echo "❌ Failed to push schema"; exit 1; }
+
+echo "🌱 Reseeding database..."
+docker compose exec kd_api npx tsx prisma/seed.ts || { echo "❌ Seed failed"; exit 1; }
+
+echo "🔧 Regenerating Prisma client..."
+docker compose exec kd_api npx prisma generate || { echo "❌ Prisma client generate failed"; exit 1; }
+
+echo "🛠️ Rebuilding API Docker image with --no-cache..."
+docker compose build --no-cache kd_api || { echo "❌ API image rebuild failed"; exit 1; }
+
+echo "♻️ Rebuilding full stack: frontend → ./frontend_build → Nginx bind..."
+
+# 🔁 Clean local build output
+rm -rf ./frontend_build
+mkdir -p ./frontend_build
+
+# 🏗️ Build frontend via Docker
+echo -e "\n🏗️  Building frontend via Docker..."
+docker build -f frontend/Dockerfile -t kd_frontend_build_temp .
+
+# 📦 Extract /app/frontend/frontend_build from container
+echo -e "\n📦 Extracting built output from container..."
+docker create --name temp_kd_frontend kd_frontend_build_temp
+docker cp temp_kd_frontend:/app/frontend/frontend_build/. ./frontend_build
+docker rm temp_kd_frontend
+
+# 🔁 Restart backend and forcibly recreate Nginx and API
+echo -e "\n🔁 Restarting backend and forcing Nginx remount..."
+docker compose down --remove-orphans
+docker compose up -d kd_api kd_nginx
+
+# ✅ Confirm success
+echo -e "\n📦 Final contents of ./frontend_build:"
+ls -l ./frontend_build
+
+echo -e "\n🔎 What Nginx sees inside container:"
+docker exec kd_race_app-kd_nginx-1 ls -l /usr/share/nginx/html
+
+echo -e "\n✅ Hard reset and full stack rebuild complete. Visit: https://kd.paprikacayenne.com/"
+
+
+==== FILE: scripts/rebuild_all.sh ====
+
+#!/bin/bash
+# File: scripts/rebuild_all.sh
+# Version: v1.2.1 — Ensures Nginx bind mount resets for ./frontend_build
+
+set -e
+clear
+echo "♻️  Rebuilding full stack: frontend → ./frontend_build → Nginx bind..."
+
+# 🔁 Step 0: Clean local build output
+rm -rf ./frontend_build
+mkdir -p ./frontend_build
+
+# 🏗️ Step 1: Build frontend via Docker
+echo -e "\n🏗️  Building frontend via Docker..."
+docker build -f frontend/Dockerfile -t kd_frontend_build_temp .
+
+# 📦 Step 2: Extract /app/frontend/frontend_build from container
+echo -e "\n📦 Extracting built output from container..."
+docker create --name temp_kd_frontend kd_frontend_build_temp
+docker cp temp_kd_frontend:/app/frontend/frontend_build/. ./frontend_build
+docker rm temp_kd_frontend
+
+# 🧹 Step 3: Restart backend and forcibly recreate Nginx
+echo -e "\n🔁 Restarting backend and forcing Nginx remount..."
+docker compose up -d kd_api
+docker compose down --remove-orphans kd_nginx
+docker compose up -d kd_nginx
+
+# 🧼 Step 3.5: Regenerate Prisma Client just in case
+echo -e "\n🧼 Regenerating Prisma Client inside API container..."
+docker compose exec kd_api npx prisma generate
+
+# ✅ Step 4: Confirm success
+echo -e "\n📦 Final contents of ./frontend_build:"
+ls -l ./frontend_build
+
+echo -e "\n🔎 What Nginx sees inside container:"
+docker exec kd_race_app-kd_nginx-1 ls -l /usr/share/nginx/html
+
+echo -e "\n✅ Deployment complete. Visit: https://kd.paprikacayenne.com/"
+
+
+==== FILE: .vscode/settings.json ====
+
+{
+    "CodeGPT.apiKey": "OpenAI"
+}

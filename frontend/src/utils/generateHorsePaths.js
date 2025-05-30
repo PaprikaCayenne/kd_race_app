@@ -1,37 +1,49 @@
 // File: frontend/src/utils/generateHorsePaths.js
-// Version: v3.7.1 — Finalized behind-the-line offset spawn with customizable startLinePadding
+// Version: v4.1.0 — Removes drift logic, caps path distance at arcLength
+// Date: 2025-05-29
 
 import { getTangentAngle } from '@/utils/arcUtils';
 
-export async function generateHorsePaths({
+export function generateHorsePaths({
   horses,
   lanes,
   centerline,
   spriteWidth = 0,
   startLinePadding = 10
 }) {
-  if (!Array.isArray(horses) || !horses.length) return new Map();
-  if (!Array.isArray(lanes) || !lanes.length) return new Map();
+  const log = (...args) => console.log('[KD] 📍', ...args);
+  const warn = (...args) => console.warn('[KD] ⚠️', ...args);
 
-  const DRIFT_LENGTH = 350;
   const horsePaths = new Map();
 
+  if (!Array.isArray(horses) || !horses.length) {
+    warn('generateHorsePaths: No horses received');
+    return horsePaths;
+  }
+
+  if (!Array.isArray(lanes) || !lanes.length) {
+    warn('generateHorsePaths: No lanes received');
+    return horsePaths;
+  }
+
   horses.forEach((horse, i) => {
-    let lane = lanes[i];
+    const lane = lanes[i];
+    log(`Horse ${horse?.name} (ID: ${horse?.id}, localId: ${horse?.localId}) → Lane ${i} points:`, lane?.length ?? 0);
+
     if (!lane || lane.length < 2) {
-      console.warn(`[KD] ⚠️ Horse "${horse.name}" skipped - invalid lane path`);
+      warn(`Lane ${i} is invalid or missing for horse: ${horse?.name ?? horse?.id ?? 'unknown'}`);
       return;
     }
 
     const isClosed = lane[0].x === lane.at(-1).x && lane[0].y === lane.at(-1).y;
-    if (!isClosed) lane = [...lane, lane[0]];
+    const fullLane = isClosed ? lane : [...lane, lane[0]];
 
     const arcPoints = [];
     let arcLength = 0;
 
-    for (let j = 0; j < lane.length; j++) {
-      const curr = lane[j];
-      const prev = lane[j - 1] || lane[lane.length - 2];
+    for (let j = 0; j < fullLane.length; j++) {
+      const curr = fullLane[j];
+      const prev = fullLane[j - 1] || fullLane[fullLane.length - 2];
       const dx = curr.x - prev.x;
       const dy = curr.y - prev.y;
       const segLen = Math.sqrt(dx * dx + dy * dy);
@@ -39,8 +51,10 @@ export async function generateHorsePaths({
       arcPoints.push({ ...curr, arcLength });
     }
 
+    log(`Horse ${horse.name} (localId: ${horse.localId}) → Arc length: ${arcLength.toFixed(2)}px`);
+
     const getPointAtDistance = (distance) => {
-      const d = Math.min(distance, arcLength + DRIFT_LENGTH);
+      const d = Math.min(distance, arcLength);
       let dist = 0;
 
       for (let k = 0; k < arcPoints.length - 1; k++) {
@@ -52,50 +66,44 @@ export async function generateHorsePaths({
 
         if (dist + segLen >= d) {
           const t = (d - dist) / segLen;
-          const x = p0.x + dx * t;
-          const y = p0.y + dy * t;
-          const rotation = Math.atan2(dy, dx);
-          return { x, y, rotation };
+          return {
+            x: p0.x + dx * t,
+            y: p0.y + dy * t,
+            rotation: Math.atan2(dy, dx)
+          };
         }
 
         dist += segLen;
       }
 
-      // Fallback drift projection using tangent before arcLength
-      const angle = getTangentAngle(lane, arcLength - 1);
-      const x = arcPoints.at(-1).x + Math.cos(angle) * (distance - arcLength);
-      const y = arcPoints.at(-1).y + Math.sin(angle) * (distance - arcLength);
-      const rotation = angle;
-
-      return { x, y, rotation };
+      const angle = getTangentAngle(fullLane, arcLength - 1);
+      const last = arcPoints.at(-1);
+      return {
+        x: last.x,
+        y: last.y,
+        rotation: angle
+      };
     };
 
     const trueFinishDistance = arcLength;
-    const driftDistance = arcLength + DRIFT_LENGTH;
-    const startDistance = -((spriteWidth / 2) + startLinePadding);
+    const startDistance = 0;
 
     const trueFinish = getPointAtDistance(trueFinishDistance);
     trueFinish.arcLength = trueFinishDistance;
 
-    const driftEnd = getPointAtDistance(driftDistance);
-    driftEnd.arcLength = driftDistance;
-
-    horsePaths.set(horse.id, {
-      path: lane,
+    horsePaths.set(horse.localId, {
+      path: fullLane,
       arcPoints,
       arcLength,
       laneIndex: i,
-      driftLength: DRIFT_LENGTH,
-      driftEnd,
       trueFinish,
       getPointAtDistance,
       getCurveFactorAt: () => 1.0,
       startDistance
     });
-
-    console.log(`[KD] 🎯 ${horse.name} true finish = ${trueFinishDistance.toFixed(2)} px @ (${trueFinish.x.toFixed(1)}, ${trueFinish.y.toFixed(1)})`);
-    console.log(`[KD] 🔴 ${horse.name} drift end = ${driftDistance.toFixed(2)} px @ (${driftEnd.x.toFixed(1)}, ${driftEnd.y.toFixed(1)})`);
   });
+
+  log(`✅ Final horsePaths keys:`, [...horsePaths.keys()]);
 
   return horsePaths;
 }

@@ -1,6 +1,6 @@
 // File: frontend/src/utils/generateTrackPathWithRoundedCorners.js
-// Version: v2.7.0 — Dynamic vertical layout based on lane width and padding
-// Date: 2025-05-24
+// Version: v2.8.0 — Fixes horizontal track overflow by applying padding symmetrically
+// Date: 2025-05-26
 
 export function generateCenterline({
   canvasWidth,
@@ -13,29 +13,24 @@ export function generateCenterline({
 }) {
   const centerX = canvasWidth / 2;
 
-  // 🧮 Track thickness is used to space inner/outer
   const halfTrack = totalLaneWidth / 2;
 
-  // ✅ Step 1: Calculate how much vertical space is left *after* padding + halfTrack on both sides
   const usableVertical = canvasHeight - 2 * (trackPadding + halfTrack);
-
-  // ✅ Step 2: Clamp trackHeight to fit if needed
   const finalTrackHeight = Math.min(trackHeight, usableVertical);
 
-  // ✅ Step 3: Compute actual vertical bounds for the centerline
   const top = trackPadding + halfTrack;
   const bottom = top + finalTrackHeight;
 
+  // ✅ FIX: Clamp left/right within padded range
+  const usableWidth = canvasWidth - 2 * trackPadding;
   const left = trackPadding + halfTrack;
   const right = canvasWidth - trackPadding - halfTrack;
 
   const r = cornerRadius;
   const rawPoints = [];
 
-  // 🟢 Start at top-center (12 o'clock)
   rawPoints.push({ x: centerX, y: top });
 
-  // 🔵 Top-right curve
   for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = Math.PI * 1.5 + (Math.PI / 2) * t;
@@ -45,7 +40,6 @@ export function generateCenterline({
     });
   }
 
-  // 🟣 Bottom-right
   for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = 0 + (Math.PI / 2) * t;
@@ -55,7 +49,6 @@ export function generateCenterline({
     });
   }
 
-  // 🟠 Bottom-left
   for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = Math.PI / 2 + (Math.PI / 2) * t;
@@ -65,7 +58,6 @@ export function generateCenterline({
     });
   }
 
-  // 🔴 Top-left
   for (let i = 1; i <= segmentsPerCurve; i++) {
     const t = i / segmentsPerCurve;
     const angle = Math.PI + (Math.PI / 2) * t;
@@ -75,7 +67,6 @@ export function generateCenterline({
     });
   }
 
-  // 🔁 Close loop
   rawPoints.push(rawPoints[0]);
 
   if (rawPoints.length < 2) {
@@ -83,7 +74,6 @@ export function generateCenterline({
     return { path: [], totalArcLength: 0, length: 0 };
   }
 
-  // 🧮 Compute arc-length
   const path = [];
   let totalLength = 0;
 
@@ -126,9 +116,6 @@ export function generateCenterline({
       rotation: Math.atan2(last.y - preLast.y, last.x - preLast.x)
     };
   };
-
-  console.log(`[KD] 🎯 centerline[0] set to 12 o’clock → (${path[0].x.toFixed(1)}, ${path[0].y.toFixed(1)})`);
-  console.log(`[KD] 🔁 Full arc length: ${totalLength.toFixed(2)} px | Points: ${path.length}`);
 
   return {
     path,

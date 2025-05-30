@@ -1,11 +1,13 @@
 // File: frontend/src/components/track/triggerGenerateHorses.js
-// Version: v2.4.1 — Uses getSpriteDimensions (drawHorseSprite) to measure sprite width before generating horse paths
+// Version: v2.7.0 — Aligns generateHorsePaths call with latest arc-distance logic
+// Date: 2025-05-30
 
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
 import { setupHorses } from './setupHorses';
 import { logInfo } from './debugConsole';
 import parseColorToHex from '@/utils/parseColorToHex';
 import { getSpriteDimensions } from '@/utils/spriteDimensionCache';
+import { clearRaceVisuals } from './clearRaceVisuals';
 
 export async function triggerGenerateHorses({
   app,
@@ -24,20 +26,35 @@ export async function triggerGenerateHorses({
   setRaceReady,
   setCanGenerate,
   usedHorseIdsRef,
-  debugVisible
+  debugVisible,
+  setRaceWarnings = () => {}
 }) {
-  console.log('[KD] 🟡 triggerGenerateHorses() START');
+  logInfo('🟡 triggerGenerateHorses() — START');
 
   try {
+    // 🧹 Step 1: Clear visuals from prior race
+    clearRaceVisuals({
+      app,
+      horseSpritesRef,
+      labelSpritesRef,
+      finishedHorsesRef,
+      debugDotsRef,
+      debugPathLinesRef,
+      startDotsRef,
+      finishDotsRef
+    });
+
     if (!trackData || typeof trackData !== 'object') {
       console.error('[KD] ❌ trackData is missing or invalid:', trackData);
+      setRaceWarnings(prev => [...prev, 'Track data missing or invalid.']);
       return;
     }
 
-    const { laneCount, lanes, centerline } = trackData;
+    const { laneCount, lanes, centerline, spriteWidth, startLineOffset } = trackData;
 
     if (!Array.isArray(lanes) || lanes.length < laneCount) {
       console.error('[KD] ❌ Not enough valid lanes for horse generation');
+      setRaceWarnings(prev => [...prev, 'Not enough valid lanes on track']);
       return;
     }
 
@@ -47,7 +64,7 @@ export async function triggerGenerateHorses({
       height
     };
 
-    console.log('[KD] 📨 POST /api/admin/start', raceInitPayload);
+    logInfo('📨 POST /api/admin/start', raceInitPayload);
 
     try {
       await fetch('/api/admin/start', {
@@ -59,10 +76,12 @@ export async function triggerGenerateHorses({
         body: JSON.stringify(raceInitPayload)
       });
     } catch (err) {
-      console.error('[KD] ❌ Error triggering race:', err);
+      console.error('[KD] ❌ Error calling /api/admin/start:', err);
+      setRaceWarnings(prev => [...prev, 'Race start failed on backend']);
       return;
     }
 
+    // 🐴 Fetch horses from backend
     let horses = [];
     try {
       const res = await fetch('/api/horses');
@@ -73,10 +92,14 @@ export async function triggerGenerateHorses({
       const selected = unused.slice(0, laneCount);
 
       horses = selected.map((h, index) => {
-        const hex = parseColorToHex(h.color);
-        const mapped = { ...h, localId: index, hex };
-        logInfo(`[KD] 🎯 Assigning localId=${index} to horse id=${h.id}, name=${h.name}, hex=${hex.toString(16)}`);
-        return mapped;
+        const saddleHex = parseColorToHex(h.saddleHex || h.color || '#000');
+        const bodyHex = parseColorToHex(h.bodyHex || '#999');
+        return {
+          ...h,
+          localId: index,
+          saddleHex,
+          bodyHex
+        };
       });
 
       horsesRef.current = horses;
@@ -85,54 +108,80 @@ export async function triggerGenerateHorses({
       }
 
       horses.forEach(h =>
-        logInfo(`[KD] 🐴 Selected Horse: ${h.name} | dbId=${h.id} | localId=${h.localId}`)
+        logInfo(`🐴 Horse: ${h.name} | id=${h.id} | localId=${h.localId} | saddle=${h.saddleHex} | body=${h.bodyHex}`)
       );
     } catch (err) {
       console.error('[KD] ❌ Failed to fetch horses:', err);
+      setRaceWarnings(prev => [...prev, 'Failed to fetch horses from backend']);
       return;
     }
 
     if (!horses.length) {
-      console.error('[KD] ❌ No horses available after filtering');
+      const msg = 'No horses available to place on track';
+      console.error('[KD] ❌', msg);
+      setRaceWarnings(prev => [...prev, msg]);
       return;
     }
 
-    const { width: spriteWidth } = getSpriteDimensions(
-      horses[0].hex,
-      horses[0].id,
+    const sampleHorse = horses[0];
+    const spriteDims = getSpriteDimensions(
+      sampleHorse.saddleHex,
+      sampleHorse.id,
       app,
-      horses[0].variant || 'bay'
+      sampleHorse.variant || 'bay'
     );
 
-    const horsePaths = await generateHorsePaths({ horses, lanes, centerline, spriteWidth });
-
-    if (!(horsePaths instanceof Map) || horsePaths.size === 0) {
-      console.error('[KD] ❌ generateHorsePaths returned empty or invalid Map');
+    if (!spriteDims?.width || spriteDims.width <= 0) {
+      const msg = `Invalid sprite dimensions (${spriteDims?.width})`;
+      setRaceWarnings(prev => [...prev, msg]);
+      console.error('[KD] ❌', msg);
       return;
     }
 
+    const { horsePaths, warnings = [] } = await generateHorsePaths({
+      horses,
+      lanes,
+      centerline,
+      spriteWidth: spriteDims.width,
+      startAtPercent: 0,
+      startLinePadding: startLineOffset ?? 100
+    });
+
+    if (!(horsePaths instanceof Map) || horsePaths.size === 0) {
+      const msg = 'generateHorsePaths returned empty or invalid Map';
+      setRaceWarnings(prev => [...prev, msg]);
+      console.error('[KD] ❌', msg);
+      return;
+    }
+
+    if (warnings.length) {
+      setRaceWarnings(prev => [...prev, ...warnings]);
+    }
+
+    horsePathsRef.current = horsePaths;
+
+    logInfo(`✅ Generated horsePaths for ${horsePaths.size} horses`);
     setupHorses({
       app,
       horses,
-      horsePaths,
+      horsePathsRef,
       horseSpritesRef,
       labelSpritesRef,
-      finishedHorsesRef,
-      debugPathLinesRef,
       debugDotsRef,
+      debugPathLinesRef,
       finishDotsRef,
       startDotsRef,
-      horsePathsRef,
+      finishedHorsesRef,
+      setRaceWarnings,
+      lanes,
       debugVisible
     });
 
-    logInfo('[KD] ✅ Horses placed and rendered');
     setRaceReady(true);
     setCanGenerate(false);
-
-    return horsePaths;
-
-  } catch (fatal) {
-    console.error('[KD] 💥 Uncaught error in triggerGenerateHorses:', fatal);
+    logInfo('🟢 triggerGenerateHorses() — DONE');
+  } catch (err) {
+    console.error('[KD] ❌ Unhandled error in triggerGenerateHorses:', err);
+    setRaceWarnings(prev => [...prev, 'Unexpected error generating horses']);
   }
 }
