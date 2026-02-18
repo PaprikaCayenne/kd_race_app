@@ -1,0 +1,27 @@
+# Node modules and VCS
+node_modules
+.git
+.gitignore
+.dockerignore
+
+# Logs and temp files
+*.log
+npm-debug.log*
+.pnpm-debug.log*
+
+# Editor folders
+.vscode/
+*.swp
+*.swo
+
+# Local env
+.env
+.env.*
+
+# Do NOT exclude these — we want them in Docker context
+# frontend_dist_temp
+# dist
+# dist_build
+
+# Testing scripts (you can keep if you don't want it copied into image)
+scripts/testing_rebuild.sh

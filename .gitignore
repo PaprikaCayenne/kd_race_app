@@ -1,66 +1,36 @@
-# 🧱 Core Node dependencies (always ignored)
 node_modules/
 
-# 🐳 Docker
-.dockerignore
-
-# 🧬 Git metadata (in case someone copies entire repo dir)
-.git
-.gitignore
-
-# 🗂️ Old versions backup folder
-_old/
-
-# ⚙️ Temporary dist extraction folder (from testing script)
-frontend_dist_temp/
-
-# 🧪 Testing rebuild helper script (optional: include if local-only)
-scripts/testing_rebuild.sh
-
-# 📝 Logs
 logs/
 *.log
 npm-debug.log*
 .pnpm-debug.log*
 
-# 🩺 Diagnostic reports from Node
-report.*.json
-
-# 🧠 TypeScript cache
-*.tsbuildinfo
-
-# ✅ Coverage output
 coverage/
-*.lcov
 .nyc_output
 
-# 📦 Build and release folders
-build/
 dist/
+build/
 out/
 
-# 🧪 Caches and temp folders
 .cache/
 .parcel-cache
 .vitepress/
 
-# ⚠️ Lint/style tool state
 .eslintcache
 .stylelintcache
+*.tsbuildinfo
 
-# 🔒 Lockfiles (if only one package manager is used)
-package-lock.json
-pnpm-lock.yaml
-
-# 🔐 Local environment variables
 .env
-.env.*             # includes .env.local, .env.production.local, etc.
-!.env.example      # keep shared example
-
-# 💬 Optional REPL session history
-.node_repl_history
-
-# 🛠️ IDE/Editor artifacts (optional, VSCode-specific ones can be removed if standardized dev containers used)
-.vscode/
 .env.*
+!.env.example
+
+.vscode/
+
 scripts/snapshot/
+
+frontend_build/
+frontend_dist_temp/
+
+# Keep pnpm lockfile tracked for reproducible installs
+!pnpm-lock.yaml
+frontend_build/
