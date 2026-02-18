@@ -10,15 +10,7 @@ has_script() {
   node -e "const p=require('${pkg_json}'); process.exit(p.scripts && p.scripts['${script}'] ? 0 : 1)"
 }
 
-run_script_if_present() {
-  local label="$1"
-  local cmd="$2"
-  if eval "$cmd"; then
-    :
-  else
-    echo "Skipping missing script: $label"
-  fi
-}
+RUN_DB_CHECKS="${RUN_DB_CHECKS:-0}"
 
 echo "Node version:"
 node -v
@@ -71,21 +63,44 @@ fi
 
 pnpm -C frontend run build
 
-# Normalize output for environments that expect ./frontend_build at repo root.
-# Vite emits to ./frontend/frontend_build, while deployment copies to ./frontend_build.
-if [ -d "$ROOT_DIR/frontend/frontend_build" ]; then
-  mkdir -p "$ROOT_DIR/frontend_build"
-  rm -rf "$ROOT_DIR/frontend_build"/*
-  cp -a "$ROOT_DIR/frontend/frontend_build"/. "$ROOT_DIR/frontend_build"/
+frontend_build_candidates=(
+  "$ROOT_DIR/frontend/frontend_build"
+  "$ROOT_DIR/frontend_build"
+)
+
+resolved_build_dir=""
+for candidate in "${frontend_build_candidates[@]}"; do
+  if [ -d "$candidate" ]; then
+    resolved_build_dir="$candidate"
+    break
+  fi
+done
+
+if [ -z "$resolved_build_dir" ]; then
+  echo "ERROR: Frontend build output not found. Expected one of:" >&2
+  echo "  - $ROOT_DIR/frontend/frontend_build" >&2
+  echo "  - $ROOT_DIR/frontend_build" >&2
+  echo "Run 'pnpm -C frontend run build' and verify Vite outputDir." >&2
+  exit 1
 fi
 
-# Confirm build produced expected outputs
+echo "Using frontend build output: $resolved_build_dir"
+
 for f in users.html admin.html race.html; do
-  if [ ! -f "$ROOT_DIR/frontend_build/$f" ] && [ ! -f "$ROOT_DIR/frontend/frontend_build/$f" ]; then
-    echo "Missing $f in frontend build output"
+  if [ ! -f "$resolved_build_dir/$f" ]; then
+    echo "Missing expected frontend artifact '$f' in $resolved_build_dir" >&2
     exit 1
   fi
 done
+
+if [ "$RUN_DB_CHECKS" = "1" ]; then
+  echo
+  echo "Optional DB-backed smoke checks enabled (RUN_DB_CHECKS=1):"
+  bash scripts/smoke_test.sh
+else
+  echo
+  echo "Skipping DB/network smoke checks (set RUN_DB_CHECKS=1 to enable)."
+fi
 
 echo
 

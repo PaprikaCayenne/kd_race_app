@@ -33,14 +33,17 @@ export default function DashboardPage() {
   const [submitting, setSubmitting] = useState(false);
   const [leaderboard, setLeaderboard] = useState([]);
   const [rank, setRank] = useState(null);
+  const [latestWinner, setLatestWinner] = useState(null);
+  const [leadingHorse, setLeadingHorse] = useState(null);
 
   useEffect(() => {
     async function fetchData() {
       try {
         setLoading(true);
-        const [userRes, raceRes] = await Promise.allSettled([
+        const [userRes, raceRes, winnerRes] = await Promise.allSettled([
           axios.get(`/api/user/${deviceId}`),
           axios.get("/api/race/current"),
+          axios.get('/api/race/latest-winner')
         ]);
 
       if (userRes.status === "fulfilled") {
@@ -70,8 +73,13 @@ export default function DashboardPage() {
           const raceData = raceRes.value.data || { horses: [] };
           setRace(raceData);
           setCountdown(raceData.countdownSeconds || 0);
+          setLeadingHorse(raceData.horses?.[0] || null);
         } else {
           setRace({ horses: [] });
+        }
+
+        if (winnerRes.status === 'fulfilled' && winnerRes.value?.data?.winner) {
+          setLatestWinner(winnerRes.value.data.winner);
         }
       } catch (err) {
         console.error("Failed to fetch dashboard data:", err);
@@ -169,6 +177,36 @@ export default function DashboardPage() {
             Time remaining: {countdown}s
           </p>
         )}
+      </div>
+
+
+      {latestWinner && (
+        <div className="w-full max-w-md bg-yellow-50 border border-yellow-200 rounded-xl p-4 shadow">
+          <h2 className="font-bold text-lg text-yellow-800">Most Recent Winner</h2>
+          <div className="flex items-center gap-3 mt-2">
+            <img src={latestWinner.horseImage} alt={latestWinner.horseName} className="w-10 h-10" />
+            <div>
+              <p className="font-semibold">{latestWinner.horseName}</p>
+              <p className="text-sm text-gray-600">Winner: {latestWinner.bettorName}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {leadingHorse && countdown === 0 && (
+        <div className="w-full max-w-md bg-blue-50 border border-blue-200 rounded-xl p-4 shadow">
+          <h2 className="font-bold text-blue-800">Current Leader (Live)</h2>
+          <p className="text-sm mt-1">{leadingHorse.name}</p>
+        </div>
+      )}
+
+      <div className="w-full max-w-md bg-gray-50 border rounded-xl p-4 shadow">
+        <h2 className="font-bold">Live Leaderboard</h2>
+        <ol className="mt-2 space-y-1 text-sm">
+          {leaderboard.map((entry, i) => (
+            <li key={entry.id}>{i + 1}. {entry.nickname || 'Player'} — {entry.leaseLoons}</li>
+          ))}
+        </ol>
       </div>
 
       {race?.horses?.length > 0 && !bettingLocked && (

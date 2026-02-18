@@ -11,8 +11,8 @@ function buildHorseIcon(bodyHex = '#a0522d', saddleHex = '#888888') {
 
 export default function HorseRankingOverlay({ ranking, raceName = '🏇 Live Standings 🏇' }) {
   return (
-    <div className="absolute top-60 right-[225px] w-80 bg-white bg-opacity-95 p-6 rounded-2xl shadow-2xl z-50 animate-fadeIn">
-      <h2 className="text-3xl font-extrabold text-center text-red-700 mb-4 border-b pb-2 border-red-200">
+    <div className="absolute top-[260px] right-[8%] w-[clamp(260px,24vw,360px)] bg-white/95 p-6 rounded-2xl shadow-2xl z-50 animate-fadeIn">
+      <h2 className="text-5xl font-extrabold text-center text-red-700 mb-4 border-b pb-2 border-red-200">
         {raceName}
       </h2>
       <ol className="space-y-3 text-base">

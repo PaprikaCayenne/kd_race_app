@@ -2,7 +2,7 @@
 // Version: v3.4.0 — Adds race countdown + horse pens + winner history visuals
 // Date: 2026-02-18
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Application } from 'pixi.js';
 import { io } from 'socket.io-client';
 
@@ -11,6 +11,7 @@ import { initRaceListeners } from './track/initRaceListeners';
 import { getSpriteDimensions } from '@/utils/spriteDimensionCache';
 import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
+import { playReplay } from '@/utils/playReplay';
 
 const VERSION = 'v3.4.0';
 const socket = io('/race', { path: '/api/socket.io' });
@@ -24,7 +25,7 @@ const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
 const HORSE_PADDING = 0;
 const BOUNDARY_PADDING = 0;
-const START_LINE_OFFSET = 10;
+const START_LINE_OFFSET = 0;
 const RACE_DURATION_SECONDS = 180;
 
 function horseIcon(bodyHex = '#a0522d', saddleHex = '#888888') {
@@ -64,6 +65,9 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const [allHorses, setAllHorses] = useState([]);
   const [currentRaceHorses, setCurrentRaceHorses] = useState([]);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
+  const [replayMode, setReplayMode] = useState(false);
+  const [replaySummary, setReplaySummary] = useState(null);
+  const [pastRaces, setPastRaces] = useState([]);
 
   useEffect(() => {
     if (!raceCompleted) {
@@ -107,6 +111,25 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     const interval = setInterval(fetchLeaderboard, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  const replayRaceId = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('replayRaceId');
+  }, []);
+
+  useEffect(() => {
+    const fetchPastRaces = async () => {
+      try {
+        const res = await fetch('/api/race/races');
+        const data = await res.json();
+        setPastRaces(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error('[KD] ❌ Failed to fetch races for replay:', err);
+      }
+    };
+
+    fetchPastRaces();
+  }, [lastFinishedRaceId]);
 
   useEffect(() => {
     const fetchCurrentRace = async () => {
@@ -230,7 +253,44 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     };
   }, [setRaceName, setRaceWarnings]);
 
-  const movingHorseIds = new Set(currentRaceHorses.map((h) => h.id));
+
+  useEffect(() => {
+    if (!replayRaceId || !trackReadyRef.current || !appRef.current) return;
+
+    const runReplay = async () => {
+      try {
+        const res = await fetch(`/api/race/${replayRaceId}/replay`);
+        const data = await res.json();
+        if (!Array.isArray(data?.horses) || !Array.isArray(data?.frames)) return;
+
+        setReplayMode(true);
+        setReplaySummary({ winner: data.winner, loonWinners: data.loonWinners || [] });
+
+        const replayHorses = data.horses.slice(0, 4);
+        const replayData = {};
+
+        replayHorses.forEach((horse) => {
+          const path = horsePathsRef.current.get(horse.localId);
+          if (!path) return;
+          replayData[horse.localId] = data.frames
+            .filter((f) => f.horseId === horse.id)
+            .map((f) => ({ time: f.timeMs, distance: Math.max(0, Math.min(1, f.pct)) * path.arcLength }));
+        });
+
+        playReplay({
+          app: appRef.current,
+          horseSprites: horseSpritesRef.current,
+          labelSprites: labelSpritesRef.current,
+          horsePaths: horsePathsRef.current,
+          replayData
+        });
+      } catch (err) {
+        console.error('[KD] ❌ Failed to run replay:', err);
+      }
+    };
+
+    runReplay();
+  }, [replayRaceId]);
 
   return (
     <div ref={containerRef} className="relative w-screen overflow-hidden">
@@ -258,6 +318,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           <h3 className="text-xl font-black text-yellow-700">🏆 Winner</h3>
           <p className="text-sm text-gray-600 mt-1">Bettor</p>
           <p className="text-lg font-extrabold text-gray-900">{winner.bettorName}</p>
+          <p className="text-sm text-gray-600 mt-2">Winnings</p>
+          <p className="text-lg font-bold text-green-700">{winner.winnings || 0} Lease Loons</p>
           <p className="text-sm text-gray-600 mt-3">Horse</p>
           <p className="text-xl font-bold text-red-700">{winner.horseName}</p>
           <div className="mt-3 mx-auto w-16 h-16 rounded-full border-2 border-gray-200 bg-white flex items-center justify-center">
@@ -271,19 +333,73 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       )}
 
       <div className="absolute bottom-4 left-4 w-72 bg-white/90 rounded-xl p-3 shadow-xl z-40">
-        <h4 className="font-bold text-sm mb-2">🐎 Horse Pen (All Horses)</h4>
+        <h4 className="font-bold text-sm mb-2">🐎 Horse Pen (Tournament Horses)</h4>
         <div className="flex flex-wrap gap-2">
           {allHorses.map((horse) => (
             <div
               key={horse.id}
-              className={`horse-chip ${movingHorseIds.has(horse.id) && countdownSeconds > 0 ? 'horse-chip--moving' : ''}`}
+              className="horse-chip"
               title={horse.name}
             >
               <img src={horseIcon(horse.bodyHex, horse.saddleHex)} alt={horse.name} className="w-8 h-8" />
+              <span className="text-[10px] leading-tight max-w-20 truncate">{horse.name}</span>
             </div>
           ))}
         </div>
       </div>
+
+
+      <div className="absolute top-4 right-4 bg-white/90 rounded-xl p-3 shadow z-50 w-64">
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="font-bold text-sm">Replays</h4>
+          {replayMode && (
+            <button
+              type="button"
+              onClick={() => {
+                const next = new URL(window.location.href);
+                next.searchParams.delete('replayRaceId');
+                window.location.href = next.toString();
+              }}
+              className="text-xs px-2 py-1 rounded bg-orange-500 text-white"
+            >
+              Clear Replay
+            </button>
+          )}
+        </div>
+        <div className="max-h-32 overflow-y-auto space-y-1">
+          {pastRaces.slice(0, 8).map((race) => (
+            <button
+              key={race.id}
+              type="button"
+              className="w-full text-left text-xs hover:bg-gray-100 px-2 py-1 rounded"
+              onClick={() => {
+                const next = new URL(window.location.href);
+                next.searchParams.set('replayRaceId', race.id);
+                window.location.href = next.toString();
+              }}
+            >
+              Replay Race #{race.raceNumber || race.id}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {replayMode && replaySummary?.winner && (
+        <div className="absolute top-28 left-1/2 -translate-x-1/2 bg-white/95 rounded-2xl shadow-2xl p-4 z-50 min-w-80">
+          <h4 className="font-bold text-center text-lg">Replay Winner</h4>
+          <div className="flex items-center justify-center gap-3 mt-2">
+            <img src={horseIcon(replaySummary.winner.bodyHex, replaySummary.winner.saddleHex)} alt={replaySummary.winner.horseName} className="w-10 h-10" />
+            <span className="font-semibold">{replaySummary.winner.horseName}</span>
+          </div>
+          <ul className="mt-3 text-sm">
+            {(replaySummary.loonWinners || []).slice(0, 5).map((entry, idx) => (
+              <li key={`${entry.name}-${idx}`} className={idx === 0 ? 'font-bold text-red-700' : ''}>
+                {entry.name}: {entry.loons}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="absolute bottom-4 right-4 w-72 bg-white/90 rounded-xl p-3 shadow-xl z-40">
         <h4 className="font-bold text-sm mb-2">🏅 Winners Pen</h4>
