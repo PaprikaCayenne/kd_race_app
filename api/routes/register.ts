@@ -34,14 +34,23 @@ router.post("/", async (req: Request, res: Response) => {
         },
       });
 
-      // Optional: register to a horse if provided
+      // Optional: register to a horse for the latest active race if provided
       if (horseId) {
-        await prisma.registration.create({
-          data: {
-            userId: user.id,
-            horseId,
-          },
+        const activeRace = await prisma.race.findFirst({
+          where: { endedAt: null },
+          orderBy: { id: "desc" },
+          select: { id: true }
         });
+
+        if (activeRace) {
+          await prisma.registration.create({
+            data: {
+              userId: user.id,
+              horseId: Number(horseId),
+              raceId: activeRace.id
+            }
+          });
+        }
       }
     }
 

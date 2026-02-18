@@ -17,7 +17,7 @@ router.get("/races", async (_req: Request, res: Response) => {
     });
 
     const formatted = races.map((r, idx) => {
-      const date = new Date(r.startedAt);
+      const date = r.startedAt ? new Date(r.startedAt) : new Date();
       const name = `Race: ${races.length - idx} – ${date.toLocaleString("en-US", {
         month: "2-digit",
         day: "2-digit",
@@ -70,7 +70,15 @@ router.get("/current", async (_req: Request, res: Response) => {
     const closesAt = race.betClosesAt;
     const locked = closesAt ? now >= closesAt : false;
 
-    let horses = race.horsePaths.map(hp => ({
+    let horses: Array<{
+      id: number;
+      name: string;
+      bodyColor: string;
+      bodyHex: string;
+      saddleColor: string;
+      saddleHex: string;
+      localId: number;
+    }> = race.horsePaths.map(hp => ({
       id: hp.horse.id,
       name: hp.horse.name,
       bodyColor: hp.horse.bodyColor,
@@ -82,7 +90,7 @@ router.get("/current", async (_req: Request, res: Response) => {
 
     // Fallback to raceHorseCache if DB paths are empty
     if (horses.length === 0 && raceHorseCache.has(Number(race.id))) {
-      horses = raceHorseCache.get(Number(race.id));
+      horses = raceHorseCache.get(Number(race.id)) ?? [];
     }
 
     res.json({
@@ -127,10 +135,11 @@ router.get("/latest", async (_req: Request, res: Response) => {
     }
 
     const raceId = Number(race.id);
-    const hasLiveHorses = raceHorseCache.has(raceId) && raceHorseCache.get(raceId)?.length >= 4;
+    const cachedHorses = raceHorseCache.get(raceId) ?? [];
+    const hasLiveHorses = cachedHorses.length >= 4;
     const hasHorses = race.horsePaths.length > 0 || hasLiveHorses;
 
-    const horses = raceHorseCache.get(raceId) || [];
+    const horses = cachedHorses;
 
     res.json({
       exists: true,

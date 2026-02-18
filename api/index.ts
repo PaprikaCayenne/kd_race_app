@@ -2,7 +2,7 @@
 // Version: v0.8.6 — Adds leaderboard route to /api/leaderboard
 // Date: 2025-05-30
 
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import dotenv from "dotenv";
 import { createServer } from "http";
 import { Server } from "socket.io";
@@ -14,7 +14,6 @@ import betRoute from "./routes/bet.js";
 import adminRoute from "./routes/admin.js";
 import replayRoute from "./routes/replay.js";
 import racesRoute from "./routes/races.js";
-import trackRoute from "./routes/track.js";
 import leaderboardRoute from "./routes/leaderboard.js"; // ✅ NEW
 import { setupRaceNamespace } from "./sockets/race.js";
 import { execSync } from "child_process";
@@ -41,7 +40,7 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.json());
 
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   if (req.url.startsWith("/api/socket.io")) return next();
   next();
 });
