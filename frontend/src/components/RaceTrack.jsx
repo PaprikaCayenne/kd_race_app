@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v3.5.0 — Keeps replay UI hidden until replay and restores compact race metadata panel
+// Version: v3.6.0 — Uses infield-safe track bounds for all race panels and pen layout
 // Date: 2026-02-18
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -13,13 +13,13 @@ import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
 import { playReplay } from '@/utils/playReplay';
 
-const VERSION = 'v3.5.0';
+const VERSION = 'v3.6.0';
 const socket = io('/race', { path: '/api/socket.io' });
 
 const TRACK_PADDING = 24;
-const HORIZONTAL_TRACK_PADDING = 64;
-const TRACK_HEIGHT = 900;
-const CANVAS_HEIGHT = TRACK_HEIGHT + TRACK_PADDING * 2;
+const HORIZONTAL_TRACK_PADDING = 80;
+const TRACK_HEIGHT = 760;
+const CANVAS_HEIGHT = 900;
 
 const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
@@ -31,6 +31,48 @@ const RACE_DURATION_SECONDS = 180;
 function horseIcon(bodyHex = '#a0522d', saddleHex = '#888888') {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><ellipse cx="30" cy="36" rx="18" ry="12" fill="${bodyHex}"/><circle cx="47" cy="28" r="9" fill="${bodyHex}"/><rect x="24" y="29" width="14" height="10" rx="3" fill="${saddleHex}"/><rect x="18" y="44" width="5" height="12" rx="2" fill="#333"/><rect x="35" y="44" width="5" height="12" rx="2" fill="#333"/></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function layoutPanels(infieldBounds) {
+  if (!infieldBounds) return null;
+
+  const pad = 12;
+  const gap = clamp(Math.round(infieldBounds.width * 0.025), 10, 22);
+  const usableWidth = Math.max(240, infieldBounds.width - pad * 2 - gap * 2);
+  const colWidth = Math.max(140, Math.floor(usableWidth / 3));
+  const panelHeight = Math.max(120, infieldBounds.height - pad * 2);
+  const top = Math.round(infieldBounds.y + pad);
+  const left = Math.round(infieldBounds.x + pad);
+
+  const leaderboard = {
+    left,
+    top,
+    width: colWidth,
+    maxHeight: panelHeight,
+    overflowY: 'auto'
+  };
+
+  const winner = {
+    left: left + colWidth + gap,
+    top,
+    width: colWidth,
+    maxHeight: panelHeight,
+    overflow: 'hidden'
+  };
+
+  const race = {
+    left: left + (colWidth + gap) * 2,
+    top,
+    width: colWidth,
+    maxHeight: panelHeight,
+    overflowY: 'auto'
+  };
+
+  return { leaderboard, winner, race };
 }
 
 const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
@@ -69,6 +111,14 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const [replayMode, setReplayMode] = useState(false);
   const [replaySummary, setReplaySummary] = useState(null);
   const [pastRaces, setPastRaces] = useState([]);
+  const [layoutBounds, setLayoutBounds] = useState(null);
+
+  const replayRaceId = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('replayRaceId');
+  }, []);
+
+  const panelStyles = useMemo(() => layoutPanels(layoutBounds?.infieldBounds), [layoutBounds]);
 
   useEffect(() => {
     if (!raceCompleted) {
@@ -111,11 +161,6 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     fetchLeaderboard();
     const interval = setInterval(fetchLeaderboard, 5000);
     return () => clearInterval(interval);
-  }, []);
-
-  const replayRaceId = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('replayRaceId');
   }, []);
 
   useEffect(() => {
@@ -177,13 +222,13 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     appRef.current = app;
 
     fetch('/api/horses')
-      .then(res => res.json())
-      .then(async horses => {
+      .then((res) => res.json())
+      .then(async (horses) => {
         setAllHorses(horses);
         horsesRef.current = horses.slice(0, LANE_COUNT);
 
         const measuredWidths = await Promise.all(
-          horsesRef.current.map(h =>
+          horsesRef.current.map((h) =>
             getSpriteDimensions(h.saddleHex || '#888888', h.bodyHex || '#a0522d', h.id, app).width
           )
         );
@@ -215,6 +260,13 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           return;
         }
 
+        setLayoutBounds({
+          trackBounds: track.trackBounds,
+          infieldBounds: track.infieldBounds,
+          penBounds: track.penBounds,
+          winnersPenBounds: track.winnersPenBounds
+        });
+
         trackDataRef.current = {
           ...track,
           laneCount: LANE_COUNT,
@@ -243,7 +295,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           finishedHorsesRef,
           usedHorseIdsRef,
           raceInfoRef,
-          setRaceName: raceName => {
+          setRaceName: (raceName) => {
             setRaceName(raceName);
             setRaceNameDisplay(raceName);
           },
@@ -260,7 +312,6 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       if (appRef.current) appRef.current.destroy(true, true);
     };
   }, [setRaceName, setRaceWarnings]);
-
 
   useEffect(() => {
     if (!replayRaceId || !trackReadyRef.current || !appRef.current) return;
@@ -300,6 +351,15 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     runReplay();
   }, [replayRaceId]);
 
+  const racePanelRanking = liveRanking.length > 0
+    ? liveRanking
+    : currentRaceHorses.map((horse) => ({
+        id: horse.id,
+        name: horse.name,
+        saddleHex: horse.saddleHex,
+        bodyHex: horse.bodyHex
+      }));
+
   return (
     <div ref={containerRef} className="relative w-screen overflow-hidden">
       <canvas
@@ -309,39 +369,22 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       />
 
       {countdownSeconds > 0 && (
-        <div className="absolute top-8 left-1/2 -translate-x-1/2 px-6 py-3 bg-black/70 text-white rounded-xl z-50 text-2xl font-extrabold">
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 px-6 py-3 bg-black/70 text-white rounded-xl z-50 text-2xl font-extrabold">
           ⏱️ Race starts in {countdownSeconds}s
         </div>
       )}
 
-      <div className="absolute left-4 top-4 z-40 flex w-[360px] max-w-[34vw] flex-col gap-3">
-        <LeaderboardOverlay users={leaderboard} winnerName={winner?.bettorName} compact />
+      {panelStyles && (
+        <LeaderboardOverlay
+          users={leaderboard}
+          winnerName={winner?.bettorName}
+          compact
+          panelStyle={panelStyles.leaderboard}
+        />
+      )}
 
-        {!!currentRaceId && (
-          <div className="bg-white/92 rounded-xl p-3 shadow-xl border border-white/80">
-            <h4 className="font-bold text-sm mb-2">🏇 Current Race #{currentRaceId}</h4>
-            <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
-              {currentRaceHorses.length === 0 && (
-                <p className="text-xs text-gray-500">Waiting for horses…</p>
-              )}
-              {currentRaceHorses.map((horse, idx) => (
-                <div key={`${horse.id}-${idx}`} className="flex items-center gap-2 text-xs">
-                  <span className="w-5 text-center font-bold text-gray-700">{horse.localId || idx + 1}</span>
-                  <img
-                    src={horseIcon(horse.bodyHex, horse.saddleHex)}
-                    alt={horse.name}
-                    className="w-6 h-6 shrink-0"
-                  />
-                  <span className="truncate font-medium text-gray-800">{horse.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {winner && (
-        <div className="absolute top-60 left-1/2 -translate-x-1/2 w-80 bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center">
+      {winner && panelStyles && (
+        <div className="absolute bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center" style={panelStyles.winner}>
           <div className="confetti-wrap" aria-hidden="true">
             {Array.from({ length: 14 }).map((_, i) => (
               <span key={i} className="confetti-dot" style={{ '--i': i, '--delay': `${i * 0.12}s` }} />
@@ -349,43 +392,52 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           </div>
           <h3 className="text-xl font-black text-yellow-700">🏆 Winner</h3>
           <p className="text-sm text-gray-600 mt-1">Bettor</p>
-          <p className="text-lg font-extrabold text-gray-900">{winner.bettorName}</p>
+          <p className="text-lg font-extrabold text-gray-900 truncate">{winner.bettorName}</p>
           <p className="text-sm text-gray-600 mt-2">Winnings</p>
           <p className="text-lg font-bold text-green-700">{winner.winnings || 0} Lease Loons</p>
           <p className="text-sm text-gray-600 mt-3">Horse</p>
-          <p className="text-xl font-bold text-red-700">{winner.horseName}</p>
+          <p className="text-xl font-bold text-red-700 truncate">{winner.horseName}</p>
           <div className="mt-3 mx-auto w-16 h-16 rounded-full border-2 border-gray-200 bg-white flex items-center justify-center">
             <img src={winner.horseImage} alt={winner.horseName} className="w-12 h-12" />
           </div>
         </div>
       )}
 
-      {liveRanking.length > 0 && (
-        <HorseRankingOverlay ranking={liveRanking} raceName={raceNameDisplay} />
+      {panelStyles && racePanelRanking.length > 0 && (
+        <HorseRankingOverlay ranking={racePanelRanking} raceName={raceNameDisplay || 'Current Race'} panelStyle={panelStyles.race} />
       )}
 
-      <div className="absolute bottom-4 left-4 w-72 bg-white/90 rounded-xl p-3 shadow-xl z-40">
-        <h4 className="font-bold text-sm mb-2">🐎 Horse Pen (Tournament Horses)</h4>
-        <div className="flex flex-wrap gap-2">
-          {allHorses.map((horse) => (
-            <div
-              key={horse.id}
-              className="horse-chip"
-              title={horse.name}
-            >
-              <img src={horseIcon(horse.bodyHex, horse.saddleHex)} alt={horse.name} className="w-8 h-8" />
-              <span className="text-[10px] leading-tight max-w-20 truncate">{horse.name}</span>
-            </div>
-          ))}
+      {layoutBounds?.penBounds && (
+        <div
+          className="absolute bg-white/90 rounded-xl p-3 shadow-xl z-40"
+          style={{
+            left: layoutBounds.penBounds.x,
+            top: layoutBounds.penBounds.y,
+            width: layoutBounds.penBounds.width,
+            height: layoutBounds.penBounds.height,
+            overflowY: 'auto'
+          }}
+        >
+          <h4 className="font-bold text-sm mb-2">🐎 Horse Pen (Tournament Horses)</h4>
+          <div className="flex flex-wrap gap-2">
+            {allHorses.map((horse) => (
+              <div
+                key={horse.id}
+                className="horse-chip"
+                title={horse.name}
+              >
+                <img src={horseIcon(horse.bodyHex, horse.saddleHex)} alt={horse.name} className="w-8 h-8" />
+                <span className="text-[10px] leading-tight max-w-20 truncate">{horse.name}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-
-      {replayMode && (
-        <div className="absolute top-4 right-4 bg-white/90 rounded-xl p-3 shadow z-50 w-64">
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="font-bold text-sm">Replays</h4>
-          {replayMode && (
+      {replayMode && panelStyles && (
+        <div className="absolute bg-white/90 rounded-xl p-3 shadow z-50" style={{ ...panelStyles.race, top: panelStyles.race.top + 8 }}>
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="font-bold text-sm">Replays</h4>
             <button
               type="button"
               onClick={() => {
@@ -397,33 +449,32 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
             >
               Clear Replay
             </button>
-          )}
-        </div>
-        <div className="max-h-32 overflow-y-auto space-y-1">
-          {pastRaces.slice(0, 8).map((race) => (
-            <button
-              key={race.id}
-              type="button"
-              className="w-full text-left text-xs hover:bg-gray-100 px-2 py-1 rounded"
-              onClick={() => {
-                const next = new URL(window.location.href);
-                next.searchParams.set('replayRaceId', race.id);
-                window.location.href = next.toString();
-              }}
-            >
-              Replay Race #{race.raceNumber || race.id}
-            </button>
-          ))}
-        </div>
+          </div>
+          <div className="max-h-32 overflow-y-auto space-y-1">
+            {pastRaces.slice(0, 8).map((race) => (
+              <button
+                key={race.id}
+                type="button"
+                className="w-full text-left text-xs hover:bg-gray-100 px-2 py-1 rounded"
+                onClick={() => {
+                  const next = new URL(window.location.href);
+                  next.searchParams.set('replayRaceId', race.id);
+                  window.location.href = next.toString();
+                }}
+              >
+                Replay Race #{race.raceNumber || race.id}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
-      {replayMode && replaySummary?.winner && (
-        <div className="absolute top-28 left-1/2 -translate-x-1/2 bg-white/95 rounded-2xl shadow-2xl p-4 z-50 min-w-80">
+      {replayMode && replaySummary?.winner && panelStyles && (
+        <div className="absolute bg-white/95 rounded-2xl shadow-2xl p-4 z-50" style={panelStyles.winner}>
           <h4 className="font-bold text-center text-lg">Replay Winner</h4>
           <div className="flex items-center justify-center gap-3 mt-2">
             <img src={horseIcon(replaySummary.winner.bodyHex, replaySummary.winner.saddleHex)} alt={replaySummary.winner.horseName} className="w-10 h-10" />
-            <span className="font-semibold">{replaySummary.winner.horseName}</span>
+            <span className="font-semibold truncate">{replaySummary.winner.horseName}</span>
           </div>
           <ul className="mt-3 text-sm">
             {(replaySummary.loonWinners || []).slice(0, 5).map((entry, idx) => (
@@ -435,17 +486,28 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         </div>
       )}
 
-      <div className="absolute bottom-4 right-4 w-72 bg-white/90 rounded-xl p-3 shadow-xl z-40">
-        <h4 className="font-bold text-sm mb-2">🏅 Winners Pen</h4>
-        <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
-          {winnerHistory.length === 0 && <p className="text-xs text-gray-500">No winners yet.</p>}
-          {winnerHistory.map((w) => (
-            <div key={w.raceId} className="winner-chip" title={`${w.horseName} (${w.bettorName})`}>
-              <img src={w.horseImage || horseIcon(w.bodyHex, w.saddleHex)} alt={w.horseName} className="w-8 h-8" />
-            </div>
-          ))}
+      {layoutBounds?.winnersPenBounds && (
+        <div
+          className="absolute bg-white/90 rounded-xl p-3 shadow-xl z-40"
+          style={{
+            left: layoutBounds.winnersPenBounds.x,
+            top: layoutBounds.winnersPenBounds.y,
+            width: layoutBounds.winnersPenBounds.width,
+            height: layoutBounds.winnersPenBounds.height,
+            overflowY: 'auto'
+          }}
+        >
+          <h4 className="font-bold text-sm mb-2">🏅 Winners Pen</h4>
+          <div className="flex flex-wrap gap-2">
+            {winnerHistory.length === 0 && <p className="text-xs text-gray-500">No winners yet.</p>}
+            {winnerHistory.map((w) => (
+              <div key={w.raceId} className="winner-chip" title={`${w.horseName} (${w.bettorName})`}>
+                <img src={w.horseImage || horseIcon(w.bodyHex, w.saddleHex)} alt={w.horseName} className="w-8 h-8" />
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/HorseRankingOverlay.jsx
-// Version: v2.3.0 — Shows horse icon and keeps live order aligned with track progress
+// Version: v2.4.0 — Uses external bounds style and compact race panel sizing
 // Date: 2026-02-18
 
 import React from 'react';
@@ -9,13 +9,13 @@ function buildHorseIcon(bodyHex = '#a0522d', saddleHex = '#888888') {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
-export default function HorseRankingOverlay({ ranking, raceName = '🏇 Live Standings 🏇' }) {
+export default function HorseRankingOverlay({ ranking, raceName = '🏇 Live Standings 🏇', panelStyle = undefined }) {
   return (
-    <div className="absolute top-[260px] right-[8%] w-[clamp(260px,24vw,360px)] bg-white/95 p-6 rounded-2xl shadow-2xl z-50 animate-fadeIn">
-      <h2 className="text-5xl font-extrabold text-center text-red-700 mb-4 border-b pb-2 border-red-200">
+    <div className="absolute bg-white/95 p-4 rounded-2xl shadow-2xl z-50 animate-fadeIn" style={panelStyle}>
+      <h2 className="text-2xl font-extrabold text-center text-red-700 mb-3 border-b pb-2 border-red-200 truncate">
         {raceName}
       </h2>
-      <ol className="space-y-3 text-base">
+      <ol className="space-y-2 text-sm">
         {ranking.map((h, i) => {
           const badgeColor = h.saddleHex
             ? { backgroundColor: h.saddleHex }
@@ -24,10 +24,10 @@ export default function HorseRankingOverlay({ ranking, raceName = '🏇 Live Sta
           return (
             <li
               key={h.id}
-              className="flex items-center px-3 py-2 bg-gray-50 rounded-lg shadow-sm hover:bg-gray-100 transition gap-2"
+              className="flex items-center px-2 py-2 bg-gray-50 rounded-lg shadow-sm hover:bg-gray-100 transition gap-2"
             >
               <span
-                className="text-white text-sm font-bold px-3 py-1 rounded-full"
+                className="text-white text-xs font-bold px-2 py-1 rounded-full shrink-0"
                 style={badgeColor}
               >
                 {i + 1}
@@ -35,7 +35,7 @@ export default function HorseRankingOverlay({ ranking, raceName = '🏇 Live Sta
               <img
                 src={buildHorseIcon(h.bodyHex, h.saddleHex)}
                 alt={h.name}
-                className="w-8 h-8 shrink-0"
+                className="w-7 h-7 shrink-0"
               />
               <span className="flex-1 text-right font-medium text-gray-800 truncate">
                 {h.name}
