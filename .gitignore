@@ -62,3 +62,5 @@ pnpm-lock.yaml
 
 # 🛠️ IDE/Editor artifacts (optional, VSCode-specific ones can be removed if standardized dev containers used)
 .vscode/
+.env.*
+scripts/snapshot/
