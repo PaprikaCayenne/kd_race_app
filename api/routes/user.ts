@@ -58,9 +58,9 @@ router.get("/:deviceId", async (req: Request, res: Response) => {
       orderBy: { id: "desc" }
     });
 
-    let bets = [];
+    let bets: Array<{ raceId: number; horseId: number; amount: number }> = [];
     if (race) {
-      bets = await prisma.bet.findMany({
+      const rawBets = await prisma.bet.findMany({
         where: {
           userId,
           raceId: race.id
@@ -72,8 +72,7 @@ router.get("/:deviceId", async (req: Request, res: Response) => {
         }
       });
 
-      // ✅ Fix BigInt in raceId
-      bets = bets.map((bet) => ({
+      bets = rawBets.map((bet) => ({
         raceId: Number(bet.raceId),
         horseId: bet.horseId,
         amount: bet.amount

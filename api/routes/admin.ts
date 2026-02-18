@@ -5,7 +5,7 @@
 // ... all imports remain unchanged
 import express, { Request, Response } from "express";
 import { exec } from "child_process";
-import prisma from "../lib/prisma.js";
+import prisma from "../lib/prisma";
 import { raceNamespace } from "../sockets/race.js";
 
 const router = express.Router();
@@ -47,7 +47,7 @@ router.post("/reset-dev", async (req: Request, res: Response) => {
     res.status(200).json({ message: "✅ Database reset using seed-dev.ts" });
   } catch (err) {
     console.error("[KD] ❌ Failed to reset database (dev):", err);
-    res.status(500).json({ error: "Failed to run reset-dev", detail: err.message });
+    res.status(500).json({ error: "Failed to run reset-dev", detail: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -70,7 +70,7 @@ router.post("/seed-reset", async (req: Request, res: Response) => {
     res.status(200).json({ message: "✅ Database reset using seed.ts" });
   } catch (err) {
     console.error("[KD] ❌ Failed to reset database:", err);
-    res.status(500).json({ error: "Failed to run seed-reset", detail: err.message });
+    res.status(500).json({ error: "Failed to run seed-reset", detail: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 
@@ -152,7 +152,7 @@ router.post("/generate-race", async (req: Request, res: Response) => {
     });
   } catch (err) {
     console.error("❌ Error creating race:", err);
-    res.status(500).json({ error: "Failed to create race", detail: err.message });
+    res.status(500).json({ error: "Failed to create race", detail: err instanceof Error ? err.message : "Unknown error" });
   }
 });
 

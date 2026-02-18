@@ -45,7 +45,7 @@ router.get("/races", async (_req: Request, res: Response) => {
     });
 
     const formatted = races.map((r, idx) => {
-      const date = new Date(r.startedAt);
+      const date = r.startedAt ? new Date(r.startedAt) : new Date();
       const name = `Race: ${races.length - idx} – ${date.toLocaleString("en-US", {
         month: "2-digit",
         day: "2-digit",

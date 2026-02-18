@@ -1,21 +1,17 @@
-// File: api/routes/bet.ts
-// Version: v1.1.0 — Supports multi-horse betting with lock and balance validation
+// File: api/bet.ts
+// Version: v1.1.1 — Align imports/types with API codebase
 
 import express, { Request, Response } from "express";
-import prisma from "../lib/prisma";
+import prisma from "./lib/prisma";
 
 const router = express.Router();
 
-// POST /api/bet — upsert a bet for one horse in the current race
+// POST /api/bet
 router.post("/", async (req: Request, res: Response) => {
   const { deviceId, horseId, amount } = req.body;
 
-  if (!deviceId || !horseId || typeof amount !== "number") {
-    return res.status(400).json({ error: "Missing required fields" });
-  }
-
-  if (amount < 0 || amount % 50 !== 0) {
-    return res.status(400).json({ error: "Amount must be in 50 LL increments" });
+  if (!deviceId || !horseId || typeof amount !== "number" || amount <= 0) {
+    return res.status(400).json({ error: "deviceId, horseId, and amount > 0 are required" });
   }
 
   try {
@@ -23,13 +19,10 @@ router.post("/", async (req: Request, res: Response) => {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     const race = await prisma.race.findFirst({
-      where: { locked: false },
+      where: { betsLocked: false },
       orderBy: { id: "desc" }
     });
-
-    if (!race || (race.betClosesAt && new Date() >= race.betClosesAt)) {
-      return res.status(403).json({ error: "Betting is closed" });
-    }
+    if (!race) return res.status(400).json({ error: "No active race available" });
 
     const existingBet = await prisma.bet.findUnique({
       where: {
@@ -41,15 +34,13 @@ router.post("/", async (req: Request, res: Response) => {
       }
     });
 
-    const oldAmount = existingBet?.amount || 0;
-    const refund = oldAmount;
-    const availableBalance = user.leaseLoons + refund;
+    const refund = existingBet?.amount || 0;
+    const adjustedBalance = user.leaseLoons + refund;
 
-    if (amount > availableBalance) {
+    if (adjustedBalance < amount) {
       return res.status(400).json({ error: "Insufficient Lease Loons" });
     }
 
-    // Upsert the bet
     await prisma.bet.upsert({
       where: {
         userId_raceId_horseId: {
@@ -67,16 +58,14 @@ router.post("/", async (req: Request, res: Response) => {
       }
     });
 
-    // Update user leaseLoons
-    const newBalance = availableBalance - amount;
     await prisma.user.update({
       where: { id: user.id },
-      data: { leaseLoons: newBalance }
+      data: { leaseLoons: adjustedBalance - amount }
     });
 
-    res.json({ success: true, newBalance });
+    res.json({ success: true, newBalance: adjustedBalance - amount });
   } catch (err) {
-    console.error("❌ Betting error:", err);
+    console.error("Betting error:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

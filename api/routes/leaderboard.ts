@@ -2,15 +2,15 @@
 // Version: v1.0.0 — Adds Lease Loons leaderboard API
 // Date: 2025-05-30
 
-import express from 'express';
-import prisma from '../lib/prisma.js';
+import express, { Request, Response } from "express";
+import prisma from "../lib/prisma";
 
 const router = express.Router();
 
-router.get('/', async (req, res) => {
+router.get("/", async (_req: Request, res: Response) => {
   try {
     const leaderboard = await prisma.user.findMany({
-      orderBy: { leaseLoons: 'desc' },
+      orderBy: { leaseLoons: "desc" },
       select: {
         id: true,
         nickname: true,
@@ -20,8 +20,8 @@ router.get('/', async (req, res) => {
 
     res.json({ leaderboard });
   } catch (err) {
-    console.error('Failed to load leaderboard:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error("Failed to load leaderboard:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
