@@ -28,8 +28,18 @@ docker compose logs --tail=200 kd_api
 docker compose logs --tail=200 kd_nginx
 
 ## Verification. Must run after every change
-Run smoke tests.
-bash scripts/smoke_test.sh
+Primary verification command.
+npm run verify:all
+
+verify:all must run this exact flow.
+1) npm test at repo root
+2) frontend build in kd-frontend folder
+3) scripts/rebuild_all.sh
+4) docker compose up -d --build
+5) scripts/smoke_test.sh
+
+Direct smoke command.
+npm run smoke
 
 If scripts/smoke_test.sh does not exist, create it.
 It should check.
@@ -54,12 +64,6 @@ Prefer targeted fixes with tests.
 ## Output expectations
 When you change code, explain what you changed and how it was verified.
 If you add a new command or script, update this file with the new verify step.
-
-## Verification contract
-After any code change, run:
-1) npm run verify:all
-
-If verify:all fails, fix and rerun until it passes.
 
 ## No partial edits
 When changing a file, update the full file content.
