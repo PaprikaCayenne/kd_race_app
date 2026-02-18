@@ -183,6 +183,19 @@ export default function AdminPage() {
     }
   };
 
+
+  const deleteUser = async (deviceId) => {
+    const ok = window.confirm('Delete this user and related bets/registrations?');
+    if (!ok) return;
+    try {
+      await axios.delete(`/api/admin/user/${deviceId}`, { headers });
+      setStatus('✅ User deleted');
+      await fetchUsers();
+    } catch (err) {
+      setStatus(`❌ Delete failed: ${err?.response?.data?.error || 'Unknown error'}`);
+    }
+  };
+
 const handleDevReset = async (type) => {
   const map = {
     tournament: {
@@ -283,6 +296,7 @@ const handleDevReset = async (type) => {
         setShowRaces={setShowRaces}
         raceState={raceState}
         pastRaces={pastRaces}
+        onReplaySelect={(race) => { window.location.href = `/race?replayRaceId=${race.id}`; }}
       />
 
       {showBetModal && (
@@ -299,6 +313,8 @@ const handleDevReset = async (type) => {
         showUsers={showUsers}
         setShowUsers={setShowUsers}
         updateUser={updateUser}
+        deleteUser={deleteUser}
+        status={status}
       />
 
       <DevTools

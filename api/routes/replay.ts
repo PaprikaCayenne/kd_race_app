@@ -1,13 +1,9 @@
-// File: api/routes/replay.ts
-// Version: v0.7.3 – Converted to TypeScript with typed responses
-
 import express, { Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../lib/prisma";
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
-// GET /api/race/:raceId/replay — Returns all tick frames for a race
+// GET /api/race/:raceId/replay
 router.get("/race/:raceId/replay", async (req: Request, res: Response) => {
   const { raceId } = req.params;
 
@@ -16,32 +12,75 @@ router.get("/race/:raceId/replay", async (req: Request, res: Response) => {
   }
 
   try {
-    const frames = await prisma.replayFrame.findMany({
-      where: { raceId: BigInt(raceId) },
-      select: {
-        horseId: true,
-        pct: true,
-        timeMs: true
-      },
-      orderBy: { timeMs: "asc" }
-    });
+    const id = BigInt(raceId);
+    const [frames, paths, winnerResult, bets] = await Promise.all([
+      prisma.replayFrame.findMany({
+        where: { raceId: id },
+        select: { horseId: true, pct: true, timeMs: true },
+        orderBy: { timeMs: "asc" }
+      }),
+      prisma.horsePath.findMany({
+        where: { raceId: id },
+        orderBy: { index: "asc" },
+        select: {
+          index: true,
+          horse: { select: { id: true, name: true, bodyHex: true, saddleHex: true } }
+        }
+      }),
+      prisma.result.findFirst({
+        where: { raceId: id, position: 1 },
+        select: {
+          horseId: true,
+          horse: { select: { name: true, bodyHex: true, saddleHex: true } }
+        }
+      }),
+      prisma.bet.findMany({
+        where: { raceId: id },
+        select: {
+          amount: true,
+          horseId: true,
+          user: { select: { nickname: true, firstName: true, lastName: true } }
+        }
+      })
+    ]);
 
-    res.json({ frames });
+    const horses = paths.map((p) => ({ ...p.horse, localId: p.index + 1 }));
+
+
+    const loonWinners = bets.length === 0
+      ? []
+      : bets
+          .map((bet) => ({
+            name: bet.user.nickname || [bet.user.firstName, bet.user.lastName].filter(Boolean).join(' ') || 'Unknown',
+            loons: winnerResult && bet.horseId === winnerResult.horseId ? bet.amount * 3 : 0
+          }))
+          .filter((entry) => entry.loons > 0)
+          .sort((a, b) => b.loons - a.loons);
+
+    res.json({
+      frames,
+      horses,
+      winner: winnerResult
+        ? {
+            horseId: winnerResult.horseId,
+            horseName: winnerResult.horse.name,
+            bodyHex: winnerResult.horse.bodyHex,
+            saddleHex: winnerResult.horse.saddleHex
+          }
+        : null,
+      loonWinners
+    });
   } catch (err) {
     console.error("❌ [Replay] Failed to fetch frames:", err);
     res.status(500).json({ error: "Failed to fetch replay frames" });
   }
 });
 
-// GET /api/races — Returns metadata for available replays
 router.get("/races", async (_req: Request, res: Response) => {
   try {
     const races = await prisma.race.findMany({
       orderBy: { startedAt: "desc" },
-      select: {
-        id: true,
-        startedAt: true
-      }
+      select: { id: true, startedAt: true }
     });
 
     const formatted = races.map((r, idx) => {

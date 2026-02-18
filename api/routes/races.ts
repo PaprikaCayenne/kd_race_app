@@ -332,15 +332,17 @@ router.get('/latest-winner', async (_req: Request, res: Response) => {
       return res.status(200).json({ success: true, winner: null });
     }
 
-    const topBet = await prisma.bet.findFirst({
+    const winnerBets = await prisma.bet.findMany({
       where: { raceId: latestRace.id, horseId: winnerResult.horseId },
-      orderBy: { amount: 'desc' },
-      include: { user: { select: { nickname: true, firstName: true, lastName: true } } }
+      include: { user: { select: { nickname: true, firstName: true, lastName: true } } },
+      orderBy: { amount: 'desc' }
     });
 
-    const bettorName = topBet?.user?.nickname
-      || [topBet?.user?.firstName, topBet?.user?.lastName].filter(Boolean).join(' ')
-      || 'No winning bettor';
+    const topBet = winnerBets[0] ?? null;
+    const bettorName = topBet
+      ? (topBet.user?.nickname || [topBet.user?.firstName, topBet.user?.lastName].filter(Boolean).join(' ') || 'Unknown bettor')
+      : 'No bets placed';
+    const winnings = topBet ? topBet.amount * 3 : 0;
 
     const horseSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><ellipse cx="30" cy="36" rx="18" ry="12" fill="${winnerResult.horse.bodyHex}"/><circle cx="47" cy="28" r="9" fill="${winnerResult.horse.bodyHex}"/><rect x="24" y="29" width="14" height="10" rx="3" fill="${winnerResult.horse.saddleHex}"/><rect x="18" y="44" width="5" height="12" rx="2" fill="#333"/><rect x="35" y="44" width="5" height="12" rx="2" fill="#333"/></svg>`;
 
@@ -349,6 +351,7 @@ router.get('/latest-winner', async (_req: Request, res: Response) => {
       winner: {
         raceId: latestRace.id.toString(),
         bettorName,
+        winnings,
         horseName: winnerResult.horse.name,
         horseImage: `data:image/svg+xml;utf8,${encodeURIComponent(horseSvg)}`,
         bodyHex: winnerResult.horse.bodyHex,

@@ -138,6 +138,16 @@ router.post("/generate-race", async (req: Request, res: Response) => {
 
     raceHorseCache.set(Number(race.id), withLocalIds);
 
+    await prisma.horsePath.createMany({
+      data: withLocalIds.map((h, i) => ({
+        raceId: race.id,
+        horseId: h.id,
+        index: i,
+        x: 0,
+        y: 0
+      }))
+    });
+
     raceNamespace.emit("race:init", {
       raceId: Number(race.id),
       horses: withLocalIds,
@@ -398,6 +408,16 @@ router.post("/final-race", async (req: Request, res: Response) => {
 
     raceHorseCache.set(Number(finalRace.id), horses);
 
+    await prisma.horsePath.createMany({
+      data: horses.map((h, i) => ({
+        raceId: finalRace.id,
+        horseId: h.id,
+        index: i,
+        x: 0,
+        y: 0
+      }))
+    });
+
     res.json({
       success: true,
       message: "Final race created and cached",
@@ -450,6 +470,31 @@ router.put('/user/:deviceId', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('❌ Failed to update user:', err);
     res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+
+router.delete('/user/:deviceId', async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+
+  const { deviceId } = req.params;
+
+  try {
+    const user = await prisma.user.findFirst({
+      where: { deviceId: { equals: deviceId, mode: 'insensitive' } },
+      select: { id: true }
+    });
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    await prisma.bet.deleteMany({ where: { userId: user.id } });
+    await prisma.registration.deleteMany({ where: { userId: user.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Failed to delete user:', err);
+    res.status(500).json({ error: 'Failed to delete user' });
   }
 });
 

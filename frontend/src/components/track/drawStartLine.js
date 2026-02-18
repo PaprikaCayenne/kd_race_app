@@ -3,12 +3,13 @@
 // Date: 2025-05-29
 
 import { Graphics } from 'pixi.js';
+import { getStartLineDistance } from '@/utils/raceMath';
 
 export function drawStartLine({ app, centerline, laneCount, laneWidth, boundaryPadding = 0, startLineOffset = 0, spriteWidth = 0 }) {
   const totalLaneWidth = (laneWidth * laneCount) + 2 * boundaryPadding;
   const halfLine = totalLaneWidth / 2;
 
-  const offset = startLineOffset + (spriteWidth / 2);
+  const offset = getStartLineDistance(spriteWidth) + startLineOffset;
   const seg0 = centerline.getPointAtDistance(offset);
   const seg1 = centerline.getPointAtDistance(offset + 1);
 

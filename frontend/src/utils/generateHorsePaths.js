@@ -3,6 +3,7 @@
 // Date: 2025-05-29
 
 import { getTangentAngle } from '@/utils/arcUtils';
+import { getStartLineDistance, getWinningDistance, getStopDistance } from '@/utils/raceMath';
 
 export function generateHorsePaths({
   horses,
@@ -87,6 +88,9 @@ export function generateHorsePaths({
 
     const trueFinishDistance = arcLength;
     const startDistance = 0;
+    const startLineDistance = getStartLineDistance(spriteWidth);
+    const winningDistance = getWinningDistance(arcLength, spriteWidth);
+    const stopDistance = getStopDistance(arcLength, spriteWidth);
 
     const trueFinish = getPointAtDistance(trueFinishDistance);
     trueFinish.arcLength = trueFinishDistance;
@@ -99,7 +103,10 @@ export function generateHorsePaths({
       trueFinish,
       getPointAtDistance,
       getCurveFactorAt: () => 1.0,
-      startDistance
+      startDistance,
+      startLineDistance,
+      winningDistance,
+      stopDistance
     });
   });
 

@@ -1,12 +1,9 @@
-// File: frontend/src/pages/admin/RacesPanel.jsx
-// Version: v2.4.0 — Expanded races table with replay links and loon winner breakdown
-// Date: 2026-02-18
-
 export default function RacesPanel({
   showRaces,
   setShowRaces,
   raceState,
-  pastRaces
+  pastRaces,
+  onReplaySelect
 }) {
   return (
     <div>
@@ -61,24 +58,13 @@ export default function RacesPanel({
                       </td>
                       <td className="p-2 border">
                         {race.replayAvailable ? (
-                          <div className="flex flex-col gap-1">
-                            <a
-                              href={race.replayScreenLink}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-blue-600 hover:underline"
-                            >
-                              Replay Race #{race.raceNumber || race.id}
-                            </a>
-                            <a
-                              href={race.replayDataLink}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-xs text-gray-600 hover:underline"
-                            >
-                              View replay JSON
-                            </a>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onReplaySelect?.(race)}
+                            className="text-blue-600 hover:underline font-medium"
+                          >
+                            Replay in /race
+                          </button>
                         ) : (
                           <span className="text-gray-400">Pending</span>
                         )}

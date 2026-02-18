@@ -6,11 +6,11 @@ import React from 'react';
 
 export default function LeaderboardOverlay({ users, winnerName }) {
   return (
-    <div className="absolute top-60 left-[225px] w-96 bg-white bg-opacity-90 p-8 rounded-2xl shadow-2xl z-50">
-      <h2 className="text-4xl font-extrabold mb-6 flex items-center">
+    <div className="absolute top-[260px] left-[8%] w-[clamp(260px,28vw,420px)] bg-white/90 p-6 rounded-2xl shadow-2xl z-50">
+      <h2 className="text-5xl font-extrabold mb-6 flex items-center">
         <span className="mr-3">🏆</span> Leaderboard <span className="mr-3">🏆</span>
       </h2>
-      <ol className="list-decimal list-inside text-3xl space-y-4">
+      <ol className="list-decimal list-inside text-2xl space-y-4">
         {users.slice(0, 5).map((u, i) => {
           const isWinner = winnerName && u.nickname === winnerName;
           return (

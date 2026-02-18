@@ -1,13 +1,41 @@
-// File: frontend/src/pages/admin/UserEditor.jsx
-// Version: v2.2.7 — Extract User editor into its own component
-// Date: 2025-05-28
+import { useMemo, useState } from 'react';
+
+const EDITABLE_FIELDS = [
+  { key: 'firstName', label: 'First Name' },
+  { key: 'lastName', label: 'Last Name' },
+  { key: 'nickname', label: 'Nickname' },
+  { key: 'leaseLoons', label: 'Lease Loons', type: 'number' }
+];
 
 export default function UserEditor({
   users,
   showUsers,
   setShowUsers,
-  updateUser
+  updateUser,
+  deleteUser,
+  status
 }) {
+  const [editing, setEditing] = useState(null);
+  const [value, setValue] = useState('');
+
+  const activeUser = useMemo(
+    () => users.find((u) => u.deviceId === editing?.deviceId),
+    [users, editing]
+  );
+
+  const openEditor = (user, key) => {
+    setEditing({ deviceId: user.deviceId, key });
+    setValue(String(user[key] ?? ''));
+  };
+
+  const save = async () => {
+    if (!editing) return;
+    await updateUser(editing.deviceId, {
+      [editing.key]: editing.key === 'leaseLoons' ? Number(value) : value
+    });
+    setEditing(null);
+  };
+
   return (
     <div className="mt-6">
       <button
@@ -17,9 +45,11 @@ export default function UserEditor({
         {showUsers ? 'Hide User Editor 👥' : 'Manage Users 👥'}
       </button>
 
+      {status && <p className="mt-2 text-sm text-gray-700">{status}</p>}
+
       {showUsers && (
         <div className="mt-4 overflow-x-auto border rounded shadow-sm bg-white">
-          <table className="w-full min-w-[600px] text-xs text-left border-collapse">
+          <table className="w-full min-w-[700px] text-xs text-left border-collapse">
             <thead className="bg-gray-50 text-gray-600 uppercase tracking-wide">
               <tr>
                 <th className="px-3 py-2 border">Device ID</th>
@@ -27,46 +57,56 @@ export default function UserEditor({
                 <th className="px-3 py-2 border">Last</th>
                 <th className="px-3 py-2 border">Nickname</th>
                 <th className="px-3 py-2 border">Loons</th>
+                <th className="px-3 py-2 border">Delete</th>
               </tr>
             </thead>
             <tbody>
               {users.map((u) => (
                 <tr key={u.deviceId} className="odd:bg-gray-50 even:bg-white">
                   <td className="px-3 py-1 border break-all">{u.deviceId}</td>
+                  {EDITABLE_FIELDS.map((field) => (
+                    <td key={`${u.deviceId}-${field.key}`} className="px-3 py-1 border">
+                      <button
+                        type="button"
+                        className="underline decoration-dotted hover:text-blue-700"
+                        onClick={() => openEditor(u, field.key)}
+                      >
+                        {String(u[field.key] ?? '—')}
+                      </button>
+                    </td>
+                  ))}
                   <td className="px-3 py-1 border">
-                    <input
-                      className="w-full bg-transparent border border-gray-300 rounded px-1"
-                      defaultValue={u.firstName}
-                      onBlur={(e) => updateUser(u.deviceId, { firstName: e.target.value })}
-                    />
-                  </td>
-                  <td className="px-3 py-1 border">
-                    <input
-                      className="w-full bg-transparent border border-gray-300 rounded px-1"
-                      defaultValue={u.lastName}
-                      onBlur={(e) => updateUser(u.deviceId, { lastName: e.target.value })}
-                    />
-                  </td>
-                  <td className="px-3 py-1 border">
-                    <input
-                      className="w-full bg-transparent border border-gray-300 rounded px-1"
-                      defaultValue={u.nickname}
-                      onBlur={(e) => updateUser(u.deviceId, { nickname: e.target.value })}
-                    />
-                  </td>
-                  <td className="px-3 py-1 border">
-                    <input
-                      className="w-16 bg-transparent border border-gray-300 rounded px-1 text-right"
-                      type="number"
-                      inputMode="numeric"
-                      defaultValue={u.leaseLoons}
-                      onBlur={(e) => updateUser(u.deviceId, { leaseLoons: parseInt(e.target.value) })}
-                    />
+                    <button
+                      type="button"
+                      className="px-2 py-1 rounded bg-red-600 text-white"
+                      onClick={() => deleteUser?.(u.deviceId)}
+                    >
+                      Delete
+                    </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {editing && activeUser && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[100]">
+          <div className="bg-white rounded-xl shadow-2xl w-[420px] max-w-[95vw] p-4 space-y-3">
+            <h3 className="font-bold text-lg">Edit {editing.key}</h3>
+            <p className="text-xs text-gray-500">Device ID: {editing.deviceId}</p>
+            <input
+              className="w-full border rounded px-3 py-2"
+              type={editing.key === 'leaseLoons' ? 'number' : 'text'}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <button className="px-3 py-1 border rounded" onClick={() => setEditing(null)}>Cancel</button>
+              <button className="px-3 py-1 bg-blue-600 text-white rounded" onClick={save}>Save</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
