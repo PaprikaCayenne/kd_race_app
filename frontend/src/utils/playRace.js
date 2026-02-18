@@ -1,10 +1,16 @@
 // File: frontend/src/utils/playRace.js
+// Version: v2.1.0 — Uses normalized lane progress for ordering, finish positions, and replay capture
+// Date: 2026-02-18
 
 import BezierEasing from 'bezier-easing';
-import { RACE_SPEED_MULTIPLIER, sortHorsesByDistance } from '@/utils/raceMath';
+import { RACE_SPEED_MULTIPLIER, getNormalizedProgress, sortHorsesByDistance } from '@/utils/raceMath';
 
 const TICK_INTERVAL = 1000 / 30;
 const EASING = BezierEasing(0.42, 0, 0.58, 1);
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
 
 export function playRace({
   socket,
@@ -22,6 +28,7 @@ export function playRace({
   const stopped = new Set();
   const distanceMap = new Map();
   const startTimeMap = new Map();
+  const speedMap = new Map();
   const replayFrames = [];
 
   const raceStartTime = performance.now();
@@ -31,6 +38,7 @@ export function playRace({
     if (!path || typeof path.getPointAtDistance !== 'function') return;
     distanceMap.set(horse.localId, path.startDistance || 0);
     startTimeMap.set(horse.localId, raceStartTime);
+    speedMap.set(horse.localId, horse.racePacingPlan?.baseSpeed || 0);
   });
 
   const ticker = setInterval(() => {
@@ -51,24 +59,34 @@ export function playRace({
       const start = startTimeMap.get(key) ?? raceStartTime;
       const elapsed = now - start;
 
-      let speed = plan.baseSpeed;
+      let targetSpeed = plan.baseSpeed;
       for (const mod of plan.modifiers) {
         if (elapsed >= mod.startMs && elapsed <= mod.startMs + mod.durationMs) {
           const pct = (elapsed - mod.startMs) / mod.durationMs;
           const eased = EASING(pct);
-          speed *= mod.multiplier > 1
+          targetSpeed *= mod.multiplier > 1
             ? 1 + (mod.multiplier - 1) * eased
             : 1 - (1 - mod.multiplier) * eased;
         }
       }
 
-      speed *= speedMultiplier;
-      distance += speed;
+      targetSpeed *= speedMultiplier;
+
+      const previousSpeed = speedMap.get(key) ?? targetSpeed;
+      const maxDelta = Math.max(0.24, targetSpeed * 0.1);
+      const smoothedSpeed = previousSpeed + clamp(targetSpeed - previousSpeed, -maxDelta, maxDelta);
+      const boundedSpeed = clamp(smoothedSpeed, plan.baseSpeed * speedMultiplier * 0.62, plan.baseSpeed * speedMultiplier * 1.45);
+      speedMap.set(key, boundedSpeed);
+
+      distance += boundedSpeed;
 
       const winningDistance = path.winningDistance ?? path.arcLength;
       const stopDistance = path.stopDistance ?? path.arcLength;
+      const winningNormalized = getNormalizedProgress(winningDistance, path.arcLength);
+      const stopNormalized = getNormalizedProgress(stopDistance, path.arcLength);
+      const normalized = getNormalizedProgress(distance, path.arcLength);
 
-      if (distance >= winningDistance && !winnersByOrder.find((w) => w.localId === key)) {
+      if (normalized >= winningNormalized && !winnersByOrder.find((w) => w.localId === key)) {
         winnersByOrder.push({
           id: horse.id,
           localId: key,
@@ -77,7 +95,7 @@ export function playRace({
         });
       }
 
-      if (distance >= stopDistance) {
+      if (normalized >= stopNormalized || distance >= stopDistance) {
         distance = stopDistance;
         stopped.add(key);
       }
@@ -94,11 +112,15 @@ export function playRace({
       label.x = point.x;
       label.y = point.y - 20;
 
-      const replayPct = Math.max(0, Math.min(1, distance / Math.max(1, path.arcLength || 1)));
-      replayFrames.push({ horseId: horse.id, localId: key, pct: replayPct, timeMs: raceElapsed });
+      replayFrames.push({
+        horseId: horse.id,
+        localId: key,
+        pct: getNormalizedProgress(distance, Math.max(1, path.arcLength || 1)),
+        timeMs: raceElapsed
+      });
     });
 
-    const ranked = sortHorsesByDistance(horses, distanceMap);
+    const ranked = sortHorsesByDistance(horses, distanceMap, horsePaths);
     ranked.forEach((horseRank, idx) => {
       const sprite = horseSprites.get(horseRank.localId);
       if (sprite) sprite.zIndex = 20 + (horses.length - idx);
@@ -112,10 +134,13 @@ export function playRace({
     })));
 
     if (stopped.size === horses.length) {
-      const results = winnersByOrder.map((r, i) => ({
+      const finishTimes = new Map(winnersByOrder.map((row) => [row.localId, row.finishTimeMs]));
+      const finalRanking = sortHorsesByDistance(horses, distanceMap, horsePaths);
+
+      const results = finalRanking.map((r, i) => ({
         horseId: r.id,
         position: i + 1,
-        timeMs: r.finishTimeMs,
+        timeMs: finishTimes.get(r.localId) ?? raceElapsed,
         localId: r.localId
       }));
 

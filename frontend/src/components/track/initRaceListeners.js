@@ -1,6 +1,6 @@
 // File: frontend/src/components/track/initRaceListeners.js
-// Version: v3.3.0 — Adds admin:clear-stage listener to wipe visuals when reset is pressed
-// Date: 2025-05-30
+// Version: v3.4.0 — Seeds pacing plans by raceId for stable cross-client race ordering
+// Date: 2026-02-18
 
 import { setupHorses } from './setupHorses';
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
@@ -66,7 +66,6 @@ export function initRaceListeners({
       return;
     }
 
-    // 🧹 Clear visuals from the last race
     clearRaceVisuals({
       app,
       horseSpritesRef,
@@ -109,7 +108,7 @@ export function initRaceListeners({
       return;
     }
 
-    generateRacePacingPlan(horses, horsePathsRef.current, raceDurationSeconds);
+    generateRacePacingPlan(horses, horsePathsRef.current, raceDurationSeconds, `race-${raceId}`);
     setRaceWarnings?.(warnings);
 
     if (app?.__raceTicker) {
@@ -146,14 +145,14 @@ export function initRaceListeners({
 
     const horseIdsPlaced = [...horseSpritesRef.current?.keys() || []];
     if (horseIdsPlaced.length === 0) {
-      const msg = `No horses were placed — all failed during setup`;
+      const msg = 'No horses were placed — all failed during setup';
       logWarn(`❌ ${msg}`);
-      setRaceWarnings?.(prev => [...prev, msg]);
+      setRaceWarnings?.((prev) => [...prev, msg]);
       socket.emit('race:setup-failed', { raceId, reason: msg });
     }
 
     horsesRef.current = horses;
-    usedHorseIdsRef?.current?.add?.(...horses.map(h => h.id));
+    usedHorseIdsRef?.current?.add?.(...horses.map((h) => h.id));
     if (raceInfoRef) raceInfoRef.current = { raceId };
     if (setRaceName) setRaceName(raceName || `Race ${raceId}`);
 
@@ -161,15 +160,15 @@ export function initRaceListeners({
   });
 
   const startHandlers = ['race:start', 'admin:start-race'];
-  startHandlers.forEach(event => {
+  startHandlers.forEach((event) => {
     socket.on(event, ({ raceId }) => {
       const horses = horsesRef.current;
       if (!horses || horses.length === 0) {
-        logWarn(`[KD] ❌ Cannot start race — horsesRef.current is empty`);
+        logWarn('[KD] ❌ Cannot start race — horsesRef.current is empty');
         return;
       }
 
-      horses.forEach(h => {
+      horses.forEach((h) => {
         const path = horsePathsRef.current?.get(h.localId);
         logInfo(`[KD] Path for horse ${h.name} (localId=${h.localId}) →`, path);
         if (typeof path?.getPointAtDistance !== 'function') {
@@ -224,7 +223,6 @@ export function initRaceListeners({
     });
   });
 
-  // ✅ Clear visuals on manual reset
   socket.on('admin:clear-stage', () => {
     logInfo('[KD] 🧹 admin:clear-stage → clearing all visuals');
     clearRaceVisuals({

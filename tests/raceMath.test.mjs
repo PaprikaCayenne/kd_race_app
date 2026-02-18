@@ -24,7 +24,7 @@ test('winning and stop distances follow nose-touch + two horse lengths', () => {
   assert.equal(stopDistance - winningDistance, HORSE_LENGTH_PX * 2);
 });
 
-test('sortHorsesByDistance returns live order highest-first', () => {
+test('sortHorsesByDistance returns live order highest-first without lane metadata', () => {
   const horses = [
     { id: 1, localId: 1, name: 'A' },
     { id: 2, localId: 2, name: 'B' },
@@ -34,4 +34,27 @@ test('sortHorsesByDistance returns live order highest-first', () => {
   const distanceMap = new Map([[1, 100], [2, 325], [3, 220], [4, 90]]);
   const ranked = sortHorsesByDistance(horses, distanceMap);
   assert.deepEqual(ranked.map((h) => h.id), [2, 3, 1, 4]);
+});
+
+test('sortHorsesByDistance uses normalized progress when lane arc lengths differ', () => {
+  const horses = [
+    { id: 1, localId: 1, name: 'A' },
+    { id: 2, localId: 2, name: 'B' },
+    { id: 3, localId: 3, name: 'C' }
+  ];
+
+  const distanceMap = new Map([
+    [1, 400],
+    [2, 430],
+    [3, 380]
+  ]);
+
+  const horsePaths = new Map([
+    [1, { arcLength: 800 }],
+    [2, { arcLength: 1000 }],
+    [3, { arcLength: 700 }]
+  ]);
+
+  const ranked = sortHorsesByDistance(horses, distanceMap, horsePaths);
+  assert.deepEqual(ranked.map((h) => h.id), [3, 1, 2]);
 });
