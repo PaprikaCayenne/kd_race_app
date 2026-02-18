@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/initRaceListeners.js
-// Version: v3.4.0 — Seeds pacing plans by raceId for stable cross-client race ordering
+// Version: v3.5.0 — Adds pre-race walk-in from pens on open-bets and first-finish winner trigger
 // Date: 2026-02-18
 
 import { setupHorses } from './setupHorses';
@@ -10,6 +10,55 @@ import { clearRaceVisuals } from './clearRaceVisuals';
 
 const logInfo = (...args) => console.log('[KD]', ...args);
 const logWarn = (...args) => console.warn('[KD] ⚠️', ...args);
+
+function animateWalkIn({ app, horses, horseSpritesRef, labelSpritesRef, durationMs = 1800 }) {
+  const start = performance.now();
+  const finalByLocalId = new Map();
+
+  horses.forEach((horse) => {
+    const sprite = horseSpritesRef.current.get(horse.localId);
+    const label = labelSpritesRef.current.get(horse.localId);
+    const pose = sprite?.__raceStartPose;
+    if (!sprite || !pose) return;
+
+    finalByLocalId.set(horse.localId, {
+      fromX: sprite.x,
+      fromY: sprite.y,
+      fromRot: sprite.rotation || 0,
+      toX: pose.x,
+      toY: pose.y,
+      toRot: pose.rotation || 0,
+      label
+    });
+  });
+
+  if (finalByLocalId.size === 0) return;
+
+  const ticker = () => {
+    const now = performance.now();
+    const t = Math.max(0, Math.min(1, (now - start) / durationMs));
+    const eased = 1 - Math.pow(1 - t, 3);
+
+    finalByLocalId.forEach((pose, localId) => {
+      const sprite = horseSpritesRef.current.get(localId);
+      if (!sprite) return;
+      sprite.x = pose.fromX + (pose.toX - pose.fromX) * eased;
+      sprite.y = pose.fromY + (pose.toY - pose.fromY) * eased;
+      sprite.rotation = pose.fromRot + (pose.toRot - pose.fromRot) * eased;
+
+      if (pose.label) {
+        pose.label.x = sprite.x;
+        pose.label.y = sprite.y - 20;
+      }
+    });
+
+    if (t >= 1) {
+      app.ticker.remove(ticker);
+    }
+  };
+
+  app.ticker.add(ticker);
+}
 
 export function initRaceListeners({
   socket,
@@ -34,7 +83,8 @@ export function initRaceListeners({
   raceDurationSeconds,
   setRaceCompleted,
   setLastFinishedRaceId,
-  setLiveRanking
+  setLiveRanking,
+  setWinner
 }) {
   socket.on('race:init', async ({ raceId, raceName, horses, startAtPercent }) => {
     const app = appRef.current;
@@ -42,6 +92,7 @@ export function initRaceListeners({
 
     setRaceCompleted?.(false);
     setLiveRanking?.([]);
+    setWinner?.(null);
 
     if (!trackReadyRef?.current) {
       const msg = '[KD] ❌ race:init received before track was ready';
@@ -118,6 +169,11 @@ export function initRaceListeners({
     }
 
     try {
+      const isFinalRace = /final/i.test(String(raceName || ''));
+      const stagingArea = isFinalRace
+        ? trackDataRef?.current?.winnersPenBounds
+        : trackDataRef?.current?.penBounds;
+
       logInfo(`[KD] 🐴 Placing ${horses.length} horses`);
       setupHorses({
         app,
@@ -133,7 +189,9 @@ export function initRaceListeners({
         horsesRef,
         finishedHorsesRef,
         setRaceWarnings,
-        lanes: trackDataRef?.current?.lanes
+        lanes: trackDataRef?.current?.lanes,
+        stagingArea,
+        placeInStaging: true
       });
     } catch (err) {
       const msg = `setupHorses crashed: ${err.message}`;
@@ -143,7 +201,7 @@ export function initRaceListeners({
       return;
     }
 
-    const horseIdsPlaced = [...horseSpritesRef.current?.keys() || []];
+    const horseIdsPlaced = [...(horseSpritesRef.current?.keys() || [])];
     if (horseIdsPlaced.length === 0) {
       const msg = 'No horses were placed — all failed during setup';
       logWarn(`❌ ${msg}`);
@@ -167,14 +225,6 @@ export function initRaceListeners({
         logWarn('[KD] ❌ Cannot start race — horsesRef.current is empty');
         return;
       }
-
-      horses.forEach((h) => {
-        const path = horsePathsRef.current?.get(h.localId);
-        logInfo(`[KD] Path for horse ${h.name} (localId=${h.localId}) →`, path);
-        if (typeof path?.getPointAtDistance !== 'function') {
-          logWarn(`[KD] ⚠️ Missing getPointAtDistance for horse ${h.name} (localId=${h.localId})`);
-        }
-      });
 
       const startLine = trackDataRef?.current?.startLine;
       if (startLine && typeof startLine.alpha === 'number') {
@@ -210,6 +260,9 @@ export function initRaceListeners({
         raceId,
         raceDurationSeconds,
         setLiveRanking,
+        onFirstFinish: ({ horseId, localId }) => {
+          socket.emit('race:first-finish', { raceId, horseId, localId });
+        },
         onRaceEnd: (results) => {
           logInfo('[KD] 🏁 Race ended! Final results sent to backend.');
           logInfo(results);
@@ -221,6 +274,17 @@ export function initRaceListeners({
         }
       });
     });
+  });
+
+  socket.on('admin:open-bets', () => {
+    const app = appRef.current;
+    const horses = horsesRef.current || [];
+    if (!app || horses.length === 0) return;
+    animateWalkIn({ app, horses, horseSpritesRef, labelSpritesRef, durationMs: 2200 });
+  });
+
+  socket.on('winner:preview', ({ winner }) => {
+    if (winner) setWinner?.(winner);
   });
 
   socket.on('admin:clear-stage', () => {

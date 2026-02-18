@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v3.6.0 — Uses infield-safe track bounds for all race panels and pen layout
+// Version: v3.8.0 — Adds tournament pen sync, replay selector on /race, and winner preview handling
 // Date: 2026-02-18
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -13,7 +13,7 @@ import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
 import { playReplay } from '@/utils/playReplay';
 
-const VERSION = 'v3.6.0';
+const VERSION = 'v3.8.0';
 const socket = io('/race', { path: '/api/socket.io' });
 
 const TRACK_PADDING = 24;
@@ -48,31 +48,29 @@ function layoutPanels(infieldBounds) {
   const top = Math.round(infieldBounds.y + pad);
   const left = Math.round(infieldBounds.x + pad);
 
-  const leaderboard = {
-    left,
-    top,
-    width: colWidth,
-    maxHeight: panelHeight,
-    overflowY: 'auto'
+  return {
+    leaderboard: {
+      left,
+      top,
+      width: colWidth,
+      maxHeight: panelHeight,
+      overflowY: 'auto'
+    },
+    winner: {
+      left: left + colWidth + gap,
+      top,
+      width: colWidth,
+      maxHeight: panelHeight,
+      overflow: 'hidden'
+    },
+    race: {
+      left: left + (colWidth + gap) * 2,
+      top,
+      width: colWidth,
+      maxHeight: panelHeight,
+      overflowY: 'auto'
+    }
   };
-
-  const winner = {
-    left: left + colWidth + gap,
-    top,
-    width: colWidth,
-    maxHeight: panelHeight,
-    overflow: 'hidden'
-  };
-
-  const race = {
-    left: left + (colWidth + gap) * 2,
-    top,
-    width: colWidth,
-    maxHeight: panelHeight,
-    overflowY: 'auto'
-  };
-
-  return { leaderboard, winner, race };
 }
 
 const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
@@ -112,26 +110,69 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const [replaySummary, setReplaySummary] = useState(null);
   const [pastRaces, setPastRaces] = useState([]);
   const [layoutBounds, setLayoutBounds] = useState(null);
+  const [session, setSession] = useState(null);
 
-  const replayRaceId = useMemo(() => {
+  const queryReplayRaceId = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('replayRaceId');
   }, []);
 
+  const selectedReplayRaceId = session?.state === 'replaying'
+    ? session?.selectedReplayRaceId || null
+    : queryReplayRaceId;
+
   const panelStyles = useMemo(() => layoutPanels(layoutBounds?.infieldBounds), [layoutBounds]);
 
   useEffect(() => {
-    if (!raceCompleted) {
-      setWinner(null);
-      return;
-    }
+    socket.emit('session:request-init');
+
+    const onSession = ({ session: nextSession }) => {
+      setSession(nextSession || null);
+      setReplayMode(Boolean(nextSession?.state === 'replaying' && nextSession?.selectedReplayRaceId));
+    };
+
+    const onOrder = ({ ranking }) => {
+      if (!Array.isArray(ranking)) return;
+      setLiveRanking(ranking.map((h) => ({
+        id: h.id,
+        name: h.name,
+        saddleHex: h.saddleHex,
+        bodyHex: h.bodyHex
+      })));
+    };
+
+    const onLeaderboardUpdated = async () => {
+      try {
+        const res = await fetch('/api/admin/leaderboard');
+        const data = await res.json();
+        if (data.success) setLeaderboard((data.leaderboard || []).slice(0, 5));
+      } catch (err) {
+        console.error('[KD] ❌ Failed leaderboard refresh:', err);
+      }
+    };
+
+    socket.on('session:init', onSession);
+    socket.on('session:update', onSession);
+    socket.on('race:order', onOrder);
+    socket.on('leaderboard:updated', onLeaderboardUpdated);
+
+    return () => {
+      socket.off('session:init', onSession);
+      socket.off('session:update', onSession);
+      socket.off('race:order', onOrder);
+      socket.off('leaderboard:updated', onLeaderboardUpdated);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!raceCompleted) return;
 
     const fetchWinner = async () => {
       try {
         const res = await fetch('/api/race/latest-winner');
         const data = await res.json();
         if (data?.success && data.winner) {
-          setWinner(data.winner);
+          setWinner((prev) => prev || data.winner);
           setWinnerHistory((prev) => {
             if (prev.some((item) => item.raceId === data.winner.raceId)) return prev;
             return [...prev, data.winner];
@@ -164,6 +205,43 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   }, []);
 
   useEffect(() => {
+    const fetchTournamentState = async () => {
+      try {
+        const res = await fetch('/api/admin/tournament-state');
+        const data = await res.json();
+        if (data?.success) {
+          setAllHorses(Array.isArray(data.horsePool) ? data.horsePool : []);
+          const winners = Array.isArray(data.winners) ? data.winners : [];
+          if (winners.length > 0) {
+            setWinnerHistory(winners.map((horse, idx) => ({
+              raceId: `winner-${idx}`,
+              horseName: horse.name,
+              horseImage: horseIcon(horse.bodyHex, horse.saddleHex),
+              bodyHex: horse.bodyHex,
+              saddleHex: horse.saddleHex,
+              bettorName: 'Heat Winner'
+            })));
+          }
+          return;
+        }
+      } catch {
+      }
+
+      try {
+        const res = await fetch('/api/horses');
+        const horses = await res.json();
+        setAllHorses(Array.isArray(horses) ? horses : []);
+      } catch (err) {
+        console.error('[KD] ❌ Failed to fetch horses:', err);
+      }
+    };
+
+    fetchTournamentState();
+    const interval = setInterval(fetchTournamentState, 4000);
+    return () => clearInterval(interval);
+  }, [lastFinishedRaceId]);
+
+  useEffect(() => {
     const fetchPastRaces = async () => {
       try {
         const res = await fetch('/api/race/races');
@@ -176,11 +254,6 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
     fetchPastRaces();
   }, [lastFinishedRaceId]);
-
-  useEffect(() => {
-    setReplayMode(Boolean(replayRaceId));
-    if (!replayRaceId) setReplaySummary(null);
-  }, [replayRaceId]);
 
   useEffect(() => {
     const fetchCurrentRace = async () => {
@@ -224,7 +297,6 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     fetch('/api/horses')
       .then((res) => res.json())
       .then(async (horses) => {
-        setAllHorses(horses);
         horsesRef.current = horses.slice(0, LANE_COUNT);
 
         const measuredWidths = await Promise.all(
@@ -304,7 +376,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           debugVisible: false,
           setRaceCompleted,
           setLastFinishedRaceId,
-          setLiveRanking
+          setLiveRanking,
+          setWinner
         });
       });
 
@@ -314,11 +387,12 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   }, [setRaceName, setRaceWarnings]);
 
   useEffect(() => {
-    if (!replayRaceId || !trackReadyRef.current || !appRef.current) return;
+    if (!selectedReplayRaceId || !trackReadyRef.current || !appRef.current) return;
+    if (session?.replayPaused) return;
 
     const runReplay = async () => {
       try {
-        const res = await fetch(`/api/race/${replayRaceId}/replay`);
+        const res = await fetch(`/api/race/${selectedReplayRaceId}/replay`);
         const data = await res.json();
         if (!Array.isArray(data?.horses) || !Array.isArray(data?.frames)) return;
 
@@ -349,7 +423,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     };
 
     runReplay();
-  }, [replayRaceId]);
+  }, [selectedReplayRaceId, session?.replayPaused]);
 
   const racePanelRanking = liveRanking.length > 0
     ? liveRanking
@@ -362,11 +436,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
   return (
     <div ref={containerRef} className="relative w-screen overflow-hidden">
-      <canvas
-        ref={canvasRef}
-        style={{ height: `${CANVAS_HEIGHT}px` }}
-        className="block w-full"
-      />
+      <canvas ref={canvasRef} style={{ height: `${CANVAS_HEIGHT}px` }} className="block w-full" />
 
       {countdownSeconds > 0 && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 px-6 py-3 bg-black/70 text-white rounded-xl z-50 text-2xl font-extrabold">
@@ -387,7 +457,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         <div className="absolute bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center" style={panelStyles.winner}>
           <div className="confetti-wrap" aria-hidden="true">
             {Array.from({ length: 14 }).map((_, i) => (
-              <span key={i} className="confetti-dot" style={{ '--i': i, '--delay': `${i * 0.12}s` }} />
+              <span key={i} className="confetti-dot" style={{ '--i': i, '--delay': `${Math.random() * 0.8 + i * 0.05}s` }} />
             ))}
           </div>
           <h3 className="text-xl font-black text-yellow-700">🏆 Winner</h3>
@@ -421,11 +491,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           <h4 className="font-bold text-sm mb-2">🐎 Horse Pen (Tournament Horses)</h4>
           <div className="flex flex-wrap gap-2">
             {allHorses.map((horse) => (
-              <div
-                key={horse.id}
-                className="horse-chip"
-                title={horse.name}
-              >
+              <div key={horse.id} className="horse-chip" title={horse.name}>
                 <img src={horseIcon(horse.bodyHex, horse.saddleHex)} alt={horse.name} className="w-8 h-8" />
                 <span className="text-[10px] leading-tight max-w-20 truncate">{horse.name}</span>
               </div>
@@ -434,21 +500,26 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         </div>
       )}
 
-      {replayMode && panelStyles && (
+      {panelStyles && (
         <div className="absolute bg-white/90 rounded-xl p-3 shadow z-50" style={{ ...panelStyles.race, top: panelStyles.race.top + 8 }}>
           <div className="flex items-center justify-between mb-2">
             <h4 className="font-bold text-sm">Replays</h4>
-            <button
-              type="button"
-              onClick={() => {
-                const next = new URL(window.location.href);
-                next.searchParams.delete('replayRaceId');
-                window.location.href = next.toString();
-              }}
-              className="text-xs px-2 py-1 rounded bg-orange-500 text-white"
-            >
-              Clear Replay
-            </button>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => socket.emit('admin:replay-stop')}
+                className="text-xs px-2 py-1 rounded bg-amber-500 text-white"
+              >
+                Stop
+              </button>
+              <button
+                type="button"
+                onClick={() => socket.emit('admin:replay-clear')}
+                className="text-xs px-2 py-1 rounded bg-orange-500 text-white"
+              >
+                Clear
+              </button>
+            </div>
           </div>
           <div className="max-h-32 overflow-y-auto space-y-1">
             {pastRaces.slice(0, 8).map((race) => (
@@ -456,11 +527,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
                 key={race.id}
                 type="button"
                 className="w-full text-left text-xs hover:bg-gray-100 px-2 py-1 rounded"
-                onClick={() => {
-                  const next = new URL(window.location.href);
-                  next.searchParams.set('replayRaceId', race.id);
-                  window.location.href = next.toString();
-                }}
+                onClick={() => socket.emit('admin:replay-start', { raceId: race.id })}
               >
                 Replay Race #{race.raceNumber || race.id}
               </button>
@@ -500,8 +567,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           <h4 className="font-bold text-sm mb-2">🏅 Winners Pen</h4>
           <div className="flex flex-wrap gap-2">
             {winnerHistory.length === 0 && <p className="text-xs text-gray-500">No winners yet.</p>}
-            {winnerHistory.map((w) => (
-              <div key={w.raceId} className="winner-chip" title={`${w.horseName} (${w.bettorName})`}>
+            {winnerHistory.map((w, idx) => (
+              <div key={`${w.raceId || w.horseName}-${idx}`} className="winner-chip" title={`${w.horseName} (${w.bettorName || 'Heat Winner'})`}>
                 <img src={w.horseImage || horseIcon(w.bodyHex, w.saddleHex)} alt={w.horseName} className="w-8 h-8" />
               </div>
             ))}

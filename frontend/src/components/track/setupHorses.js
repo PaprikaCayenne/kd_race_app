@@ -1,9 +1,26 @@
 // File: frontend/src/components/track/setupHorses.js
-// Version: v2.8.1 — Clarifies scope; visual clearing must be done in parent
-// Date: 2025-05-30
+// Version: v2.9.0 — Supports staging pen placement and always-visible horse labels for walk-in
+// Date: 2026-02-18
 
 import { Sprite, Text, TextStyle, Graphics } from 'pixi.js';
 import { drawHorseSprite } from '@/utils/drawHorseSprite';
+
+function getStagingPoint(stagingArea, idx, total) {
+  if (!stagingArea) return null;
+
+  const cols = Math.max(2, Math.min(4, Math.ceil(Math.sqrt(total || 1))));
+  const rows = Math.max(1, Math.ceil((total || 1) / cols));
+  const col = idx % cols;
+  const row = Math.floor(idx / cols);
+
+  const xStep = stagingArea.width / (cols + 1);
+  const yStep = stagingArea.height / (rows + 1);
+
+  return {
+    x: stagingArea.x + xStep * (col + 1),
+    y: stagingArea.y + yStep * (row + 1)
+  };
+}
 
 export function setupHorses({
   app,
@@ -18,7 +35,9 @@ export function setupHorses({
   horsePathsRef,
   lanes,
   debugVisible = false,
-  setRaceWarnings = () => {}
+  setRaceWarnings = () => {},
+  stagingArea = null,
+  placeInStaging = false
 }) {
   const log = (...args) => console.log('[KD]', ...args);
   const warn = (...args) => console.warn('[KD] ⚠️', ...args);
@@ -29,7 +48,6 @@ export function setupHorses({
   let successCount = 0;
   let failCount = 0;
 
-  // 🔄 These references are assumed to have been visually cleared by the caller (e.g., initRaceListeners)
   horseSpritesRef.current?.clear?.();
   labelSpritesRef.current?.clear?.();
   finishedHorsesRef.current?.clear?.();
@@ -42,7 +60,7 @@ export function setupHorses({
   finishDotsRef.current = [];
   startDotsRef.current = [];
 
-  horses.forEach((horse) => {
+  horses.forEach((horse, index) => {
     const key = horse.localId;
     const pathData = horsePaths?.get(key);
 
@@ -54,8 +72,8 @@ export function setupHorses({
     ) {
       const warning = `❌ Invalid path for horse: ${horse.name} (localId: ${key})`;
       warn(warning);
-      setRaceWarnings(prev => [...prev, warning]);
-      failCount++;
+      setRaceWarnings((prev) => [...prev, warning]);
+      failCount += 1;
       return;
     }
 
@@ -70,8 +88,8 @@ export function setupHorses({
     } catch (err) {
       const warning = `❌ Failed to compute start point for ${horse.name}`;
       warn(warning, err);
-      setRaceWarnings(prev => [...prev, warning]);
-      failCount++;
+      setRaceWarnings((prev) => [...prev, warning]);
+      failCount += 1;
       return;
     }
 
@@ -84,28 +102,44 @@ export function setupHorses({
     sprite.x = startPoint.x;
     sprite.y = startPoint.y;
     sprite.zIndex = 10;
+
+    if (placeInStaging) {
+      const stagingPoint = getStagingPoint(stagingArea, index, horses.length);
+      if (stagingPoint) {
+        sprite.x = stagingPoint.x;
+        sprite.y = stagingPoint.y;
+      }
+    }
+
+    sprite.__raceStartPose = {
+      x: startPoint.x,
+      y: startPoint.y,
+      rotation: angle
+    };
+
     app.stage.addChild(sprite);
     horseSpritesRef.current.set(key, sprite);
 
     const label = new Text(horse.name, new TextStyle({
-      fill: '#000',
+      fill: '#111111',
       fontSize: 12,
       fontWeight: 'bold',
-      stroke: '#fff',
+      stroke: '#ffffff',
       strokeThickness: 2
     }));
+
     label.anchor.set(0.5);
     label.x = sprite.x;
     label.y = sprite.y - 20;
-    label.zIndex = 11;
+    label.zIndex = 12;
     labelSpritesRef.current.set(key, label);
-    if (debugVisible) app.stage.addChild(label);
+    app.stage.addChild(label);
 
     if (debugVisible) {
       const debugDot = new Graphics();
       debugDot.beginFill(parseInt(horse.saddleHex.replace('#', ''), 16))
-              .drawCircle(0, 0, 4)
-              .endFill();
+        .drawCircle(0, 0, 4)
+        .endFill();
       debugDot.position.set(sprite.x, sprite.y);
       debugDot.zIndex = 5;
       app.stage.addChild(debugDot);
@@ -122,13 +156,13 @@ export function setupHorses({
     debugPathLinesRef.current.push(line);
     if (debugVisible) app.stage.addChild(line);
 
-    successCount++;
+    successCount += 1;
   });
 
   if (successCount === 0) {
-    const msg = `❌ No horses were placed — all failed during setup`;
+    const msg = '❌ No horses were placed — all failed during setup';
     warn(msg);
-    setRaceWarnings(prev => [...prev, msg]);
+    setRaceWarnings((prev) => [...prev, msg]);
   }
 
   log(`✅ setupHorses(): placed ${successCount}, failed ${failCount}`);

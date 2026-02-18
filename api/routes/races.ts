@@ -1,19 +1,18 @@
 // File: api/routes/races.ts
-// Version: v1.8.0 — Adds accurate /admin/save-results fallback with full Result model
-// Date: 2025-05-29
+// Version: v1.9.0 — Computes latest winner by highest loon winnings across race payouts
+// Date: 2026-02-18
 
-import express, { Request, Response } from "express";
-import prisma from "../lib/prisma";
-import { raceHorseCache } from "./admin";
+import express, { Request, Response } from 'express';
+import prisma from '../lib/prisma';
+import { raceHorseCache } from './admin';
 
 const router = express.Router();
 
-// ✅ GET /api/race/races — Returns race metadata with replay + winner/loon-winner summary for admin
-router.get("/races", async (_req: Request, res: Response) => {
+router.get('/races', async (_req: Request, res: Response) => {
   try {
     const races = await prisma.race.findMany({
       where: { endedAt: { not: null } },
-      orderBy: { id: "desc" },
+      orderBy: { id: 'desc' },
       select: {
         id: true,
         name: true,
@@ -25,7 +24,7 @@ router.get("/races", async (_req: Request, res: Response) => {
         },
         results: {
           where: { position: { lte: 3 } },
-          orderBy: { position: "asc" },
+          orderBy: { position: 'asc' },
           select: {
             horseId: true,
             position: true,
@@ -102,17 +101,16 @@ router.get("/races", async (_req: Request, res: Response) => {
 
     res.json(payload);
   } catch (err) {
-    console.error("❌ [Replay] Failed to fetch race list:", err);
-    res.status(500).json({ error: "Failed to fetch races" });
+    console.error('❌ [Replay] Failed to fetch race list:', err);
+    res.status(500).json({ error: 'Failed to fetch races' });
   }
 });
 
-// ✅ FIXED: /api/race/current returns same structure as /latest
-router.get("/current", async (_req: Request, res: Response) => {
+router.get('/current', async (_req: Request, res: Response) => {
   try {
     const race = await prisma.race.findFirst({
-      where: { betsLocked: false },
-      orderBy: { id: "desc" },
+      where: { endedAt: null },
+      orderBy: { id: 'desc' },
       include: {
         results: { select: { id: true } },
         horsePaths: {
@@ -141,15 +139,7 @@ router.get("/current", async (_req: Request, res: Response) => {
     const closesAt = race.betClosesAt;
     const locked = closesAt ? now >= closesAt : false;
 
-    let horses: Array<{
-      id: number;
-      name: string;
-      bodyColor: string;
-      bodyHex: string;
-      saddleColor: string;
-      saddleHex: string;
-      localId: number;
-    }> = race.horsePaths.map(hp => ({
+    let horses = race.horsePaths.map((hp) => ({
       id: hp.horse.id,
       name: hp.horse.name,
       bodyColor: hp.horse.bodyColor,
@@ -159,7 +149,6 @@ router.get("/current", async (_req: Request, res: Response) => {
       localId: hp.index + 1
     }));
 
-    // Fallback to raceHorseCache if DB paths are empty
     if (horses.length === 0 && raceHorseCache.has(Number(race.id))) {
       horses = raceHorseCache.get(Number(race.id)) ?? [];
     }
@@ -179,17 +168,16 @@ router.get("/current", async (_req: Request, res: Response) => {
         : 0
     });
   } catch (err) {
-    console.error("❌ [Race] Failed to fetch current race:", err);
-    res.status(500).json({ error: "Failed to fetch current race" });
+    console.error('❌ [Race] Failed to fetch current race:', err);
+    res.status(500).json({ error: 'Failed to fetch current race' });
   }
 });
 
-// ✅ GET /api/race/latest — Returns latest race status and metadata for Admin Panel
-router.get("/latest", async (_req: Request, res: Response) => {
+router.get('/latest', async (_req: Request, res: Response) => {
   try {
     const race = await prisma.race.findFirst({
       where: { isTest: false },
-      orderBy: { id: "desc" },
+      orderBy: { id: 'desc' },
       select: {
         id: true,
         name: true,
@@ -210,8 +198,6 @@ router.get("/latest", async (_req: Request, res: Response) => {
     const hasLiveHorses = cachedHorses.length >= 4;
     const hasHorses = race.horsePaths.length > 0 || hasLiveHorses;
 
-    const horses = cachedHorses;
-
     res.json({
       exists: true,
       id: race.id.toString(),
@@ -221,20 +207,19 @@ router.get("/latest", async (_req: Request, res: Response) => {
       betsLocked: race.betsLocked ?? false,
       hasResults: race.results.length > 0,
       hasHorses,
-      horses
+      horses: cachedHorses
     });
   } catch (err) {
-    console.error("❌ [Race] Failed to fetch latest race:", err);
-    res.status(500).json({ error: "Failed to fetch latest race" });
+    console.error('❌ [Race] Failed to fetch latest race:', err);
+    res.status(500).json({ error: 'Failed to fetch latest race' });
   }
 });
 
-// ✅ GET /api/race/:raceId/replay — Returns all tick frames for a race
-router.get("/:raceId/replay", async (req: Request, res: Response) => {
+router.get('/:raceId/replay', async (req: Request, res: Response) => {
   const { raceId } = req.params;
 
-  if (!raceId || isNaN(Number(raceId))) {
-    return res.status(400).json({ error: "Invalid or missing raceId" });
+  if (!raceId || Number.isNaN(Number(raceId))) {
+    return res.status(400).json({ error: 'Invalid or missing raceId' });
   }
 
   try {
@@ -245,23 +230,22 @@ router.get("/:raceId/replay", async (req: Request, res: Response) => {
         pct: true,
         timeMs: true
       },
-      orderBy: { timeMs: "asc" }
+      orderBy: { timeMs: 'asc' }
     });
 
     res.json({ frames });
   } catch (err) {
-    console.error("❌ [Replay] Failed to fetch frames:", err);
-    res.status(500).json({ error: "Failed to fetch replay frames" });
+    console.error('❌ [Replay] Failed to fetch frames:', err);
+    res.status(500).json({ error: 'Failed to fetch replay frames' });
   }
 });
 
-// ✅ POST /api/admin/save-results — fallback for playRace.js if socket fails
-router.post("/admin/save-results", async (req: Request, res: Response) => {
+router.post('/admin/save-results', async (req: Request, res: Response) => {
   const { raceId, leaderboard, results, replayFrames = [] } = req.body;
   const normalizedResults = Array.isArray(results) && results.length > 0 ? results : leaderboard;
 
   if (!raceId || !Array.isArray(normalizedResults)) {
-    return res.status(400).json({ error: "Missing raceId or results" });
+    return res.status(400).json({ error: 'Missing raceId or results' });
   }
 
   try {
@@ -295,56 +279,75 @@ router.post("/admin/save-results", async (req: Request, res: Response) => {
     console.log(`[KD] ✅ Fallback results saved for race ${raceId}`);
     res.json({ success: true });
   } catch (err) {
-    console.error("❌ [Fallback] Failed to save race results:", err);
-    res.status(500).json({ error: "Failed to save results" });
+    console.error('❌ [Fallback] Failed to save race results:', err);
+    res.status(500).json({ error: 'Failed to save results' });
   }
 });
 
-
-// ✅ GET /api/race/latest-winner — winner card data for projector
 router.get('/latest-winner', async (_req: Request, res: Response) => {
   try {
     const latestRace = await prisma.race.findFirst({
       where: { endedAt: { not: null } },
       orderBy: { id: 'desc' },
-      select: { id: true }
-    });
-
-    if (!latestRace) {
-      return res.status(200).json({ success: true, winner: null });
-    }
-
-    const winnerResult = await prisma.result.findFirst({
-      where: { raceId: latestRace.id, position: 1 },
       select: {
-        horse: {
+        id: true,
+        results: {
+          where: { position: { lte: 3 } },
+          orderBy: { position: 'asc' },
           select: {
-            name: true,
-            bodyHex: true,
-            saddleHex: true
+            horseId: true,
+            position: true,
+            horse: {
+              select: {
+                name: true,
+                bodyHex: true,
+                saddleHex: true
+              }
+            }
           }
-        },
-        horseId: true
+        }
       }
     });
 
-    if (!winnerResult) {
+    if (!latestRace || latestRace.results.length === 0) {
       return res.status(200).json({ success: true, winner: null });
     }
 
-    const winnerBets = await prisma.bet.findMany({
-      where: { raceId: latestRace.id, horseId: winnerResult.horseId },
-      include: { user: { select: { nickname: true, firstName: true, lastName: true } } },
-      orderBy: { amount: 'desc' }
+    const multiplierByHorse = new Map<number, number>();
+    latestRace.results.forEach((result) => {
+      if (result.position === 1) multiplierByHorse.set(result.horseId, 3);
+      else if (result.position === 2) multiplierByHorse.set(result.horseId, 2);
+      else if (result.position === 3) multiplierByHorse.set(result.horseId, 1.5);
     });
 
-    const topBet = winnerBets[0] ?? null;
-    const bettorName = topBet
-      ? (topBet.user?.nickname || [topBet.user?.firstName, topBet.user?.lastName].filter(Boolean).join(' ') || 'Unknown bettor')
-      : 'No bets placed';
-    const winnings = topBet ? topBet.amount * 3 : 0;
+    const winnerHorse = latestRace.results.find((r) => r.position === 1)?.horse;
+    if (!winnerHorse) {
+      return res.status(200).json({ success: true, winner: null });
+    }
 
-    const horseSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><ellipse cx="30" cy="36" rx="18" ry="12" fill="${winnerResult.horse.bodyHex}"/><circle cx="47" cy="28" r="9" fill="${winnerResult.horse.bodyHex}"/><rect x="24" y="29" width="14" height="10" rx="3" fill="${winnerResult.horse.saddleHex}"/><rect x="18" y="44" width="5" height="12" rx="2" fill="#333"/><rect x="35" y="44" width="5" height="12" rx="2" fill="#333"/></svg>`;
+    const bets = await prisma.bet.findMany({
+      where: { raceId: latestRace.id },
+      select: {
+        horseId: true,
+        amount: true,
+        user: { select: { nickname: true, firstName: true, lastName: true } }
+      }
+    });
+
+    const winningsByPlayer = new Map<string, number>();
+    bets.forEach((bet) => {
+      const multiplier = multiplierByHorse.get(bet.horseId);
+      if (!multiplier) return;
+      const name = bet.user.nickname || [bet.user.firstName, bet.user.lastName].filter(Boolean).join(' ') || 'Unknown bettor';
+      const winnings = Math.floor(bet.amount * multiplier);
+      winningsByPlayer.set(name, (winningsByPlayer.get(name) || 0) + winnings);
+    });
+
+    const topWinner = Array.from(winningsByPlayer.entries()).sort((a, b) => b[1] - a[1])[0];
+    const bettorName = topWinner?.[0] || 'No winning bets';
+    const winnings = topWinner?.[1] || 0;
+
+    const horseSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><ellipse cx="30" cy="36" rx="18" ry="12" fill="${winnerHorse.bodyHex}"/><circle cx="47" cy="28" r="9" fill="${winnerHorse.bodyHex}"/><rect x="24" y="29" width="14" height="10" rx="3" fill="${winnerHorse.saddleHex}"/><rect x="18" y="44" width="5" height="12" rx="2" fill="#333"/><rect x="35" y="44" width="5" height="12" rx="2" fill="#333"/></svg>`;
 
     return res.json({
       success: true,
@@ -352,10 +355,10 @@ router.get('/latest-winner', async (_req: Request, res: Response) => {
         raceId: latestRace.id.toString(),
         bettorName,
         winnings,
-        horseName: winnerResult.horse.name,
+        horseName: winnerHorse.name,
         horseImage: `data:image/svg+xml;utf8,${encodeURIComponent(horseSvg)}`,
-        bodyHex: winnerResult.horse.bodyHex,
-        saddleHex: winnerResult.horse.saddleHex
+        bodyHex: winnerHorse.bodyHex,
+        saddleHex: winnerHorse.saddleHex
       }
     });
   } catch (err) {

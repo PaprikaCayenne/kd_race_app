@@ -54,3 +54,12 @@ Prefer targeted fixes with tests.
 ## Output expectations
 When you change code, explain what you changed and how it was verified.
 If you add a new command or script, update this file with the new verify step.
+
+## Verification contract
+After any code change, run:
+1) npm run verify:all
+
+If verify:all fails, fix and rerun until it passes.
+
+## No partial edits
+When changing a file, update the full file content.
