@@ -71,10 +71,21 @@ fi
 
 pnpm -C frontend run build
 
+# Normalize output for environments that expect ./frontend_build at repo root.
+# Vite emits to ./frontend/frontend_build, while deployment copies to ./frontend_build.
+if [ -d "$ROOT_DIR/frontend/frontend_build" ]; then
+  mkdir -p "$ROOT_DIR/frontend_build"
+  rm -rf "$ROOT_DIR/frontend_build"/*
+  cp -a "$ROOT_DIR/frontend/frontend_build"/. "$ROOT_DIR/frontend_build"/
+fi
+
 # Confirm build produced expected outputs
-test -f frontend_build/race.html
-test -f frontend_build/admin.html
-test -f frontend_build/users.html
+for f in users.html admin.html race.html; do
+  if [ ! -f "$ROOT_DIR/frontend_build/$f" ] && [ ! -f "$ROOT_DIR/frontend/frontend_build/$f" ]; then
+    echo "Missing $f in frontend build output"
+    exit 1
+  fi
+done
 
 echo
 

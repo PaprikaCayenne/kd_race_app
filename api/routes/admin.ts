@@ -223,7 +223,7 @@ router.post("/start-race", async (req: Request, res: Response) => {
 router.post("/save-results", async (req: Request, res: Response) => {
   if (!isAuthorized(req)) return res.status(403).json({ error: "Unauthorized" });
 
-  const { raceId, results } = req.body;
+  const { raceId, results, replayFrames = [] } = req.body;
 
   if (!raceId || !Array.isArray(results) || results.length === 0) {
     return res.status(400).json({ error: "Missing raceId or results" });
@@ -240,6 +240,21 @@ router.post("/save-results", async (req: Request, res: Response) => {
     }));
 
     await prisma.result.createMany({ data: insertData });
+
+    if (Array.isArray(replayFrames) && replayFrames.length > 0) {
+      const replayRows = replayFrames
+        .map((frame: any) => ({
+          raceId: BigInt(raceId),
+          horseId: Number(frame.horseId),
+          pct: Math.max(0, Math.min(1, Number(frame.pct) || 0)),
+          timeMs: Number(frame.timeMs) || 0
+        }))
+        .filter((frame: any) => Number.isInteger(frame.horseId));
+
+      if (replayRows.length > 0) {
+        await prisma.replayFrame.createMany({ data: replayRows });
+      }
+    }
 
     await prisma.race.update({
       where: { id: BigInt(raceId) },
@@ -284,23 +299,6 @@ router.post("/save-results", async (req: Request, res: Response) => {
     res.status(500).json({ error: "Failed to save race results" });
   }
 });
-
-// POST /api/admin/reset-tournament
-router.post("/reset-tournament", async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: "Unauthorized" });
-
-  try {
-    await prisma.result.deleteMany();
-    await prisma.race.deleteMany();
-    await prisma.raceName.updateMany({ data: { used: false } });
-
-    res.status(200).json({ message: "✅ Tournament reset complete" });
-  } catch (err) {
-    console.error("❌ Failed to reset tournament:", err);
-    res.status(500).json({ error: "Failed to reset tournament" });
-  }
-});
-
 
 // POST /open-bets
 router.post("/open-bets", async (req: Request, res: Response) => {
@@ -409,6 +407,65 @@ router.post("/final-race", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("❌ final-race failed:", err);
     res.status(500).json({ error: "Failed to create final race" });
+  }
+});
+
+
+// PUT /api/admin/user/:deviceId
+router.put('/user/:deviceId', async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+
+  const { deviceId } = req.params;
+  const updates: Record<string, unknown> = {};
+
+  for (const key of ['firstName', 'lastName', 'nickname', 'leaseLoons']) {
+    if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+      updates[key] = req.body[key];
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(400).json({ error: 'No valid fields provided' });
+  }
+
+  try {
+    const user = await prisma.user.findFirst({
+      where: {
+        deviceId: {
+          equals: deviceId,
+          mode: 'insensitive'
+        }
+      },
+      select: { id: true }
+    });
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: updates
+    });
+
+    res.json({ success: true, user: updated });
+  } catch (err) {
+    console.error('❌ Failed to update user:', err);
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+// POST /api/admin/reset-loons
+router.post('/reset-loons', async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+
+  try {
+    const result = await prisma.user.updateMany({
+      data: { leaseLoons: 1000 }
+    });
+
+    res.json({ success: true, updatedUsers: result.count });
+  } catch (err) {
+    console.error('❌ Failed to reset loons:', err);
+    res.status(500).json({ error: 'Failed to reset loons' });
   }
 });
 

@@ -1,6 +1,6 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v3.2.0 — Adds polling for leaderboard every 5s for projector
-// Date: 2025-05-30
+// Version: v3.4.0 — Adds race countdown + horse pens + winner history visuals
+// Date: 2026-02-18
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Application } from 'pixi.js';
@@ -12,11 +12,11 @@ import { getSpriteDimensions } from '@/utils/spriteDimensionCache';
 import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
 
-const VERSION = 'v3.2.0';
+const VERSION = 'v3.4.0';
 const socket = io('/race', { path: '/api/socket.io' });
 
-const TRACK_WIDTH = window.innerWidth;
-const TRACK_PADDING = 10;
+const TRACK_PADDING = 24;
+const HORIZONTAL_TRACK_PADDING = 64;
 const TRACK_HEIGHT = 900;
 const CANVAS_HEIGHT = TRACK_HEIGHT + TRACK_PADDING * 2;
 
@@ -26,6 +26,11 @@ const HORSE_PADDING = 0;
 const BOUNDARY_PADDING = 0;
 const START_LINE_OFFSET = 10;
 const RACE_DURATION_SECONDS = 180;
+
+function horseIcon(bodyHex = '#a0522d', saddleHex = '#888888') {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><ellipse cx="30" cy="36" rx="18" ry="12" fill="${bodyHex}"/><circle cx="47" cy="28" r="9" fill="${bodyHex}"/><rect x="24" y="29" width="14" height="10" rx="3" fill="${saddleHex}"/><rect x="18" y="44" width="5" height="12" rx="2" fill="#333"/><rect x="35" y="44" width="5" height="12" rx="2" fill="#333"/></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
 
 const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const containerRef = useRef(null);
@@ -49,16 +54,42 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const usedHorseIdsRef = useRef(new Set());
   const raceInfoRef = useRef(null);
 
-  const startLineRef = useRef(null);
-  const finishLineRef = useRef(null);
-
   const [raceCompleted, setRaceCompleted] = useState(false);
   const [lastFinishedRaceId, setLastFinishedRaceId] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [liveRanking, setLiveRanking] = useState([]);
   const [raceNameDisplay, setRaceNameDisplay] = useState('');
+  const [winner, setWinner] = useState(null);
+  const [winnerHistory, setWinnerHistory] = useState([]);
+  const [allHorses, setAllHorses] = useState([]);
+  const [currentRaceHorses, setCurrentRaceHorses] = useState([]);
+  const [countdownSeconds, setCountdownSeconds] = useState(0);
 
-  // 🆕 Poll leaderboard every 5 seconds
+  useEffect(() => {
+    if (!raceCompleted) {
+      setWinner(null);
+      return;
+    }
+
+    const fetchWinner = async () => {
+      try {
+        const res = await fetch('/api/race/latest-winner');
+        const data = await res.json();
+        if (data?.success && data.winner) {
+          setWinner(data.winner);
+          setWinnerHistory((prev) => {
+            if (prev.some((item) => item.raceId === data.winner.raceId)) return prev;
+            return [...prev, data.winner];
+          });
+        }
+      } catch (err) {
+        console.error('[KD] ❌ Failed to fetch latest winner:', err);
+      }
+    };
+
+    fetchWinner();
+  }, [raceCompleted, lastFinishedRaceId]);
+
   useEffect(() => {
     const fetchLeaderboard = async () => {
       try {
@@ -72,16 +103,40 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       }
     };
 
-    fetchLeaderboard(); // initial
+    fetchLeaderboard();
     const interval = setInterval(fetchLeaderboard, 5000);
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
+    const fetchCurrentRace = async () => {
+      try {
+        const res = await fetch('/api/race/current');
+        const data = await res.json();
+        if (data?.exists) {
+          setCurrentRaceHorses(Array.isArray(data.horses) ? data.horses : []);
+          setCountdownSeconds(Number(data.countdownSeconds) || 0);
+        } else {
+          setCurrentRaceHorses([]);
+          setCountdownSeconds(0);
+        }
+      } catch (err) {
+        console.error('[KD] ❌ Failed to fetch race countdown state:', err);
+      }
+    };
+
+    fetchCurrentRace();
+    const timer = setInterval(fetchCurrentRace, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const containerWidth = containerRef.current?.offsetWidth || window.innerWidth;
+
     const app = new Application({
       view: canvasRef.current,
       backgroundColor: 0xbaf0ba,
-      width: containerRef.current.offsetWidth,
+      width: containerWidth,
       height: CANVAS_HEIGHT,
       resolution: window.devicePixelRatio || 1,
       autoDensity: true
@@ -93,6 +148,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     fetch('/api/horses')
       .then(res => res.json())
       .then(async horses => {
+        setAllHorses(horses);
         horsesRef.current = horses.slice(0, LANE_COUNT);
 
         const measuredWidths = await Promise.all(
@@ -105,13 +161,14 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
         const track = drawDerbyTrack({
           app,
-          width: TRACK_WIDTH,
+          width: containerWidth,
           height: TRACK_HEIGHT,
           cornerRadius: CORNER_RADIUS,
           laneCount: LANE_COUNT,
           laneWidth,
           boundaryPadding: BOUNDARY_PADDING,
           trackPadding: TRACK_PADDING,
+          horizontalPadding: HORIZONTAL_TRACK_PADDING,
           startLineOffset: START_LINE_OFFSET,
           spriteWidth: maxSpriteWidth,
           debug: false,
@@ -136,14 +193,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         };
 
         centerlineRef.current = track.centerline;
-        startLineRef.current = track.startLine;
-        finishLineRef.current = track.finishLine;
-
-        console.log(
-          `[KD] 🎯 centerlineRef set with ${track.centerline?.path?.length || 0} points — ready for race:init`
-        );
         trackReadyRef.current = true;
-        console.log('[KD] ✅ Track is ready');
 
         initRaceListeners({
           socket,
@@ -162,13 +212,11 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           finishedHorsesRef,
           usedHorseIdsRef,
           raceInfoRef,
-          setRaceName: raceName  => {
+          setRaceName: raceName => {
             setRaceName(raceName);
             setRaceNameDisplay(raceName);
           },
           setRaceWarnings,
-          startLineRef,
-          finishLineRef,
           raceDurationSeconds: RACE_DURATION_SECONDS,
           debugVisible: false,
           setRaceCompleted,
@@ -182,6 +230,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     };
   }, [setRaceName, setRaceWarnings]);
 
+  const movingHorseIds = new Set(currentRaceHorses.map((h) => h.id));
+
   return (
     <div ref={containerRef} className="relative w-screen overflow-hidden">
       <canvas
@@ -189,10 +239,63 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         style={{ height: `${CANVAS_HEIGHT}px` }}
         className="block w-full"
       />
-      <LeaderboardOverlay users={leaderboard} />
+
+      {countdownSeconds > 0 && (
+        <div className="absolute top-8 left-1/2 -translate-x-1/2 px-6 py-3 bg-black/70 text-white rounded-xl z-50 text-2xl font-extrabold">
+          ⏱️ Race starts in {countdownSeconds}s
+        </div>
+      )}
+
+      <LeaderboardOverlay users={leaderboard} winnerName={winner?.bettorName} />
+
+      {winner && (
+        <div className="absolute top-60 left-1/2 -translate-x-1/2 w-80 bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center">
+          <div className="confetti-wrap" aria-hidden="true">
+            {Array.from({ length: 14 }).map((_, i) => (
+              <span key={i} className="confetti-dot" style={{ '--i': i, '--delay': `${i * 0.12}s` }} />
+            ))}
+          </div>
+          <h3 className="text-xl font-black text-yellow-700">🏆 Winner</h3>
+          <p className="text-sm text-gray-600 mt-1">Bettor</p>
+          <p className="text-lg font-extrabold text-gray-900">{winner.bettorName}</p>
+          <p className="text-sm text-gray-600 mt-3">Horse</p>
+          <p className="text-xl font-bold text-red-700">{winner.horseName}</p>
+          <div className="mt-3 mx-auto w-16 h-16 rounded-full border-2 border-gray-200 bg-white flex items-center justify-center">
+            <img src={winner.horseImage} alt={winner.horseName} className="w-12 h-12" />
+          </div>
+        </div>
+      )}
+
       {liveRanking.length > 0 && (
         <HorseRankingOverlay ranking={liveRanking} raceName={raceNameDisplay} />
       )}
+
+      <div className="absolute bottom-4 left-4 w-72 bg-white/90 rounded-xl p-3 shadow-xl z-40">
+        <h4 className="font-bold text-sm mb-2">🐎 Horse Pen (All Horses)</h4>
+        <div className="flex flex-wrap gap-2">
+          {allHorses.map((horse) => (
+            <div
+              key={horse.id}
+              className={`horse-chip ${movingHorseIds.has(horse.id) && countdownSeconds > 0 ? 'horse-chip--moving' : ''}`}
+              title={horse.name}
+            >
+              <img src={horseIcon(horse.bodyHex, horse.saddleHex)} alt={horse.name} className="w-8 h-8" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="absolute bottom-4 right-4 w-72 bg-white/90 rounded-xl p-3 shadow-xl z-40">
+        <h4 className="font-bold text-sm mb-2">🏅 Winners Pen</h4>
+        <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
+          {winnerHistory.length === 0 && <p className="text-xs text-gray-500">No winners yet.</p>}
+          {winnerHistory.map((w) => (
+            <div key={w.raceId} className="winner-chip" title={`${w.horseName} (${w.bettorName})`}>
+              <img src={w.horseImage || horseIcon(w.bodyHex, w.saddleHex)} alt={w.horseName} className="w-8 h-8" />
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 };

@@ -40,6 +40,9 @@ export function initRaceListeners({
     const app = appRef.current;
     const warnings = [];
 
+    setRaceCompleted?.(false);
+    setLiveRanking?.([]);
+
     if (!trackReadyRef?.current) {
       const msg = '[KD] ❌ race:init received before track was ready';
       console.warn(msg);
@@ -199,6 +202,7 @@ export function initRaceListeners({
 
       playRace({
         app: appRef.current,
+        socket,
         horseSprites: horseSpritesRef.current,
         horsePaths: horsePathsRef.current,
         labelSprites: labelSpritesRef.current,

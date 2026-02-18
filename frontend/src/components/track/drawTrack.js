@@ -17,6 +17,7 @@ export function drawDerbyTrack({
   laneWidth,
   boundaryPadding = 0,
   trackPadding = 0,
+  horizontalPadding = trackPadding,
   debug = false,
   startLineOffset = 0,
   spriteWidth = 0,
@@ -36,7 +37,8 @@ export function drawDerbyTrack({
     trackHeight: height,
     totalLaneWidth,
     cornerRadius,
-    trackPadding
+    trackPadding,
+    horizontalPadding
   });
 
   const { path } = centerline;
@@ -62,6 +64,7 @@ export function drawDerbyTrack({
   trackContainer.lineTo(outer[0].x, outer[0].y);
   inner.forEach((pt, i) => i === 0 ? trackContainer.moveTo(pt.x, pt.y) : trackContainer.lineTo(pt.x, pt.y));
   trackContainer.lineTo(inner[0].x, inner[0].y);
+  trackContainer.zIndex = 0;
   app.stage.addChild(trackContainer);
 
   const startLine = drawStartLine({

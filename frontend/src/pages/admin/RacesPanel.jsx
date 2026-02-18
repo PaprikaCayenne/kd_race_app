@@ -1,6 +1,6 @@
 // File: frontend/src/pages/admin/RacesPanel.jsx
-// Version: v2.2.5 — Extract Races panel into its own component
-// Date: 2025-05-28
+// Version: v2.4.0 — Expanded races table with replay links and loon winner breakdown
+// Date: 2026-02-18
 
 export default function RacesPanel({
   showRaces,
@@ -8,21 +8,6 @@ export default function RacesPanel({
   raceState,
   pastRaces
 }) {
-  const renderRaceResults = (results) => (
-    <div className="grid grid-cols-4 gap-2 text-sm mt-2">
-      {results.map((res, idx) => (
-        <div key={res.horse.id} className="rounded border p-2 bg-gray-50 text-center">
-          <div className="font-bold">{res.horse.name}</div>
-          <div className="text-xs italic">{res.horse.color}</div>
-          <div>
-            {['🥇', '🥈', '🥉'][idx] || `${idx + 1}th`} –{' '}
-            <span className="text-gray-700">{(res.timeMs / 1000).toFixed(3)}s</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-
   return (
     <div>
       <button
@@ -34,28 +19,78 @@ export default function RacesPanel({
 
       {showRaces && (
         <div className="mt-4 border p-4 rounded bg-white space-y-4">
-          <h2 className="text-xl font-bold mb-2">
-            Current Race: {raceState?.name || '—'}
-          </h2>
+          <h2 className="text-xl font-bold">Current Race: {raceState?.name || '—'}</h2>
 
-          {raceState?.results?.length > 0
-            ? renderRaceResults(raceState.results)
-            : <p className="text-gray-500">No results yet</p>
-          }
-
-          {pastRaces.map((race) => (
-            <details key={race.id} className="border p-2 rounded">
-              <summary className="cursor-pointer font-semibold">
-                🏁 {race.name}
-              </summary>
-              {race.results?.length > 0
-                ? renderRaceResults(race.results)
-                : <p className="text-gray-500">No results recorded</p>
-              }
-            </details>
-          ))}
+          {pastRaces.length === 0 ? (
+            <p className="text-gray-500">No completed races with replay data yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full border border-gray-200 text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="p-2 text-left border">Race #</th>
+                    <th className="p-2 text-left border">Race Name</th>
+                    <th className="p-2 text-left border">Winning Horse</th>
+                    <th className="p-2 text-left border">Loon Winners</th>
+                    <th className="p-2 text-left border">Replay</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pastRaces.map((race) => (
+                    <tr key={race.id} className="odd:bg-white even:bg-gray-50 align-top">
+                      <td className="p-2 border font-semibold">{race.raceNumber || race.id}</td>
+                      <td className="p-2 border">
+                        <div className="font-semibold">{race.name}</div>
+                        <div className="text-xs text-gray-500">
+                          Ended: {race.endedAt ? new Date(race.endedAt).toLocaleString() : '—'}
+                        </div>
+                      </td>
+                      <td className="p-2 border">{race.winningHorse || '—'}</td>
+                      <td className="p-2 border">
+                        {Array.isArray(race.loonWinners) && race.loonWinners.length > 0 ? (
+                          <ul className="space-y-1">
+                            {race.loonWinners.map((winner) => (
+                              <li key={`${race.id}-${winner.name}`} className={winner.isTop ? 'font-bold text-red-700' : ''}>
+                                {winner.name} · {winner.loons}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="text-gray-400">No loon winners</span>
+                        )}
+                      </td>
+                      <td className="p-2 border">
+                        {race.replayAvailable ? (
+                          <div className="flex flex-col gap-1">
+                            <a
+                              href={race.replayScreenLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-600 hover:underline"
+                            >
+                              Replay Race #{race.raceNumber || race.id}
+                            </a>
+                            <a
+                              href={race.replayDataLink}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-gray-600 hover:underline"
+                            >
+                              View replay JSON
+                            </a>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">Pending</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
-);
+  );
 }

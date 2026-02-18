@@ -36,11 +36,23 @@ export function setupRaceNamespace(io: Server): void {
       raceNamespace.emit("race:setup-aborted", { raceId, reason });
     });
 
-    socket.on("race:finish", async ({ raceId, leaderboard }) => {
+    socket.on("race:finish", async ({ raceId, leaderboard, results, replayFrames = [] }) => {
       console.log(`🏁 [KD] Received race:finish for raceId=${raceId} — saving results`);
 
       try {
-        const { saved, resultHorseIds } = await saveRaceResults(BigInt(raceId), leaderboard);
+        const normalized = Array.isArray(results) && results.length > 0
+          ? results
+          : (Array.isArray(leaderboard) ? leaderboard.map((row: any, index: number) => ({
+              horseId: row.horseId,
+              localId: row.localId,
+              position: row.position ?? index + 1,
+              timeMs: row.timeMs
+            })) : []);
+
+        const { saved, resultHorseIds } = await saveRaceResults(BigInt(raceId), normalized);
+        if (saved && Array.isArray(replayFrames) && replayFrames.length > 0) {
+          await saveReplayFrames(BigInt(raceId), replayFrames);
+        }
         if (saved) {
           await applyRacePayouts(BigInt(raceId), resultHorseIds);
         }
@@ -103,7 +115,7 @@ async function handleStartRace({
 
 async function saveRaceResults(
   raceId: bigint,
-  leaderboard: { localId: number; timeMs: number }[]
+  results: { horseId?: number; localId: number; timeMs: number; position?: number }[]
 ): Promise<{ saved: boolean; resultHorseIds: number[] }> {
   const existing = await prisma.result.count({ where: { raceId } });
   if (existing > 0) {
@@ -122,13 +134,11 @@ async function saveRaceResults(
     return { saved: false, resultHorseIds: [] };
   }
 
-  const results = leaderboard.map((entry, index) => {
+  const normalized = results.map((entry, index) => {
     const match = cache.find((h) => h.localId === entry.localId);
-    if (!match) {
-      throw new Error(`Horse with localId=${entry.localId} not found in cache`);
-    }
+    const inferredHorseId = match?.horseId ?? match?.id;
+    const horseId = entry.horseId ?? inferredHorseId;
 
-    const horseId = match.horseId ?? match.id;
     if (typeof horseId !== "number") {
       throw new Error(`Horse id missing for localId=${entry.localId}`);
     }
@@ -137,14 +147,14 @@ async function saveRaceResults(
       raceId,
       horseId,
       localId: entry.localId,
-      position: index + 1,
+      position: entry.position ?? index + 1,
       timeMs: entry.timeMs
     };
   });
 
-  await prisma.result.createMany({ data: results });
-  console.log(`[KD] ✅ Saved ${results.length} race results`);
-  return { saved: true, resultHorseIds: results.map(r => r.horseId) };
+  await prisma.result.createMany({ data: normalized });
+  console.log(`[KD] ✅ Saved ${normalized.length} race results`);
+  return { saved: true, resultHorseIds: normalized.map(r => r.horseId) };
 }
 
 async function applyRacePayouts(raceId: bigint, resultHorseIds: number[]): Promise<void> {
@@ -182,4 +192,38 @@ async function applyRacePayouts(raceId: bigint, resultHorseIds: number[]): Promi
   );
 
   console.log(`[KD] ✅ Paid out ${payoutsByUser.size} users for race ${raceId}`);
+}
+
+
+async function saveReplayFrames(
+  raceId: bigint,
+  replayFrames: { horseId?: number; localId?: number; pct: number; timeMs: number }[]
+): Promise<void> {
+  const existing = await prisma.replayFrame.count({ where: { raceId } });
+  if (existing > 0) return;
+
+  const cache = raceHorseCache.get(Number(raceId)) ?? [];
+  const byLocalId = new Map(cache.map((h) => [h.localId, h.horseId ?? h.id]));
+
+  const frames = replayFrames
+    .map((frame) => {
+      const resolvedHorseId = typeof frame.horseId === 'number'
+        ? frame.horseId
+        : byLocalId.get(frame.localId ?? -1);
+
+      if (typeof resolvedHorseId !== 'number') return null;
+
+      return {
+        raceId,
+        horseId: resolvedHorseId,
+        pct: Math.max(0, Math.min(1, Number(frame.pct) || 0)),
+        timeMs: Number(frame.timeMs) || 0
+      };
+    })
+    .filter(Boolean) as { raceId: bigint; horseId: number; pct: number; timeMs: number }[];
+
+  if (frames.length === 0) return;
+
+  await prisma.replayFrame.createMany({ data: frames });
+  console.log(`[KD] ✅ Saved ${frames.length} replay frames for race ${raceId}`);
 }
