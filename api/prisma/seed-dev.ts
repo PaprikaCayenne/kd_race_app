@@ -166,7 +166,7 @@ async function main() {
 
   console.log('🐎 Seeding horses...');
   const horseData = HORSE_NAMES.map((name, i) => {
-    const saddle = SADDLES[i];
+    const saddle = SADDLES[i % SADDLES.length];
     const body = BODY_COLORS[i % BODY_COLORS.length];
     return {
       name,
