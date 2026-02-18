@@ -4,13 +4,13 @@
 
 import React from 'react';
 
-export default function LeaderboardOverlay({ users, winnerName }) {
+export default function LeaderboardOverlay({ users, winnerName, compact = false }) {
   return (
-    <div className="absolute top-[260px] left-[8%] w-[clamp(260px,28vw,420px)] bg-white/90 p-6 rounded-2xl shadow-2xl z-50">
-      <h2 className="text-5xl font-extrabold mb-6 flex items-center">
+    <div className={`${compact ? 'w-full p-4 rounded-xl shadow-xl' : 'absolute top-[260px] left-[8%] w-[clamp(260px,28vw,420px)] p-6 rounded-2xl shadow-2xl z-50'} bg-white/90`}>
+      <h2 className={`${compact ? 'text-2xl mb-3' : 'text-5xl mb-6'} font-extrabold flex items-center`}>
         <span className="mr-3">🏆</span> Leaderboard <span className="mr-3">🏆</span>
       </h2>
-      <ol className="list-decimal list-inside text-2xl space-y-4">
+      <ol className={`list-decimal list-inside ${compact ? 'text-sm space-y-1' : 'text-2xl space-y-4'}`}>
         {users.slice(0, 5).map((u, i) => {
           const isWinner = winnerName && u.nickname === winnerName;
           return (
