@@ -1,5 +1,5 @@
 // File: frontend/src/utils/playRace.js
-// Version: v2.1.0 — Uses normalized lane progress for ordering, finish positions, and replay capture
+// Version: v2.3.0 — Emits first-finish event for winner panel and shared live ordering
 // Date: 2026-02-18
 
 import BezierEasing from 'bezier-easing';
@@ -20,6 +20,7 @@ export function playRace({
   labelSprites,
   horses,
   onRaceEnd,
+  onFirstFinish = () => {},
   speedMultiplier = RACE_SPEED_MULTIPLIER,
   raceDurationSeconds = 10,
   setLiveRanking = () => {}
@@ -30,6 +31,8 @@ export function playRace({
   const startTimeMap = new Map();
   const speedMap = new Map();
   const replayFrames = [];
+  let lastOrderEmit = 0;
+  let firstFinishEmitted = false;
 
   const raceStartTime = performance.now();
 
@@ -93,6 +96,11 @@ export function playRace({
           name: horse.name,
           finishTimeMs: Math.round(elapsed)
         });
+
+        if (!firstFinishEmitted) {
+          firstFinishEmitted = true;
+          onFirstFinish({ horseId: horse.id, localId: key, finishTimeMs: Math.round(elapsed) });
+        }
       }
 
       if (normalized >= stopNormalized || distance >= stopDistance) {
@@ -126,12 +134,25 @@ export function playRace({
       if (sprite) sprite.zIndex = 20 + (horses.length - idx);
     });
 
-    setLiveRanking(ranked.map(({ id, name, saddleHex, bodyHex }) => ({
+    const publicRanking = ranked.map(({ id, localId, name, saddleHex, bodyHex, normalizedProgress }) => ({
       id,
+      localId,
       name,
+      normalizedProgress,
       saddleHex: saddleHex || '#888888',
       bodyHex: bodyHex || '#a0522d'
-    })));
+    }));
+
+    setLiveRanking(publicRanking.map(({ id, name, saddleHex, bodyHex }) => ({ id, name, saddleHex, bodyHex })));
+
+    if (socket?.connected && now - lastOrderEmit >= 200) {
+      socket.emit('race:order', {
+        raceId,
+        elapsedMs: raceElapsed,
+        ranking: publicRanking
+      });
+      lastOrderEmit = now;
+    }
 
     if (stopped.size === horses.length) {
       const finishTimes = new Map(winnersByOrder.map((row) => [row.localId, row.finishTimeMs]));

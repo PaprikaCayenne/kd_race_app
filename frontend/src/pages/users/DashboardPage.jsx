@@ -1,22 +1,25 @@
 // File: frontend/src/pages/users/DashboardPage.jsx
-// Version: v1.4.0 — Adds floating JLL logo, conditional bet tiles
-// Date: 2025-05-29
+// Version: v1.6.0 — Subscribes to leaderboard updates for near real-time panel refresh
+// Date: 2026-02-18
 
-import { useEffect, useState, useCallback } from "react";
-import axios from "axios";
-import HorseBetTile from "../../components/HorseBetTile.jsx";
+import { useEffect, useState, useCallback } from 'react';
+import axios from 'axios';
+import { io } from 'socket.io-client';
+import HorseBetTile from '../../components/HorseBetTile.jsx';
+
+const raceSocket = io('/race', { path: '/api/socket.io' });
 
 function getCookie(name) {
-  const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
   return match ? match[2] : null;
 }
 
 function getDeviceId() {
-  let id = localStorage.getItem("deviceId") || getCookie("deviceId");
+  let id = localStorage.getItem('deviceId') || getCookie('deviceId');
   if (!id) {
     id = crypto.randomUUID();
   }
-  localStorage.setItem("deviceId", id);
+  localStorage.setItem('deviceId', id);
   document.cookie = `deviceId=${id}; path=/; max-age=31536000`;
   return id;
 }
@@ -35,45 +38,80 @@ export default function DashboardPage() {
   const [rank, setRank] = useState(null);
   const [latestWinner, setLatestWinner] = useState(null);
   const [leadingHorse, setLeadingHorse] = useState(null);
+  const [liveOrder, setLiveOrder] = useState([]);
+  const [session, setSession] = useState(null);
+
+  const refreshLeaderboard = useCallback(async (knownUserId = null) => {
+    const leaderboardRes = await axios.get('/api/leaderboard');
+    const leaderboardData = leaderboardRes?.data?.leaderboard || [];
+    setLeaderboard(leaderboardData);
+
+    const targetUserId = knownUserId ?? user?.id;
+    if (targetUserId != null) {
+      const userRank = leaderboardData.findIndex((u) => u.id === targetUserId);
+      if (userRank >= 0) setRank(userRank + 1);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    raceSocket.emit('session:request-init');
+
+    const onSession = ({ session: nextSession }) => setSession(nextSession || null);
+    const onOrder = ({ ranking }) => {
+      const sorted = Array.isArray(ranking) ? ranking : [];
+      setLiveOrder(sorted);
+      setLeadingHorse(sorted[0] || null);
+    };
+
+    const onLeaderboardUpdate = () => {
+      refreshLeaderboard().catch((err) => console.error('Failed to refresh leaderboard:', err));
+    };
+
+    raceSocket.on('session:init', onSession);
+    raceSocket.on('session:update', onSession);
+    raceSocket.on('race:order', onOrder);
+    raceSocket.on('leaderboard:updated', onLeaderboardUpdate);
+
+    return () => {
+      raceSocket.off('session:init', onSession);
+      raceSocket.off('session:update', onSession);
+      raceSocket.off('race:order', onOrder);
+      raceSocket.off('leaderboard:updated', onLeaderboardUpdate);
+    };
+  }, [refreshLeaderboard]);
 
   useEffect(() => {
     async function fetchData() {
       try {
         setLoading(true);
-        const [userRes, raceRes, winnerRes] = await Promise.allSettled([
+        const [userRes, raceRes, winnerRes, sessionRes] = await Promise.allSettled([
           axios.get(`/api/user/${deviceId}`),
-          axios.get("/api/race/current"),
-          axios.get('/api/race/latest-winner')
+          axios.get('/api/race/current'),
+          axios.get('/api/race/latest-winner'),
+          axios.get('/api/race/session')
         ]);
 
-      if (userRes.status === "fulfilled") {
-        setUser(userRes.value.data);
-        setBalance(userRes.value.data.leaseLoons);
+        if (userRes.status === 'fulfilled') {
+          setUser(userRes.value.data);
+          setBalance(userRes.value.data.leaseLoons);
 
-        const initialBets = {};
-        if (userRes.value.data.bets?.length) {
-          userRes.value.data.bets.forEach((bet) => {
-            initialBets[bet.horseId] = bet.amount;
-          });
-        }
-        setBets(initialBets);
-
-        // 🔥 New: Fetch leaderboard + rank
-        const leaderboardRes = await axios.get("/api/leaderboard");
-        const leaderboardData = leaderboardRes?.data?.leaderboard || [];
-        setLeaderboard(leaderboardData);
-
-        const userRank = leaderboardData.findIndex(u => u.id === userRes.value.data.id);
-        if (userRank >= 0) setRank(userRank + 1);
-      } else {
+          const initialBets = {};
+          if (userRes.value.data.bets?.length) {
+            userRes.value.data.bets.forEach((bet) => {
+              initialBets[bet.horseId] = bet.amount;
+            });
+          }
+          setBets(initialBets);
+          await refreshLeaderboard(userRes.value.data.id);
+        } else {
           setUser(null);
         }
 
-        if (raceRes.status === "fulfilled") {
+        if (raceRes.status === 'fulfilled') {
           const raceData = raceRes.value.data || { horses: [] };
           setRace(raceData);
           setCountdown(raceData.countdownSeconds || 0);
-          setLeadingHorse(raceData.horses?.[0] || null);
+          if (!leadingHorse) setLeadingHorse(raceData.horses?.[0] || null);
         } else {
           setRace({ horses: [] });
         }
@@ -81,8 +119,12 @@ export default function DashboardPage() {
         if (winnerRes.status === 'fulfilled' && winnerRes.value?.data?.winner) {
           setLatestWinner(winnerRes.value.data.winner);
         }
+
+        if (sessionRes.status === 'fulfilled' && sessionRes.value?.data?.session) {
+          setSession(sessionRes.value.data.session);
+        }
       } catch (err) {
-        console.error("Failed to fetch dashboard data:", err);
+        console.error('Failed to fetch dashboard data:', err);
       } finally {
         setCheckingUser(false);
         setLoading(false);
@@ -92,7 +134,7 @@ export default function DashboardPage() {
     fetchData();
     const interval = setInterval(() => fetchData(), 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [deviceId, leadingHorse, refreshLeaderboard]);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -102,11 +144,10 @@ export default function DashboardPage() {
     return () => clearInterval(timerId);
   }, [countdown]);
 
-  const horsesAvailable = race?.horses?.length > 0;
-  const bettingLocked = !(race?.betsLocked === false && countdown > 0);
+  const sessionState = session?.state || 'setup';
+  const bettingLocked = sessionState !== 'betting_open';
   const totalBets = Object.values(bets).reduce((sum, amt) => sum + amt, 0);
   const availableBalance = balance - totalBets;
-  
 
   const handleBetChange = useCallback(
     async (horseId, newAmount) => {
@@ -119,16 +160,16 @@ export default function DashboardPage() {
 
       try {
         setSubmitting(true);
-        await axios.post("/api/bet", { deviceId, horseId, amount: newAmount });
+        await axios.post('/api/bet', { deviceId, horseId, amount: newAmount });
       } catch (err) {
-        console.error("Failed to submit bet:", err);
+        console.error('Failed to submit bet:', err);
         setBets((b) => ({ ...b, [horseId]: bets[horseId] || 0 }));
         setBalance((bal) => bal - (bets[horseId] || 0) + newAmount);
       } finally {
         setSubmitting(false);
       }
     },
-    [bets, availableBalance, bettingLocked]
+    [bets, availableBalance, bettingLocked, deviceId]
   );
 
   if (checkingUser) return null;
@@ -138,7 +179,7 @@ export default function DashboardPage() {
       <div className="min-h-screen flex flex-col items-center justify-center text-red-600 space-y-4 text-center px-4">
         <p className="text-lg font-semibold">Could not find user. Please register first.</p>
         <button
-          onClick={() => (window.location.href = "/")}
+          onClick={() => (window.location.href = '/')}
           className="bg-red-600 text-white px-6 py-2 rounded font-semibold shadow hover:bg-red-700 transition"
         >
           🔁 Register Again
@@ -157,28 +198,23 @@ export default function DashboardPage() {
         <p className="text-lg font-semibold">
           Lease Loons Balance: <span className="text-red-700">{balance}</span>
         </p>
-          {/* 👇 ADD THIS BELOW */}
-          {rank && (
-            <p className="text-sm text-gray-700 mt-1">
-              Your current rank: <span className="font-bold text-red-700">#{rank}</span>
-            </p>
-          )}
+        {rank && (
+          <p className="text-sm text-gray-700 mt-1">
+            Your current rank: <span className="font-bold text-red-700">#{rank}</span>
+          </p>
+        )}
+        <p className="text-sm text-gray-700 mt-2">Session: <span className="font-semibold">{sessionState}</span></p>
         {bettingLocked ? (
           <p className="text-sm text-gray-600 mt-2">Betting is locked.</p>
         ) : (
           <p className="text-sm text-gray-600 mt-2">
-            You have{" "}
-            <span className="font-bold text-red-700">{availableBalance}</span>{" "}
-            Lease Loons remaining to bet.
+            You have <span className="font-bold text-red-700">{availableBalance}</span> Lease Loons remaining to bet.
           </p>
         )}
         {countdown > 0 && !bettingLocked && (
-          <p className="mt-2 text-red-700 font-mono text-lg">
-            Time remaining: {countdown}s
-          </p>
+          <p className="mt-2 text-red-700 font-mono text-lg">Time remaining: {countdown}s</p>
         )}
       </div>
-
 
       {latestWinner && (
         <div className="w-full max-w-md bg-yellow-50 border border-yellow-200 rounded-xl p-4 shadow">
@@ -193,10 +229,21 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {leadingHorse && countdown === 0 && (
+      {leadingHorse && (
         <div className="w-full max-w-md bg-blue-50 border border-blue-200 rounded-xl p-4 shadow">
           <h2 className="font-bold text-blue-800">Current Leader (Live)</h2>
           <p className="text-sm mt-1">{leadingHorse.name}</p>
+        </div>
+      )}
+
+      {liveOrder.length > 0 && (
+        <div className="w-full max-w-md bg-white border rounded-xl p-4 shadow">
+          <h2 className="font-bold">Race Order</h2>
+          <ol className="mt-2 space-y-1 text-sm">
+            {liveOrder.map((entry, idx) => (
+              <li key={`${entry.id}-${idx}`}>{idx + 1}. {entry.name}</li>
+            ))}
+          </ol>
         </div>
       )}
 
@@ -232,7 +279,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 🏁 Floating logo in bottom-left */}
       <img
         src="/JLL_logo.png"
         alt="JLL Logo"
