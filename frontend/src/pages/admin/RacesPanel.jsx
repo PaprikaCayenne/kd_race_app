@@ -3,7 +3,10 @@ export default function RacesPanel({
   setShowRaces,
   raceState,
   pastRaces,
-  onReplaySelect
+  session,
+  onReplaySelect,
+  onReplayStop,
+  onReplayClear
 }) {
   return (
     <div>
@@ -17,6 +20,26 @@ export default function RacesPanel({
       {showRaces && (
         <div className="mt-4 border p-4 rounded bg-white space-y-4">
           <h2 className="text-xl font-bold">Current Race: {raceState?.name || '—'}</h2>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onReplayStop}
+              className="px-3 py-1 rounded bg-amber-500 text-white text-sm"
+            >
+              Stop Replay
+            </button>
+            <button
+              type="button"
+              onClick={onReplayClear}
+              className="px-3 py-1 rounded bg-gray-700 text-white text-sm"
+            >
+              Clear Replay
+            </button>
+            <span className="text-xs text-gray-600 self-center">
+              Replay state: {session?.state === 'replaying' ? (session?.replayPaused ? 'paused' : 'playing') : 'inactive'}
+            </span>
+          </div>
 
           {pastRaces.length === 0 ? (
             <p className="text-gray-500">No completed races with replay data yet.</p>
@@ -63,7 +86,7 @@ export default function RacesPanel({
                             onClick={() => onReplaySelect?.(race)}
                             className="text-blue-600 hover:underline font-medium"
                           >
-                            Replay in /race
+                            Start Replay
                           </button>
                         ) : (
                           <span className="text-gray-400">Pending</span>
