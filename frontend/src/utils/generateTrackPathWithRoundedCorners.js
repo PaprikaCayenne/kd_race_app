@@ -9,7 +9,8 @@ export function generateCenterline({
   totalLaneWidth,
   cornerRadius = 100,
   segmentsPerCurve = 12,
-  trackPadding = 0
+  trackPadding = 0,
+  horizontalPadding = trackPadding
 }) {
   const centerX = canvasWidth / 2;
 
@@ -22,9 +23,9 @@ export function generateCenterline({
   const bottom = top + finalTrackHeight;
 
   // ✅ FIX: Clamp left/right within padded range
-  const usableWidth = canvasWidth - 2 * trackPadding;
-  const left = trackPadding + halfTrack;
-  const right = canvasWidth - trackPadding - halfTrack;
+  const usableWidth = canvasWidth - 2 * horizontalPadding;
+  const left = horizontalPadding + halfTrack;
+  const right = canvasWidth - horizontalPadding - halfTrack;
 
   const r = cornerRadius;
   const rawPoints = [];

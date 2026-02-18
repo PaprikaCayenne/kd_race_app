@@ -59,7 +59,7 @@ export default function AdminPage() {
         setRaceState(res.data);
         setWarnings(res.data.warnings || []);
       }
-      const pastRes = await axios.get('/api/races');
+      const pastRes = await axios.get('/api/race/races');
       setPastRaces(pastRes.data || []);
     } catch {
       setRaceState(null);
@@ -120,7 +120,6 @@ export default function AdminPage() {
         setStatus('♻️ Tournament reset successfully');
         setShowReset(false);
         setIsFinalRaceOverride(false);
-        setIsFinalRaceOverride(false);
         await fetchRaceState();
 
         // Clear horses from canvas
@@ -138,7 +137,9 @@ export default function AdminPage() {
 
       if (endpoint === 'clear-horses') {
         await axios.post(`/api/admin/clear-horses`, {}, { headers });
-        setStatus('✅ Race reset');
+        const socket = window?.raceSocket;
+        if (socket) socket.emit('admin:clear-stage');
+        setStatus('✅ Race cleared for next setup');
         await fetchRaceState();
         return;
       }
@@ -247,6 +248,7 @@ const handleDevReset = async (type) => {
   const isEnded = !!raceState?.endedAt;
   const canOpenBets = isRaceReady && raceState?.betsLocked === false;
   const canStartRace = isRaceReady && betCountdown === null && raceState?.betsLocked === true;
+  const canClearRace = !!raceState && (isRaceReady || !isEnded);
 
   const raceCount = pastRaces.length;
   const allowGenerate = !raceState || isEnded;
@@ -268,10 +270,12 @@ const handleDevReset = async (type) => {
         isRaceReady={isRaceReady}
         canOpenBets={canOpenBets}
         canStartRace={canStartRace}
+        canClearRace={canClearRace}
         betCountdown={betCountdown}
         countdownDisplay={countdownDisplay}
         onAction={handleAdminAction}
         onOpenBets={() => handleAdminAction('open-bets')}
+        onClearRace={() => handleAdminAction('clear-horses')}
       />
 
       <RacesPanel
