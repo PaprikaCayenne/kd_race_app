@@ -1,18 +1,25 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # File: scripts/api_rebuild.sh
-# Version: v1.0.0 - Simple rebuild and restart of kd_api service
+# Version: v1.1.0 - Rebuild and restart kd_api from repository root
 
-set -e
+set -euo pipefail
 
-# Navigate to the correct project directory
-cd /docker/stacks/kd_race_app
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 
-# Rebuild the API service
-echo "\n🔨 Rebuilding kd_api..."
-docker compose build kd_api
+COMPOSE_CMD=()
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker-compose)
+else
+  echo "❌ Docker Compose is required (tried: 'docker compose' and 'docker-compose')."
+  exit 1
+fi
 
-# Restart the API service in detached mode
-echo "\n🚀 Restarting kd_api..."
-docker compose up -d kd_api
+echo "🔨 Rebuilding kd_api..."
+"${COMPOSE_CMD[@]}" build kd_api
 
+echo "🚀 Restarting kd_api..."
+"${COMPOSE_CMD[@]}" up -d kd_api
