@@ -1,20 +1,22 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # File: scripts/generate_code_snapshot.sh
-# Version: v1.2.0 — Auto-increments version and saves to snapshot folder
+# Version: v1.3.0 — Auto-increments version and saves to snapshot folder
+
+set -euo pipefail
 
 DATE=$(date +%F)
 SNAPSHOT_DIR="scripts/snapshot"
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 mkdir -p "$SNAPSHOT_DIR"
 
-# Get the latest version number for today’s date
-last_version=$(ls "$SNAPSHOT_DIR" 2>/dev/null | grep "project_snapshot_${DATE}_" | \
+# Get the latest version number for today's date
+last_version=$(find "$SNAPSHOT_DIR" -maxdepth 1 -type f -name "project_snapshot_${DATE}_v*.txt" -printf '%f\n' | \
   sed -E "s/^project_snapshot_${DATE}_v//; s/\.txt$//" | \
   sort -V | tail -n1)
 
-if [[ -z "$last_version" ]]; then
+if [[ -z "${last_version:-}" ]]; then
   VERSION="v1.0.0"
 else
   IFS='.' read -r major minor patch <<< "$last_version"
@@ -34,11 +36,12 @@ find "$ROOT" \
   -type f \
   \( -name "*.js" -o -name "*.jsx" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" \
      -o -name "*.html" -o -name "*.css" -o -name "Dockerfile" -o -name "docker-compose.yml" \
-     -o -name "*.conf" -o -name ".env" -o -name "*.sh" \) \
+     -o -name "*.conf" -o -name "*.sh" \) \
   ! -path "*/node_modules/*" \
   ! -path "$ROOT/volumes/*" \
   ! -path "$ROOT/frontend/dist/*" \
   ! -path "$ROOT/frontend_dist_temp/*" \
+  ! -path "$ROOT/.git/*" \
   | sort | while read -r file; do
     rel_path="${file#$ROOT/}"
     echo -e "\n\n==== FILE: $rel_path ====\n" >> "$OUTPUT"

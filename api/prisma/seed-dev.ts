@@ -193,6 +193,11 @@ async function main() {
   const horseData = HORSE_NAMES.map((name, i) => {
     const saddle = SADDLES[i % SADDLES.length];
     const body = BODY_COLORS[i % BODY_COLORS.length];
+
+    if (!saddle || !body) {
+      throw new Error(`Missing color seed data at horse index ${i}`);
+    }
+
     return {
       name,
       saddleColor: saddle.name,
@@ -203,6 +208,22 @@ async function main() {
   });
 
   await prisma.horse.createMany({ data: horseData });
+
+  const leaderboardHorseNames = HORSE_NAMES.slice(0, 4);
+  const seededHorses = await prisma.horse.findMany({
+    where: { name: { in: leaderboardHorseNames } }
+  });
+
+  const horseByName = new Map(seededHorses.map((horse) => [horse.name, horse]));
+  const leaderboardHorses = leaderboardHorseNames.map((horseName) => {
+    const horse = horseByName.get(horseName);
+    if (!horse) {
+      throw new Error(`Expected seeded horse named "${horseName}" for test race setup`);
+    }
+    return horse;
+  });
+
+  const [horseA, horseB, horseC, horseD] = leaderboardHorses;
 
   console.log('🏷️ Seeding race names...');
   await prisma.raceName.createMany({
@@ -274,21 +295,21 @@ async function main() {
   console.log('💰 Placing test bets...');
   await prisma.bet.createMany({
     data: [
-      { userId: colin.id, horseId: 2, raceId: race.id, amount: 50 },
-      { userId: jamie.id, horseId: 3, raceId: race.id, amount: 50 },
-      { userId: riley.id, horseId: 1, raceId: race.id, amount: 50 },
-      { userId: morgan.id, horseId: 2, raceId: race.id, amount: 100 },
-      { userId: sky.id, horseId: 4, raceId: race.id, amount: 50 }
+      { userId: colin.id, horseId: horseB.id, raceId: race.id, amount: 50 },
+      { userId: jamie.id, horseId: horseC.id, raceId: race.id, amount: 50 },
+      { userId: riley.id, horseId: horseA.id, raceId: race.id, amount: 50 },
+      { userId: morgan.id, horseId: horseB.id, raceId: race.id, amount: 100 },
+      { userId: sky.id, horseId: horseD.id, raceId: race.id, amount: 50 }
     ]
   });
 
   console.log('🥇 Seeding test results…');
   await prisma.result.createMany({
     data: [
-      { raceId: race.id, horseId: 2, localId: 1, position: 1, timeMs: 10000 },
-      { raceId: race.id, horseId: 1, localId: 2, position: 2, timeMs: 10200 },
-      { raceId: race.id, horseId: 4, localId: 3, position: 3, timeMs: 10400 },
-      { raceId: race.id, horseId: 3, localId: 4, position: 4, timeMs: 10600 }
+      { raceId: race.id, horseId: horseB.id, localId: 1, position: 1, timeMs: 10000 },
+      { raceId: race.id, horseId: horseA.id, localId: 2, position: 2, timeMs: 10200 },
+      { raceId: race.id, horseId: horseD.id, localId: 3, position: 3, timeMs: 10400 },
+      { raceId: race.id, horseId: horseC.id, localId: 4, position: 4, timeMs: 10600 }
     ]
   });
 
