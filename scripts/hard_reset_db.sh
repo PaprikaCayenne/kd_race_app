@@ -1,7 +1,9 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # File: scripts/hard_reset_db.sh
-# Version: v1.3.1 — Adds API image rebuild and removes Prisma caching issues
+# Version: v1.4.0 — Ensures kd_api is running before Prisma reset commands
 
 clear
 echo "🚨 WARNING: This will WIPE the derby database and rebuild the full stack."
@@ -11,6 +13,9 @@ if [[ "$confirm" != "yes" ]]; then
   echo "❌ Cancelled"
   exit 1
 fi
+
+echo "🚀 Ensuring required services are running (kd_api, kd_nginx)..."
+docker compose up -d kd_api kd_nginx || { echo "❌ Failed to start required services"; exit 1; }
 
 echo "📦 Resetting database via Prisma..."
 docker compose exec kd_api npx prisma db push --force-reset || { echo "❌ Failed to push schema"; exit 1; }

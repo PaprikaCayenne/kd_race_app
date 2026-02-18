@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v3.4.0 — Adds race countdown + horse pens + winner history visuals
+// Version: v3.5.0 — Keeps replay UI hidden until replay and restores compact race metadata panel
 // Date: 2026-02-18
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -13,7 +13,7 @@ import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
 import { playReplay } from '@/utils/playReplay';
 
-const VERSION = 'v3.4.0';
+const VERSION = 'v3.5.0';
 const socket = io('/race', { path: '/api/socket.io' });
 
 const TRACK_PADDING = 24;
@@ -64,6 +64,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const [winnerHistory, setWinnerHistory] = useState([]);
   const [allHorses, setAllHorses] = useState([]);
   const [currentRaceHorses, setCurrentRaceHorses] = useState([]);
+  const [currentRaceId, setCurrentRaceId] = useState(null);
   const [countdownSeconds, setCountdownSeconds] = useState(0);
   const [replayMode, setReplayMode] = useState(false);
   const [replaySummary, setReplaySummary] = useState(null);
@@ -132,14 +133,21 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   }, [lastFinishedRaceId]);
 
   useEffect(() => {
+    setReplayMode(Boolean(replayRaceId));
+    if (!replayRaceId) setReplaySummary(null);
+  }, [replayRaceId]);
+
+  useEffect(() => {
     const fetchCurrentRace = async () => {
       try {
         const res = await fetch('/api/race/current');
         const data = await res.json();
         if (data?.exists) {
+          setCurrentRaceId(data.id || null);
           setCurrentRaceHorses(Array.isArray(data.horses) ? data.horses : []);
           setCountdownSeconds(Number(data.countdownSeconds) || 0);
         } else {
+          setCurrentRaceId(null);
           setCurrentRaceHorses([]);
           setCountdownSeconds(0);
         }
@@ -306,7 +314,31 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         </div>
       )}
 
-      <LeaderboardOverlay users={leaderboard} winnerName={winner?.bettorName} />
+      <div className="absolute left-4 top-4 z-40 flex w-[360px] max-w-[34vw] flex-col gap-3">
+        <LeaderboardOverlay users={leaderboard} winnerName={winner?.bettorName} compact />
+
+        {!!currentRaceId && (
+          <div className="bg-white/92 rounded-xl p-3 shadow-xl border border-white/80">
+            <h4 className="font-bold text-sm mb-2">🏇 Current Race #{currentRaceId}</h4>
+            <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+              {currentRaceHorses.length === 0 && (
+                <p className="text-xs text-gray-500">Waiting for horses…</p>
+              )}
+              {currentRaceHorses.map((horse, idx) => (
+                <div key={`${horse.id}-${idx}`} className="flex items-center gap-2 text-xs">
+                  <span className="w-5 text-center font-bold text-gray-700">{horse.localId || idx + 1}</span>
+                  <img
+                    src={horseIcon(horse.bodyHex, horse.saddleHex)}
+                    alt={horse.name}
+                    className="w-6 h-6 shrink-0"
+                  />
+                  <span className="truncate font-medium text-gray-800">{horse.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
 
       {winner && (
         <div className="absolute top-60 left-1/2 -translate-x-1/2 w-80 bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center">
@@ -349,7 +381,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       </div>
 
 
-      <div className="absolute top-4 right-4 bg-white/90 rounded-xl p-3 shadow z-50 w-64">
+      {replayMode && (
+        <div className="absolute top-4 right-4 bg-white/90 rounded-xl p-3 shadow z-50 w-64">
         <div className="flex items-center justify-between mb-2">
           <h4 className="font-bold text-sm">Replays</h4>
           {replayMode && (
@@ -382,7 +415,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
             </button>
           ))}
         </div>
-      </div>
+        </div>
+      )}
 
       {replayMode && replaySummary?.winner && (
         <div className="absolute top-28 left-1/2 -translate-x-1/2 bg-white/95 rounded-2xl shadow-2xl p-4 z-50 min-w-80">

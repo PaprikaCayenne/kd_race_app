@@ -143,6 +143,30 @@ const HORSE_NAMES = [
   'Sterling Stride',
 ];
 
+
+function buildUniqueSaddleHex(baseHex: string, index: number, usedHexes: Set<string>) {
+  if (!usedHexes.has(baseHex)) {
+    usedHexes.add(baseHex);
+    return baseHex;
+  }
+
+  const base = parseInt(baseHex.replace('#', ''), 16) || 0;
+  let attempt = 1;
+
+  while (attempt < 0xffffff) {
+    const candidate = `#${((base + index * 0x10101 + attempt) % 0xffffff)
+      .toString(16)
+      .padStart(6, '0')}`;
+    if (!usedHexes.has(candidate)) {
+      usedHexes.add(candidate);
+      return candidate;
+    }
+    attempt += 1;
+  }
+
+  throw new Error('Unable to generate unique saddleHex for seed data');
+}
+
 const RACE_NAMES = [
   "Lease Legends", "The Amenity Stakes", "Sublease Sprint", "Commission Clash",
   "Hot Desk Derby", "CoreNet Cup", "Jockey Jam",
@@ -165,13 +189,14 @@ async function main() {
   await prisma.raceName.deleteMany();
 
   console.log('🐎 Seeding horses...');
+  const usedSaddleHexes = new Set<string>();
   const horseData = HORSE_NAMES.map((name, i) => {
-    const saddle = SADDLES[i];
+    const saddle = SADDLES[i % SADDLES.length];
     const body = BODY_COLORS[i % BODY_COLORS.length];
     return {
       name,
       saddleColor: saddle.name,
-      saddleHex: saddle.hex,
+      saddleHex: buildUniqueSaddleHex(saddle.hex, i, usedSaddleHexes),
       bodyColor: body.name,
       bodyHex: body.hex
     };
