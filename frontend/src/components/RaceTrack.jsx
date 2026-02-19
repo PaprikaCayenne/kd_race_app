@@ -693,7 +693,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         </motion.div>
       )}
 
-      {panelStyles && racePanelRanking.length > 0 && (
+      {panelStyles && (
         <HorseRankingOverlay
           ranking={racePanelRanking}
           raceName={racePanelTitle}

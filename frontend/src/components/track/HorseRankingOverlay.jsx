@@ -28,6 +28,11 @@ export default function HorseRankingOverlay({
         {draggable && <span className="text-[10px] text-slate-500 uppercase tracking-wide">Drag</span>}
       </div>
 
+      {ranking.length === 0 ? (
+        <div className="rounded-xl border border-sky-100 bg-white/85 px-3 py-4 text-sm font-semibold text-slate-600">
+          Waiting for live heat order...
+        </div>
+      ) : (
       <ol className="space-y-2.5 text-base">
         {ranking.map((h, i) => {
           const badgeColor = h.saddleHex
@@ -53,6 +58,7 @@ export default function HorseRankingOverlay({
           );
         })}
       </ol>
+      )}
     </div>
   );
 }
