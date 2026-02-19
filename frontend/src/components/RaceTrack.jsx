@@ -23,6 +23,7 @@ const socket = io('/race', { path: '/api/socket.io' });
 const TRACK_PADDING = 20;
 const HORIZONTAL_TRACK_PADDING = 20;
 const CANVAS_HEIGHT = 900;
+const TRACK_BOTTOM_RESERVED_SPACE = 260;
 
 const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
@@ -322,7 +323,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     const containerWidth = containerRef.current?.offsetWidth || window.innerWidth;
     const computedTrackHeight = Math.max(
       520,
-      Math.min(CANVAS_HEIGHT - PEN_RESERVED_SPACE, Math.round(containerWidth * 0.58))
+      Math.min(CANVAS_HEIGHT - TRACK_BOTTOM_RESERVED_SPACE, Math.round(containerWidth * 0.58))
     );
 
     const app = new Application({
