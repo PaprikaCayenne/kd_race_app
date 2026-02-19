@@ -715,7 +715,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           }}
         >
           <div className="fence-strip mb-2" />
-          <div className="grid grid-cols-8 gap-1.5">
+          <div className="grid grid-cols-8 gap-1">
             {horsePenHorses.map((horse) => (
               <div key={horse.id} className="horse-chip" title={horse.name}>
                 <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-12 h-12" />
@@ -778,8 +778,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
               <div key={`${w.raceId || w.horseName}-${idx}`} className="winner-row" title={`${w.horseName} (${w.bettorName || 'Heat Winner'})`}>
                 <HorseSprite bodyHex={w.bodyHex} saddleHex={w.saddleHex} alt={w.horseName} className="w-8 h-8" />
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold truncate">{w.horseName}</p>
-                  <p className="text-[10px] text-gray-600 truncate">{w.bettorName || 'Heat Winner'} {w.winnings ? `· ${w.winnings}` : ''}</p>
+                  <p className="text-xs font-semibold truncate text-emerald-50">{w.horseName}</p>
+                  <p className="text-[10px] text-emerald-100/90 truncate">{w.bettorName || 'Heat Winner'} {w.winnings ? `· ${w.winnings}` : ''}</p>
                 </div>
               </div>
             ))}

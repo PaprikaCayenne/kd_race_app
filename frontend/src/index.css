@@ -8,15 +8,18 @@
 html, body {
   margin: 0;
   padding: 0;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  min-height: 100%;
+  height: auto;
   overflow-x: hidden;
+  overflow-y: auto;
   background-color: #ffffff;
 }
 
 #root {
   width: 100%;
-  height: 100%;
+  min-height: 100vh;
+  height: auto;
 }
 
 @keyframes confetti-firework {
@@ -71,11 +74,31 @@ html, body {
 
 .winners-pen-surface {
   background:
-    radial-gradient(circle at 14% 22%, rgba(255, 255, 255, 0.18), transparent 28%),
-    radial-gradient(circle at 82% 74%, rgba(255, 255, 255, 0.14), transparent 30%),
-    linear-gradient(160deg, rgba(41, 98, 55, 0.96), rgba(52, 120, 67, 0.92));
-  border: 2px solid rgba(66, 42, 16, 0.42);
-  box-shadow: inset 0 0 0 1px rgba(134, 239, 172, 0.25), 0 12px 28px rgba(22, 101, 52, 0.22);
+    radial-gradient(circle at 22% 22%, rgba(255, 255, 255, 0.11), transparent 28%),
+    radial-gradient(circle at 78% 76%, rgba(255, 255, 255, 0.08), transparent 30%),
+    linear-gradient(160deg, rgba(186, 240, 186, 0.96), rgba(171, 230, 171, 0.96));
+  border: 2px solid rgba(161, 129, 66, 0.92);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 240, 184, 0.4),
+    inset 0 10px 0 rgba(123, 113, 97, 0.25),
+    inset 0 -10px 0 rgba(165, 135, 75, 0.28);
+  position: relative;
+}
+
+.winners-pen-surface::before {
+  content: '★ Winners ★';
+  position: absolute;
+  top: -11px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #fff8dc;
+  background: linear-gradient(90deg, #8b6c2f, #b89b4a 45%, #d3bf7a);
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid rgba(74, 58, 27, 0.55);
 }
 
 .pen-surface {
@@ -99,7 +122,7 @@ html, body {
 .horse-chip {
   width: 100%;
   min-width: 0;
-  min-height: 72px;
+  min-height: 66px;
   border-radius: 4px;
   border: 0;
   background: transparent;
@@ -110,9 +133,9 @@ html, body {
 }
 
 .winner-row {
-  border-radius: 10px;
-  border: 1px solid rgba(53, 38, 18, 0.35);
-  background: rgba(255, 255, 255, 0.9);
+  border-radius: 9px;
+  border: 1px solid rgba(166, 136, 71, 0.6);
+  background: rgba(44, 110, 58, 0.5);
   display: flex;
   align-items: center;
   gap: 8px;
