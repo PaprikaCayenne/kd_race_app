@@ -6,6 +6,10 @@ import { Sprite, Text, TextStyle, Graphics } from 'pixi.js';
 import { drawHorseSprite } from '@/utils/drawHorseSprite';
 import { computePenPlacements } from './penPlacement';
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 export function setupHorses({
   app,
   horses,
@@ -97,8 +101,11 @@ export function setupHorses({
     if (placeInStaging) {
       const stagingPoint = stagingByLocalId.get(horse.localId);
       if (stagingPoint) {
-        sprite.x = stagingArea.x + stagingPoint.x + (stagingPoint.size / 2);
-        sprite.y = stagingArea.y + stagingPoint.y + (stagingPoint.size / 2);
+        const half = stagingPoint.size / 2;
+        const rawX = stagingArea.x + stagingPoint.x + half;
+        const rawY = stagingArea.y + stagingPoint.y + half;
+        sprite.x = clamp(rawX, stagingArea.x + half, stagingArea.right - half);
+        sprite.y = clamp(rawY, stagingArea.y + half, stagingArea.bottom - half);
       }
     }
 

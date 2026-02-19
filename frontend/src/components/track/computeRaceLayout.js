@@ -88,7 +88,7 @@ export function computeRaceLayout({
       top: centerY,
       width: winnerWidth,
       maxHeight: winnerHeight,
-      overflow: 'hidden',
+      overflow: 'visible',
       transform: 'translate(-50%, -50%)'
     },
     race: {
@@ -122,8 +122,9 @@ export function computeRaceLayout({
   };
 
   const winnersPenX = Math.max(10, canvasWidth - winnersPenWidth - 12);
-  const winnersPenHeight = clamp(Math.round(penHeight * 0.9), 150, 230);
-  const winnersPenY = Math.min(penTop, canvasHeight - winnersPenHeight - bottomPadding);
+  const winnersMaxHeight = Math.max(120, canvasHeight - penTop - bottomPadding);
+  const winnersPenHeight = Math.min(clamp(Math.round(penHeight * 0.9), 150, 230), winnersMaxHeight);
+  const winnersPenY = penTop;
   const winnersPenBounds = {
     x: winnersPenX,
     y: winnersPenY,

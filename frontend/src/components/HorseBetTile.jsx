@@ -3,6 +3,7 @@
 // Date: 2025-05-29
 
 import React from 'react';
+import HorseSprite from './HorseSprite.jsx';
 
 export default function HorseBetTile({ horse, bet, onChange, disabled, maxIncrement }) {
   const increment = 50;
@@ -31,7 +32,7 @@ export default function HorseBetTile({ horse, bet, onChange, disabled, maxIncrem
       }}
     >
       <div className="flex items-center space-x-2 text-lg font-semibold">
-        <span className="text-2xl">🐎</span>
+        <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-10 h-10" />
         <span
           className="rounded-full w-4 h-4 inline-block"
           style={{ backgroundColor: hex }}

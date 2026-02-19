@@ -62,6 +62,7 @@ export default function DashboardPage() {
   const [session, setSession] = useState(null);
 
   const initializedBetsRef = useRef(false);
+  const betsRef = useRef({});
 
   const bundleQuery = useQuery({
     queryKey: ['dashboard-bundle', deviceId],
@@ -80,6 +81,10 @@ export default function DashboardPage() {
       if (userRank >= 0) setRank(userRank + 1);
     }
   }, [user?.id]);
+
+  useEffect(() => {
+    betsRef.current = bets;
+  }, [bets]);
 
   useEffect(() => {
     raceSocket.emit('session:request-init');
@@ -226,23 +231,24 @@ export default function DashboardPage() {
     async (horseId, newAmount) => {
       if (bettingLocked || !deviceId) return;
       if (newAmount < 0 || newAmount % 50 !== 0) return;
-      if (newAmount - (bets[horseId] || 0) > availableBalance) return;
+      const prevAmount = betsRef.current[horseId] || 0;
+      if (newAmount - prevAmount > availableBalance) return;
 
       setBets((b) => ({ ...b, [horseId]: newAmount }));
-      setBalance((bal) => bal + (bets[horseId] || 0) - newAmount);
+      setBalance((bal) => bal + prevAmount - newAmount);
 
       try {
         setSubmitting(true);
         await axios.post('/api/bet', { deviceId, horseId, amount: newAmount });
       } catch (err) {
         console.error('Failed to submit bet:', err);
-        setBets((b) => ({ ...b, [horseId]: bets[horseId] || 0 }));
-        setBalance((bal) => bal - (bets[horseId] || 0) + newAmount);
+        setBets((b) => ({ ...b, [horseId]: prevAmount }));
+        setBalance((bal) => bal - prevAmount + newAmount);
       } finally {
         setSubmitting(false);
       }
     },
-    [bets, availableBalance, bettingLocked, deviceId]
+    [availableBalance, bettingLocked, deviceId]
   );
 
   if (checkingUser) return null;
@@ -289,18 +295,32 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {race?.horses?.length > 0 && !bettingLocked && !replaying && (
+      {race?.horses?.length > 0 && !replaying && (
         <div className="w-full max-w-md space-y-4">
-          {race.horses.map((horse) => (
-            <HorseBetTile
-              key={horse.id}
-              horse={horse}
-              bet={bets[horse.id] || 0}
-              disabled={submitting}
-              maxIncrement={availableBalance + (bets[horse.id] || 0)}
-              onChange={handleBetChange}
-            />
-          ))}
+          {bettingLocked ? (
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 shadow">
+              <h2 className="font-bold text-sm text-gray-600 mb-3">Current Race Horses</h2>
+              <div className="flex flex-wrap gap-3 justify-center">
+                {race.horses.map((horse) => (
+                  <div key={horse.id} className="flex flex-col items-center gap-1">
+                    <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-12 h-12" />
+                    <span className="text-xs font-semibold text-gray-700 text-center max-w-[72px] truncate">{horse.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            race.horses.map((horse) => (
+              <HorseBetTile
+                key={horse.id}
+                horse={horse}
+                bet={bets[horse.id] || 0}
+                disabled={submitting}
+                maxIncrement={availableBalance + (bets[horse.id] || 0)}
+                onChange={handleBetChange}
+              />
+            ))
+          )}
         </div>
       )}
 

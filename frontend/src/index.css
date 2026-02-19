@@ -38,9 +38,10 @@ html, body {
 
 .confetti-wrap {
   position: absolute;
-  inset: -8px;
+  inset: -48px;
   pointer-events: none;
-  overflow: hidden;
+  overflow: visible;
+  z-index: 60;
 }
 
 .confetti-dot {

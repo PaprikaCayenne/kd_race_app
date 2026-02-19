@@ -478,13 +478,13 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const racePanelRanking = replayMode
     ? replayRanking
     : (liveRanking.length > 0
-        ? liveRanking
-        : currentRaceHorses.map((horse) => ({
-            id: horse.id,
-            name: horse.name,
-            saddleHex: horse.saddleHex,
-            bodyHex: horse.bodyHex
-          })));
+      ? liveRanking
+      : currentRaceHorses.map((horse) => ({
+        id: horse.id,
+        name: horse.name,
+        saddleHex: horse.saddleHex,
+        bodyHex: horse.bodyHex
+      })));
 
   const racePanelTitle = session?.heatNumber
     ? `Heat ${session.heatNumber}`
@@ -546,7 +546,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.32, ease: 'easeOut' }}
           className="absolute winner-spotlight bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center"
-          style={panelStyles.winner}
+          style={{ ...panelStyles.winner, overflow: 'visible' }}
         >
           <div className="confetti-wrap" aria-hidden="true">
             {Array.from({ length: 14 }).map((_, i) => (
@@ -594,7 +594,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
             top: layoutBounds.penBounds.y,
             width: layoutBounds.penBounds.width,
             height: layoutBounds.penBounds.height,
-            overflow: 'hidden'
+            overflow: 'visible'
           }}
         >
           <div className="fence-strip mb-1" />
@@ -650,7 +650,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
             top: layoutBounds.winnersPenBounds.y,
             width: layoutBounds.winnersPenBounds.width,
             height: layoutBounds.winnersPenBounds.height,
-            overflowY: 'auto'
+            overflowY: 'auto',
+            overflowX: 'visible'
           }}
         >
           <h4 className="font-bold text-sm mb-2">🏅 Winners Pen</h4>

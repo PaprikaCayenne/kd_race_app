@@ -29,15 +29,20 @@ async function fetchAdminUsers() {
 }
 
 async function fetchAdminRaceBundle() {
-  const [raceRes, pastRes, sessionRes] = await Promise.all([
+  const [currentRes, raceRes, pastRes, sessionRes] = await Promise.all([
+    axios.get('/api/race/current'),
     axios.get('/api/race/latest'),
     axios.get('/api/race/races'),
     axios.get('/api/race/session')
   ]);
 
+  const currentRace = currentRes.data?.exists === false ? null : currentRes.data;
+  const latestRace = raceRes.data?.exists === false ? null : raceRes.data;
+  const raceState = currentRace || latestRace;
+
   return {
-    raceState: raceRes.data.exists === false ? null : raceRes.data,
-    warnings: raceRes.data?.warnings || [],
+    raceState,
+    warnings: raceState?.warnings || [],
     pastRaces: pastRes.data || [],
     session: sessionRes.data?.session || null
   };
@@ -56,7 +61,6 @@ export default function AdminPage() {
   const [showRaces, setShowRaces] = useState(false);
   const [betSeconds, setBetSeconds] = useState(() => localStorage.getItem('betSeconds') || '60');
   const [betCountdown, setBetCountdown] = useState(null);
-  const [countdownDisplay, setCountdownDisplay] = useState('');
   const [showBetModal, setShowBetModal] = useState(false);
   const [showDevTools, setShowDevTools] = useState(false);
 
@@ -87,34 +91,6 @@ export default function AdminPage() {
     ]);
   };
 
-  const closeBetsAfterCountdown = async () => {
-    try {
-      await axios.post('/api/admin/close-bets', {}, { headers });
-      setStatus('✅ Bets auto-closed');
-      await refreshQueries();
-    } catch (err) {
-      setStatus(`❌ ${extractError(err, 'Failed to auto-close bets')}`);
-    }
-    setBetCountdown(null);
-  };
-
-  const startCountdown = (seconds) => {
-    let rem = Number(seconds);
-    setBetCountdown(rem);
-    const iv = setInterval(() => {
-      rem -= 1;
-      if (rem <= 0) {
-        clearInterval(iv);
-        setCountdownDisplay('');
-        closeBetsAfterCountdown();
-      } else {
-        const m = Math.floor(rem / 60);
-        const s = String(rem % 60).padStart(2, '0');
-        setCountdownDisplay(`${m}:${s}`);
-      }
-    }, 1000);
-  };
-
   const isFinalHeat = useMemo(() => {
     return Number(session?.heatNumber || raceState?.heatNumber || 0) === 5;
   }, [raceState?.heatNumber, session?.heatNumber]);
@@ -128,6 +104,15 @@ export default function AdminPage() {
       && session?.state !== 'replaying'
     );
   }, [isFinalHeat, raceState, session?.state]);
+
+  useEffect(() => {
+    const serverCountdown = Number(raceState?.countdownSeconds) || 0;
+    if (session?.state === 'betting_open' && serverCountdown > 0) {
+      setBetCountdown(serverCountdown);
+    } else {
+      setBetCountdown(null);
+    }
+  }, [raceState?.countdownSeconds, session?.state]);
 
   const handleAdminAction = async (endpoint) => {
     try {
@@ -162,7 +147,6 @@ export default function AdminPage() {
   const confirmOpenBets = async () => {
     localStorage.setItem('betSeconds', betSeconds);
     setShowBetModal(false);
-    startCountdown(betSeconds);
     try {
       await axios.post('/api/admin/open-bets', { seconds: betSeconds }, { headers });
       setStatus(`✅ Bets opened for ${betSeconds} seconds`);
@@ -314,8 +298,12 @@ export default function AdminPage() {
   }
 
   const isRaceReady = raceState?.horses?.length >= 4;
+  const hasOpenCountdown = session?.state === 'betting_open' && (Number(betCountdown) || 0) > 0;
+  const countdownDisplay = hasOpenCountdown
+    ? `${Math.floor((Number(betCountdown) || 0) / 60)}:${String((Number(betCountdown) || 0) % 60).padStart(2, '0')}`
+    : '';
   const canOpenBets = isRaceReady && session?.state !== 'running' && session?.state !== 'replaying';
-  const canStartRace = isRaceReady && betCountdown === null;
+  const canStartRace = isRaceReady && !hasOpenCountdown && session?.state !== 'running' && session?.state !== 'replaying';
   const allowGenerate = !raceState || !!raceState?.endedAt || session?.state === 'cleared';
 
   const generateLabel = shouldGenerateNewTournament
