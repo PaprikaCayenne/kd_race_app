@@ -12,6 +12,7 @@ import {
   raceNamespace,
   stopReplayAndBroadcast
 } from '../sockets/race.js';
+import { getRaceSession } from '../lib/raceSession.js';
 
 const router = express.Router();
 export const raceHorseCache = new Map<number, any[]>();
@@ -198,6 +199,35 @@ router.get('/tournament-state', async (_req: Request, res: Response) => {
 
     const horsePool = await loadRaceHorses(horsePoolIds);
     const winners = await loadRaceHorses(Array.from(new Set(winnerHorseIds.map((w) => w.horseId))).slice(0, 4));
+
+    const activeRace = await prisma.race.findFirst({
+      where: { endedAt: null },
+      orderBy: { id: 'desc' },
+      select: { id: true }
+    });
+
+    if (!activeRace) {
+      const session = getRaceSession();
+      const targetHeat = Math.min(5, Math.max(1, tournament.currentHeat)) as 1 | 2 | 3 | 4 | 5;
+      const needsSync = session.state !== 'replaying'
+        && (
+          session.state !== 'setup'
+          || session.activeRaceId !== null
+          || session.tournamentId !== tournament.id
+          || session.heatNumber !== targetHeat
+        );
+
+      if (needsSync) {
+        await patchSessionAndBroadcast({
+          activeRaceId: null,
+          tournamentId: tournament.id,
+          heatNumber: targetHeat,
+          state: 'setup',
+          selectedReplayRaceId: null,
+          replayPaused: false
+        }, 'server');
+      }
+    }
 
     res.json({
       success: true,

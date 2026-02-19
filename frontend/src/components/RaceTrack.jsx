@@ -439,8 +439,15 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     <div ref={containerRef} className="relative w-screen overflow-hidden">
       <canvas ref={canvasRef} style={{ height: `${CANVAS_HEIGHT}px` }} className="block w-full" />
 
-      {countdownSeconds > 0 && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 px-6 py-3 bg-black/70 text-white rounded-xl z-50 text-2xl font-extrabold">
+      {countdownSeconds > 0 && layoutBounds?.infieldBounds && (
+        <div
+          className="absolute px-6 py-3 bg-black/70 text-white rounded-xl z-50 text-2xl font-extrabold"
+          style={{
+            left: layoutBounds.infieldBounds.x + (layoutBounds.infieldBounds.width / 2),
+            top: layoutBounds.infieldBounds.y + (layoutBounds.infieldBounds.height / 2),
+            transform: 'translate(-50%, -50%)'
+          }}
+        >
           ⏱️ Race starts in {countdownSeconds}s
         </div>
       )}
