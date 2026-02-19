@@ -20,6 +20,45 @@ function quadBezier(p0, p1, p2, t) {
   return (u * u * p0) + (2 * u * t * p1) + (t * t * p2);
 }
 
+function animateLabelAlpha({ app, labelSpritesRef, targetAlpha = 0, step = 0.08 }) {
+  if (!app || !labelSpritesRef?.current) return;
+  const target = Math.max(0, Math.min(1, Number(targetAlpha) || 0));
+  const delta = Math.max(0.01, Math.min(0.25, Number(step) || 0.08));
+
+  if (app.__labelAlphaTicker) {
+    app.ticker.remove(app.__labelAlphaTicker);
+    app.__labelAlphaTicker = null;
+  }
+
+  const ticker = () => {
+    let allSettled = true;
+
+    labelSpritesRef.current.forEach((label) => {
+      if (!label) return;
+      const current = Number(label.alpha ?? 1);
+      if (Math.abs(current - target) <= 0.01) {
+        label.alpha = target;
+        return;
+      }
+
+      allSettled = false;
+      if (current < target) {
+        label.alpha = Math.min(target, current + delta);
+      } else {
+        label.alpha = Math.max(target, current - delta);
+      }
+    });
+
+    if (allSettled) {
+      app.ticker.remove(ticker);
+      if (app.__labelAlphaTicker === ticker) app.__labelAlphaTicker = null;
+    }
+  };
+
+  app.__labelAlphaTicker = ticker;
+  app.ticker.add(ticker);
+}
+
 function animateWalkIn({ app, horses, horseSpritesRef, labelSpritesRef, trackDataRef, durationMs = 1800 }) {
   const start = performance.now();
   const finalByLocalId = new Map();
@@ -234,6 +273,9 @@ export function initRaceListeners({
     }
 
     horsesRef.current = horses;
+    labelSpritesRef.current.forEach((label) => {
+      if (label) label.alpha = 1;
+    });
     usedHorseIdsRef?.current?.add?.(...horses.map((h) => h.id));
     if (raceInfoRef) raceInfoRef.current = { raceId };
     if (setRaceName) setRaceName(raceName || `Race ${raceId}`);
@@ -273,6 +315,13 @@ export function initRaceListeners({
         }, 1000);
       }
 
+      animateLabelAlpha({
+        app: appRef.current,
+        labelSpritesRef,
+        targetAlpha: 0,
+        step: 0.09
+      });
+
       playRace({
         app: appRef.current,
         socket,
@@ -301,6 +350,12 @@ export function initRaceListeners({
     const app = appRef.current;
     const horses = horsesRef.current || [];
     if (!app || horses.length === 0) return;
+    animateLabelAlpha({
+      app,
+      labelSpritesRef,
+      targetAlpha: 1,
+      step: 0.1
+    });
     const sec = Number(seconds);
     const countdownDurationMs = Number.isFinite(sec) && sec > 2
       ? Math.max(2200, (sec * 1000) - 300)
