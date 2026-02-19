@@ -33,7 +33,14 @@ echo -e "\n📦 Extracting built output from container..."
 temp_container="temp_kd_frontend_$(date +%s)"
 docker create --name "$temp_container" kd_frontend_build_temp >/dev/null
 trap 'docker rm -f "$temp_container" >/dev/null 2>&1 || true' EXIT
-docker cp "$temp_container":/app/frontend/frontend_build/. ./frontend_build
+if docker cp "$temp_container":/app/frontend_build/. ./frontend_build 2>/dev/null; then
+  echo "✅ Copied /app/frontend_build from builder container"
+elif docker cp "$temp_container":/app/frontend/frontend_build/. ./frontend_build 2>/dev/null; then
+  echo "✅ Copied /app/frontend/frontend_build from builder container"
+else
+  echo "❌ Could not find frontend build output in container."
+  exit 1
+fi
 docker rm "$temp_container" >/dev/null
 trap - EXIT
 

@@ -35,6 +35,8 @@ export default defineConfig({
         admin: path.resolve(__dirname, 'admin.html')
       }
     },
-    outDir: 'frontend_build'
+    // Write build artifacts to the repo-root folder served by kd_nginx/kd_api volumes.
+    outDir: '../frontend_build',
+    emptyOutDir: true
   }
 });
