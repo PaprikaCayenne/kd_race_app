@@ -60,7 +60,7 @@ function scatterHorsePen(horses, penBounds) {
   const sprite = 64;
   const gap = 3;
   const insetX = 8;
-  const insetTop = 16;
+  const insetTop = 4;
   const insetBottom = 8;
   const areaWidth = Math.max(0, penBounds.width - insetX * 2);
   const areaHeight = Math.max(0, penBounds.height - insetTop - insetBottom);
@@ -70,19 +70,14 @@ function scatterHorsePen(horses, penBounds) {
 
   const slots = [];
   const maxSlots = cols * rows;
-  const jitter = Math.min(6, Math.max(1, Math.floor((step - sprite) / 2)));
 
   for (let row = 0; row < rows; row += 1) {
     for (let col = 0; col < cols; col += 1) {
       const baseX = insetX + col * step;
       const baseY = insetTop + row * step;
-      const slotSeed = ((row + 1) * 2654435761) ^ ((col + 1) * 2246822519);
-      const rng = createSeededRng(slotSeed >>> 0);
-      const jx = Math.round((rng() - 0.5) * jitter * 2);
-      const jy = Math.round((rng() - 0.5) * jitter * 2);
       slots.push({
-        x: clamp(baseX + jx, insetX, Math.max(insetX, insetX + areaWidth - sprite)),
-        y: clamp(baseY + jy, insetTop, Math.max(insetTop, insetTop + areaHeight - sprite))
+        x: clamp(baseX, insetX, Math.max(insetX, insetX + areaWidth - sprite)),
+        y: clamp(baseY, insetTop, Math.max(insetTop, insetTop + areaHeight - sprite))
       });
     }
   }
@@ -108,7 +103,7 @@ function layoutPanels(panelSafeBounds) {
 
   const panelHeight = Math.max(120, panelSafeBounds.height - pad * 2);
   const leaderboardHeight = clamp(Math.round(panelSafeBounds.height * 0.74), 300, 420);
-  const raceHeight = clamp(Math.round(panelSafeBounds.height * 0.66), 240, 390);
+  const raceHeight = clamp(Math.round(panelSafeBounds.height * 0.68), 300, 420);
   const leaderboardLeftAnchor = Math.round(panelSafeBounds.x + 10);
   const leaderboardTopCenter = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
   const raceLeftAnchor = Math.round(panelSafeBounds.right - raceWidth - 10);
@@ -136,7 +131,7 @@ function layoutPanels(panelSafeBounds) {
       top: raceTopCenter,
       width: raceWidth,
       maxHeight: raceHeight,
-      overflowY: 'auto',
+      overflowY: 'hidden',
       transform: 'translateY(-50%)'
     }
   };
@@ -690,6 +685,14 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   );
 
   const winnerRows = buildWinnerRows(winnerHistory);
+  const showWinnerPreview = true;
+  const winnerDisplay = winner || {
+    bettorName: 'Preview Bettor',
+    winnings: 1234,
+    horseName: 'Preview Winner',
+    bodyHex: '#8b5a2b',
+    saddleHex: '#c81d25'
+  };
 
   return (
     <div
@@ -722,7 +725,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         />
       )}
 
-      {winner && panelStyles && !replayMode && (
+      {(winner || showWinnerPreview) && panelStyles && !replayMode && (
         <motion.div
           initial={{ opacity: 0, scale: 0.92, y: 12 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -749,12 +752,12 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
           <div className="flex items-center justify-center gap-2 text-slate-900 font-extrabold text-lg">
             <span aria-hidden="true">👤</span>
-            <span className="truncate">Winner {winner.bettorName}</span>
-            <span className="text-green-700">{winner.winnings || 0}</span>
+            <span className="truncate">Winner {winnerDisplay.bettorName}</span>
+            <span className="text-green-700">{winnerDisplay.winnings || 0}</span>
           </div>
-          <p className="text-xl font-black text-red-700 truncate mt-2">{winner.horseName}</p>
+          <p className="text-xl font-black text-red-700 truncate mt-2">{winnerDisplay.horseName}</p>
           <div className="mt-3 mx-auto w-16 h-16 rounded-full border-2 border-gray-200 bg-white flex items-center justify-center">
-            <HorseSprite bodyHex={winner.bodyHex} saddleHex={winner.saddleHex} alt={winner.horseName} className="w-12 h-12" />
+            <HorseSprite bodyHex={winnerDisplay.bodyHex} saddleHex={winnerDisplay.saddleHex} alt={winnerDisplay.horseName} className="w-12 h-12" />
           </div>
         </motion.div>
       )}
@@ -779,7 +782,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
             overflow: 'hidden'
           }}
         >
-          <div className="fence-strip mb-2" />
+          <div className="fence-strip mb-1" />
           <div className="relative w-full h-full">
             {horsePenPlacements.map(({ horse, x, y }) => (
               <div key={horse.id} className="horse-chip absolute" style={{ left: x, top: y }} title={horse.name}>

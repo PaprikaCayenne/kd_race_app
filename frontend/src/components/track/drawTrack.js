@@ -217,7 +217,7 @@ export function drawDerbyTrack({
   const bottomPadding = 16;
   const penTop = Math.round(trackRingBounds.bottom + 10);
   const availableBelow = Math.max(90, app.screen.height - penTop - bottomPadding);
-  const penHeight = Math.min(clamp(Math.round(app.screen.height * 0.235), 190, 260), availableBelow);
+  const penHeight = Math.min(clamp(Math.round(app.screen.height * 0.245), 210, 270), availableBelow);
   const penLeft = Math.max(10, Math.round(trackRingBounds.x));
   const winnerPenWidth = clamp(Math.round(app.screen.width * 0.22), 210, 300);
   const penGap = 18;
