@@ -704,7 +704,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
       {layoutBounds?.penBounds && (
         <div
-          className="absolute pen-surface rounded-xl p-3 z-40"
+          className="absolute p-2 z-40"
           style={{
             left: layoutBounds.penBounds.x,
             top: layoutBounds.penBounds.y,
@@ -713,7 +713,6 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
             overflow: 'hidden'
           }}
         >
-          <h4 className="font-bold text-sm mb-2">🐎 Horse Pen (16)</h4>
           <div className="fence-strip mb-2" />
           <div className="grid grid-cols-8 gap-1.5">
             {horsePenHorses.map((horse) => (
