@@ -84,6 +84,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const usedHorseIdsRef = useRef(new Set());
   const raceInfoRef = useRef(null);
   const replayWasActiveRef = useRef(false);
+  const liveSnapshotRef = useRef(new Map());
 
   const [raceCompleted, setRaceCompleted] = useState(false);
   const [lastFinishedRaceId, setLastFinishedRaceId] = useState(null);
@@ -129,6 +130,37 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       setSession(nextSession || null);
       const activeReplay = Boolean(nextSession?.state === 'replaying' && nextSession?.selectedReplayRaceId);
 
+      if (activeReplay && !replayWasActiveRef.current) {
+        const snapshot = new Map();
+        horseSpritesRef.current.forEach((sprite, localId) => {
+          const label = labelSpritesRef.current.get(localId);
+          snapshot.set(localId, {
+            x: sprite.x,
+            y: sprite.y,
+            rotation: sprite.rotation,
+            labelX: label?.x,
+            labelY: label?.y
+          });
+        });
+        liveSnapshotRef.current = snapshot;
+      }
+
+      if (!activeReplay && replayWasActiveRef.current && liveSnapshotRef.current.size > 0) {
+        liveSnapshotRef.current.forEach((pose, localId) => {
+          const sprite = horseSpritesRef.current.get(localId);
+          if (sprite) {
+            sprite.x = pose.x;
+            sprite.y = pose.y;
+            sprite.rotation = pose.rotation;
+          }
+          const label = labelSpritesRef.current.get(localId);
+          if (label && Number.isFinite(pose.labelX) && Number.isFinite(pose.labelY)) {
+            label.x = pose.labelX;
+            label.y = pose.labelY;
+          }
+        });
+      }
+
       setReplayMode(activeReplay);
       if (!activeReplay) {
         setReplaySummary(null);
@@ -158,12 +190,26 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
     const onOrder = ({ ranking }) => {
       if (!Array.isArray(ranking)) return;
+      if (replayWasActiveRef.current) return;
       setLiveRanking(ranking.map((h) => ({
         id: h.id,
         name: h.name,
         saddleHex: h.saddleHex,
         bodyHex: h.bodyHex
       })));
+
+      const snapshot = new Map();
+      horseSpritesRef.current.forEach((sprite, localId) => {
+        const label = labelSpritesRef.current.get(localId);
+        snapshot.set(localId, {
+          x: sprite.x,
+          y: sprite.y,
+          rotation: sprite.rotation,
+          labelX: label?.x,
+          labelY: label?.y
+        });
+      });
+      liveSnapshotRef.current = snapshot;
     };
 
     const onReplayTick = ({ ranking }) => {
