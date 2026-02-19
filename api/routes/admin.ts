@@ -4,6 +4,7 @@
 
 import express, { Request, Response } from 'express';
 import { exec } from 'child_process';
+import { z } from 'zod';
 import prisma from '../lib/prisma';
 import {
   beginReplayAndBroadcast,
@@ -18,6 +19,25 @@ const router = express.Router();
 export const raceHorseCache = new Map<number, any[]>();
 
 const DEFAULT_LOONS = 1000;
+
+const openBetsSchema = z.object({
+  seconds: z.coerce.number().int().min(5).max(600).default(60)
+});
+
+const replayStartSchema = z.object({
+  raceId: z.coerce.number().int().positive()
+});
+
+const patchUserSchema = z.object({
+  firstName: z.string().trim().min(1).max(100).optional(),
+  lastName: z.string().trim().min(1).max(100).optional(),
+  nickname: z.string().trim().min(1).max(100).optional(),
+  leaseLoons: z.coerce.number().int().min(0).max(1000000).optional()
+}).refine((value) => Object.keys(value).length > 0, { message: 'No valid fields provided' });
+
+const addLoonsSchema = z.object({
+  amount: z.coerce.number().int().min(-1000000).max(1000000)
+});
 
 function isAuthorized(req: Request): boolean {
   return req.headers['x-admin-pass'] === process.env.API_ADMIN_PASS;
@@ -448,7 +468,12 @@ router.post('/open-bets', async (req: Request, res: Response) => {
 
     if (!latest) return res.status(404).json({ error: 'No active race found' });
 
-    const seconds = parseInt(req.body.seconds || '60', 10);
+    const parsed = openBetsSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'Invalid open-bets payload' });
+    }
+
+    const { seconds } = parsed.data;
     const betClosesAt = new Date(Date.now() + seconds * 1000);
 
     await prisma.race.update({
@@ -500,11 +525,12 @@ router.post('/close-bets', async (req: Request, res: Response) => {
 router.post('/replay/start', async (req: Request, res: Response) => {
   if (!isAuthorized(req)) return unauthorized(res);
 
-  const raceId = String(req.body.raceId || '').trim();
-  if (!raceId || Number.isNaN(Number(raceId))) {
+  const parsed = replayStartSchema.safeParse(req.body || {});
+  if (!parsed.success) {
     return res.status(400).json({ error: 'Valid raceId is required' });
   }
 
+  const raceId = String(parsed.data.raceId);
   await beginReplayAndBroadcast(raceId, 'admin');
   res.json({ success: true, message: `Replay started for race ${raceId}` });
 });
@@ -549,19 +575,13 @@ router.patch('/users/:userId', async (req: Request, res: Response) => {
   const userId = Number(req.params.userId);
   if (!Number.isInteger(userId)) return res.status(400).json({ error: 'Invalid userId' });
 
-  const updates: Record<string, unknown> = {};
-  for (const key of ['firstName', 'lastName', 'nickname', 'leaseLoons']) {
-    if (Object.prototype.hasOwnProperty.call(req.body, key)) {
-      updates[key] = req.body[key];
-    }
-  }
-
-  if (Object.keys(updates).length === 0) {
-    return res.status(400).json({ error: 'No valid fields provided' });
+  const parsed = patchUserSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Invalid user payload' });
   }
 
   try {
-    const updated = await prisma.user.update({ where: { id: userId }, data: updates });
+    const updated = await prisma.user.update({ where: { id: userId }, data: parsed.data });
     raceNamespace?.emit('leaderboard:updated');
     res.json({ success: true, user: updated });
   } catch (err) {
@@ -574,15 +594,19 @@ router.post('/users/:userId/add-loons', async (req: Request, res: Response) => {
   if (!isAuthorized(req)) return unauthorized(res);
 
   const userId = Number(req.params.userId);
-  const amount = Number(req.body.amount);
-  if (!Number.isInteger(userId) || !Number.isFinite(amount)) {
+  if (!Number.isInteger(userId)) {
+    return res.status(400).json({ error: 'Valid userId required' });
+  }
+
+  const parsed = addLoonsSchema.safeParse(req.body || {});
+  if (!parsed.success) {
     return res.status(400).json({ error: 'Valid userId and amount required' });
   }
 
   try {
     const updated = await prisma.user.update({
       where: { id: userId },
-      data: { leaseLoons: { increment: Math.trunc(amount) } }
+      data: { leaseLoons: { increment: Math.trunc(parsed.data.amount) } }
     });
 
     raceNamespace?.emit('leaderboard:updated');
