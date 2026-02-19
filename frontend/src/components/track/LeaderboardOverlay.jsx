@@ -13,7 +13,7 @@ export default function LeaderboardOverlay({
   onDragStart = undefined
 }) {
   const baseClass = compact
-    ? 'w-full p-3 rounded-2xl shadow-xl border border-amber-200'
+    ? 'absolute p-3 rounded-2xl shadow-xl border border-amber-200 z-50'
     : 'absolute p-6 rounded-2xl shadow-2xl z-50 border border-amber-200';
 
   return (
