@@ -4,23 +4,7 @@
 
 import { Sprite, Text, TextStyle, Graphics } from 'pixi.js';
 import { drawHorseSprite } from '@/utils/drawHorseSprite';
-
-function getStagingPoint(stagingArea, idx, total) {
-  if (!stagingArea) return null;
-
-  const cols = Math.max(2, Math.min(4, Math.ceil(Math.sqrt(total || 1))));
-  const rows = Math.max(1, Math.ceil((total || 1) / cols));
-  const col = idx % cols;
-  const row = Math.floor(idx / cols);
-
-  const xStep = stagingArea.width / (cols + 1);
-  const yStep = stagingArea.height / (rows + 1);
-
-  return {
-    x: stagingArea.x + xStep * (col + 1),
-    y: stagingArea.y + yStep * (row + 1)
-  };
-}
+import { computePenPlacements } from './penPlacement';
 
 export function setupHorses({
   app,
@@ -47,6 +31,13 @@ export function setupHorses({
 
   let successCount = 0;
   let failCount = 0;
+  const stagingByLocalId = new Map();
+  if (placeInStaging && stagingArea) {
+    const placements = computePenPlacements(horses, stagingArea, { spriteSize: 42, insetTop: 4, gap: 4 });
+    placements.forEach((entry) => {
+      stagingByLocalId.set(entry.horse.localId, entry);
+    });
+  }
 
   horseSpritesRef.current?.clear?.();
   labelSpritesRef.current?.clear?.();
@@ -60,7 +51,7 @@ export function setupHorses({
   finishDotsRef.current = [];
   startDotsRef.current = [];
 
-  horses.forEach((horse, index) => {
+  horses.forEach((horse) => {
     const key = horse.localId;
     const pathData = horsePaths?.get(key);
 
@@ -104,10 +95,10 @@ export function setupHorses({
     sprite.zIndex = 10;
 
     if (placeInStaging) {
-      const stagingPoint = getStagingPoint(stagingArea, index, horses.length);
+      const stagingPoint = stagingByLocalId.get(horse.localId);
       if (stagingPoint) {
-        sprite.x = stagingPoint.x;
-        sprite.y = stagingPoint.y;
+        sprite.x = stagingArea.x + stagingPoint.x + (stagingPoint.size / 2);
+        sprite.y = stagingArea.y + stagingPoint.y + (stagingPoint.size / 2);
       }
     }
 

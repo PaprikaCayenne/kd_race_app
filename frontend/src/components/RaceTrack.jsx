@@ -1,8 +1,8 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v3.9.0 — Winner spotlight center, bounded draggable overlays, and pen/race UI polish
+// Version: v4.0.0 — Canonical layout bounds wiring with shared pen placement
 // Date: 2026-02-19
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Application } from 'pixi.js';
 import { io } from 'socket.io-client';
@@ -15,7 +15,7 @@ import HorseSprite from './HorseSprite';
 import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
 import { playReplay, stopReplay } from '@/utils/playReplay';
-import { useUIStore } from '@/stores/uiStore';
+import { computePenPlacements } from './track/penPlacement';
 
 const VERSION = 'v3.9.0';
 const socket = io('/race', { path: '/api/socket.io' });
@@ -23,7 +23,6 @@ const socket = io('/race', { path: '/api/socket.io' });
 const TRACK_PADDING = 20;
 const HORIZONTAL_TRACK_PADDING = 20;
 const CANVAS_HEIGHT = 900;
-const PEN_RESERVED_SPACE = 250;
 
 const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
@@ -32,126 +31,18 @@ const BOUNDARY_PADDING = 0;
 const START_LINE_OFFSET = 0;
 const RACE_DURATION_SECONDS = 36;
 
-function clamp(n, min, max) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function createSeededRng(seed) {
-  let s = (seed >>> 0) || 1;
-  return () => {
-    s = (1664525 * s + 1013904223) >>> 0;
-    return s / 0x100000000;
-  };
-}
-
-function horseSeed(horse) {
-  const source = `${horse?.id || ''}-${horse?.name || ''}`;
-  let hash = 2166136261;
-  for (let i = 0; i < source.length; i += 1) {
-    hash ^= source.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
 function scatterHorsePen(horses, penBounds) {
-  if (!Array.isArray(horses) || !penBounds) return [];
-
-  const sprite = 64;
-  const gap = 3;
-  const insetX = 8;
-  const insetTop = 4;
-  const insetBottom = 8;
-  const areaWidth = Math.max(0, penBounds.width - insetX * 2);
-  const areaHeight = Math.max(0, penBounds.height - insetTop - insetBottom);
-  const step = sprite + gap;
-  const cols = Math.max(1, Math.floor((areaWidth + gap) / step));
-  const rows = Math.max(2, Math.floor((areaHeight + gap) / step));
-
-  const slots = [];
-  const maxSlots = cols * rows;
-
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      const baseX = insetX + col * step;
-      const baseY = insetTop + row * step;
-      slots.push({
-        x: clamp(baseX, insetX, Math.max(insetX, insetX + areaWidth - sprite)),
-        y: clamp(baseY, insetTop, Math.max(insetTop, insetTop + areaHeight - sprite))
-      });
-    }
-  }
-
-  return horses.slice(0, maxSlots).map((horse) => {
-    const rng = createSeededRng(horseSeed(horse));
-    const idx = Math.floor(rng() * slots.length);
-    const slot = slots.splice(idx, 1)[0] || { x: insetX, y: insetTop };
-    return { horse, x: slot.x, y: slot.y };
-  });
-}
-
-function layoutPanels(panelSafeBounds) {
-  if (!panelSafeBounds) return null;
-
-  const pad = 12;
-  const gap = clamp(Math.round(panelSafeBounds.width * 0.02), 10, 18);
-  const usableWidth = Math.max(280, panelSafeBounds.width - pad * 2 - gap * 2);
-
-  const leaderboardWidth = Math.max(126, Math.floor(usableWidth * 0.195));
-  const raceWidth = Math.max(114, Math.floor(usableWidth * 0.16));
-  const winnerWidth = Math.max(170, usableWidth - leaderboardWidth - raceWidth - gap * 2);
-
-  const panelHeight = Math.max(120, panelSafeBounds.height - pad * 2);
-  const leaderboardHeight = clamp(Math.round(panelSafeBounds.height * 0.74), 300, 420);
-  const raceHeight = clamp(Math.round(panelSafeBounds.height * 0.68), 300, 420);
-  const leaderboardLeftAnchor = Math.round(panelSafeBounds.x + 10);
-  const leaderboardTopCenter = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
-  const raceLeftAnchor = Math.round(panelSafeBounds.right - raceWidth - 10);
-  const raceTopCenter = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
-
-  return {
-    leaderboard: {
-      left: leaderboardLeftAnchor,
-      top: leaderboardTopCenter,
-      width: leaderboardWidth,
-      maxHeight: leaderboardHeight,
-      overflowY: 'hidden',
-      transform: 'translateY(-50%)'
-    },
-    winner: {
-      left: panelSafeBounds.x + (panelSafeBounds.width / 2),
-      top: panelSafeBounds.y + (panelSafeBounds.height / 2),
-      width: winnerWidth,
-      maxHeight: panelHeight,
-      overflow: 'hidden',
-      transform: 'translate(-50%, -50%)'
-    },
-    race: {
-      left: raceLeftAnchor,
-      top: raceTopCenter,
-      width: raceWidth,
-      maxHeight: raceHeight,
-      overflowY: 'hidden',
-      transform: 'translateY(-50%)'
-    }
-  };
-}
-
-function clampPanelPosition(baseStyle, infieldBounds, targetLeft, targetTop) {
-  if (!baseStyle || !infieldBounds) return { left: targetLeft, top: targetTop };
-
-  const width = Number(baseStyle.width || 160);
-  const maxHeight = Number(baseStyle.maxHeight || 140);
-
-  const minLeft = infieldBounds.x + 6;
-  const maxLeft = Math.max(minLeft, infieldBounds.right - width - 6);
-  const minTop = infieldBounds.y + 6;
-  const maxTop = Math.max(minTop, infieldBounds.bottom - maxHeight - 6);
-
-  return {
-    left: clamp(targetLeft, minLeft, maxLeft),
-    top: clamp(targetTop, minTop, maxTop)
-  };
+  return computePenPlacements(horses, penBounds, {
+    spriteSize: 64,
+    gap: 3,
+    insetX: 8,
+    insetTop: 6,
+    insetBottom: 8
+  }).map((entry) => ({
+    horse: entry.horse,
+    x: entry.x,
+    y: entry.y
+  }));
 }
 
 function buildWinnerRows(history = []) {
@@ -189,10 +80,6 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const raceInfoRef = useRef(null);
   const replayWasActiveRef = useRef(false);
 
-  const dragStateRef = useRef(null);
-  const panelStylesRef = useRef(null);
-  const infieldBoundsRef = useRef(null);
-
   const [raceCompleted, setRaceCompleted] = useState(false);
   const [lastFinishedRaceId, setLastFinishedRaceId] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
@@ -209,93 +96,20 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const [replaySummary, setReplaySummary] = useState(null);
   const [layoutBounds, setLayoutBounds] = useState(null);
   const [session, setSession] = useState(null);
-  const panelOffsets = useUIStore((state) => state.panelOffsets);
-  const setPanelOffset = useUIStore((state) => state.setPanelOffset);
-  const resetPanelOffsets = useUIStore((state) => state.resetPanelOffsets);
 
   const selectedReplayRaceId = session?.state === 'replaying'
     ? session?.selectedReplayRaceId || null
     : null;
 
-  const panelStyles = useMemo(
-    () => layoutPanels(layoutBounds?.panelSafeBounds),
-    [layoutBounds]
-  );
+  const panelStyles = useMemo(() => layoutBounds?.overlayBounds || null, [layoutBounds?.overlayBounds]);
 
   useEffect(() => {
-    panelStylesRef.current = panelStyles;
-    infieldBoundsRef.current = layoutBounds?.panelSafeBounds || null;
-  }, [panelStyles, layoutBounds?.panelSafeBounds]);
-
-  useEffect(() => {
-    resetPanelOffsets();
-  }, [
-    layoutBounds?.panelSafeBounds?.x,
-    layoutBounds?.panelSafeBounds?.y,
-    layoutBounds?.panelSafeBounds?.width,
-    layoutBounds?.panelSafeBounds?.height,
-    resetPanelOffsets
-  ]);
-
-  useEffect(() => {
-    const onMove = (event) => {
-      const drag = dragStateRef.current;
-      if (!drag) return;
-
-      const baseStyle = panelStylesRef.current?.[drag.key];
-      const infieldBounds = infieldBoundsRef.current;
-      if (!baseStyle || !infieldBounds) return;
-
-      const dx = event.clientX - drag.startX;
-      const dy = event.clientY - drag.startY;
-      const targetLeft = baseStyle.left + drag.origin.x + dx;
-      const targetTop = baseStyle.top + drag.origin.y + dy;
-
-      const clamped = clampPanelPosition(baseStyle, infieldBounds, targetLeft, targetTop);
-      setPanelOffset(drag.key, {
-        x: clamped.left - baseStyle.left,
-        y: clamped.top - baseStyle.top
-      });
-    };
-
-    const onUp = () => {
-      dragStateRef.current = null;
-    };
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [setPanelOffset]);
-
-  const startDrag = useCallback((key) => (event) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-
-    dragStateRef.current = {
-      key,
-      startX: event.clientX,
-      startY: event.clientY,
-      origin: panelOffsets[key] || { x: 0, y: 0 }
-    };
-  }, [panelOffsets]);
-
-  const applyPanelOffset = useCallback((key, baseStyle) => {
-    if (!baseStyle) return baseStyle;
-
-    const offset = panelOffsets[key] || { x: 0, y: 0 };
-    const nextLeft = baseStyle.left + offset.x;
-    const nextTop = baseStyle.top + offset.y;
-    const clamped = clampPanelPosition(baseStyle, layoutBounds?.panelSafeBounds, nextLeft, nextTop);
-
-    return {
-      ...baseStyle,
-      left: clamped.left,
-      top: clamped.top
-    };
-  }, [layoutBounds?.panelSafeBounds, panelOffsets]);
+    if (!layoutBounds?.layoutChecks) return;
+    const { overlaysInsideInfield, pensBelowTrack } = layoutBounds.layoutChecks;
+    if (!overlaysInsideInfield || !pensBelowTrack) {
+      console.warn('[KD] ⚠️ layout check failed', layoutBounds.layoutChecks);
+    }
+  }, [layoutBounds?.layoutChecks]);
 
   useEffect(() => {
     const registerRaceRuntime = () => {
@@ -567,6 +381,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           infieldBounds: track.infieldBounds,
           infieldHoleBounds: track.infieldHoleBounds,
           panelSafeBounds: track.panelSafeBounds,
+          overlayBounds: track.overlayBounds,
+          layoutChecks: track.layoutChecks,
           penBounds: track.penBounds,
           winnersPenBounds: track.winnersPenBounds,
           trackViewportBounds: track.trackViewportBounds
@@ -685,20 +501,18 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   );
 
   const winnerRows = buildWinnerRows(winnerHistory);
-  const showWinnerPreview = true;
-  const winnerDisplay = winner || {
-    bettorName: 'Preview Bettor',
-    winnings: 1234,
-    horseName: 'Preview Winner',
-    bodyHex: '#8b5a2b',
-    saddleHex: '#c81d25'
-  };
+  const winnerDisplay = winner || null;
+  const containerMinHeight = Math.max(
+    CANVAS_HEIGHT,
+    (layoutBounds?.penBounds?.bottom || 0) + 18,
+    (layoutBounds?.winnersPenBounds?.bottom || 0) + 18
+  );
 
   return (
     <div
       ref={containerRef}
       className="relative w-screen overflow-visible"
-      style={{ minHeight: `${CANVAS_HEIGHT + PEN_RESERVED_SPACE}px` }}
+      style={{ minHeight: `${containerMinHeight}px` }}
     >
       <canvas ref={canvasRef} style={{ height: `${CANVAS_HEIGHT}px` }} className="block w-full" />
 
@@ -725,7 +539,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         />
       )}
 
-      {(winner || showWinnerPreview) && panelStyles && !replayMode && (
+      {winnerDisplay && panelStyles && !replayMode && (
         <motion.div
           initial={{ opacity: 0, scale: 0.92, y: 12 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -783,7 +597,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           }}
         >
           <div className="fence-strip mb-1" />
-          <div className="relative w-full h-full">
+          <div className="relative w-full h-[calc(100%-14px)]">
             {horsePenPlacements.map(({ horse, x, y }) => (
               <div key={horse.id} className="horse-chip absolute" style={{ left: x, top: y }} title={horse.name}>
                 <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-16 h-16" />

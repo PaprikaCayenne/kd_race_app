@@ -7,10 +7,7 @@ import { generateCenterline } from '@/utils/generateTrackPathWithRoundedCorners'
 import { generateAllLanes, generateOffsetLane } from '@/utils/generateOffsetLane';
 import { drawStartLine } from './drawStartLine';
 import { drawFinishLine } from './drawFinishLine';
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
+import { computeRaceLayout } from './computeRaceLayout';
 
 function rectArea(rect) {
   return Math.max(0, rect.width) * Math.max(0, rect.height);
@@ -60,37 +57,6 @@ function getBounds(points = []) {
     height: Math.max(0, maxY - minY),
     right: maxX,
     bottom: maxY
-  };
-}
-
-function insetRect(rect, padding) {
-  const pad = Math.max(0, Number(padding) || 0);
-  const width = Math.max(0, rect.width - pad * 2);
-  const height = Math.max(0, rect.height - pad * 2);
-
-  return {
-    x: rect.x + pad,
-    y: rect.y + pad,
-    width,
-    height,
-    right: rect.x + pad + width,
-    bottom: rect.y + pad + height
-  };
-}
-
-function clampRect(rect, canvasWidth, canvasHeight, minWidth = 120, minHeight = 80, outerPadding = 12) {
-  const x = Math.max(outerPadding, Math.min(rect.x, canvasWidth - outerPadding - minWidth));
-  const y = Math.max(outerPadding, Math.min(rect.y, canvasHeight - outerPadding - minHeight));
-  const width = Math.max(minWidth, Math.min(rect.width, canvasWidth - x - outerPadding));
-  const height = Math.max(minHeight, Math.min(rect.height, canvasHeight - y - outerPadding));
-
-  return {
-    x,
-    y,
-    width,
-    height,
-    right: x + width,
-    bottom: y + height
   };
 }
 
@@ -204,46 +170,13 @@ export function drawDerbyTrack({
   const infieldHoleBounds = rectArea(innerCandidateBounds) <= rectArea(outerCandidateBounds)
     ? innerCandidateBounds
     : outerCandidateBounds;
-  // Safe rectangle for overlays inside the infield hole.
-  const panelSafeBounds = clampRect(
-    insetRect(infieldHoleBounds, Math.max(14, laneWidth * 0.85)),
-    app.screen.width,
-    app.screen.height,
-    260,
-    170,
-    16
-  );
-
-  const bottomPadding = 16;
-  const penTop = Math.round(trackRingBounds.bottom + 10);
-  const availableBelow = Math.max(90, app.screen.height - penTop - bottomPadding);
-  const penHeight = Math.min(clamp(Math.round(app.screen.height * 0.245), 210, 270), availableBelow);
-  const penLeft = Math.max(10, Math.round(trackRingBounds.x));
-  const winnerPenWidth = clamp(Math.round(app.screen.width * 0.22), 210, 300);
-  const penGap = 18;
-  const maxPenWidth = Math.max(320, app.screen.width - penLeft - winnerPenWidth - penGap - 20);
-  const penWidth = Math.min(maxPenWidth, clamp(Math.round(trackRingBounds.width * 0.6), 440, 760));
-
-  const penBounds = {
-    x: penLeft,
-    y: penTop,
-    width: penWidth,
-    height: penHeight,
-    right: penLeft + penWidth,
-    bottom: penTop + penHeight
-  };
-
-  const winnersPenX = Math.max(12, app.screen.width - winnerPenWidth - 16);
-  const winnersPenHeight = clamp(Math.round(penHeight * 0.9), 130, 200);
-  const winnersPenY = Math.min(penTop, app.screen.height - winnersPenHeight - bottomPadding);
-  const winnersPenBounds = {
-    x: winnersPenX,
-    y: winnersPenY,
-    width: winnerPenWidth,
-    height: winnersPenHeight,
-    right: winnersPenX + winnerPenWidth,
-    bottom: winnersPenY + winnersPenHeight
-  };
+  const layout = computeRaceLayout({
+    canvasWidth: app.screen.width,
+    canvasHeight: app.screen.height,
+    laneWidth,
+    trackRingBounds,
+    infieldHoleBounds
+  });
 
   return {
     lanes,
@@ -252,11 +185,13 @@ export function drawDerbyTrack({
     finishLine,
     trackBounds: trackRingBounds,
     trackRingBounds,
-    infieldBounds: panelSafeBounds,
+    infieldBounds: layout.panelSafeBounds,
     infieldHoleBounds,
-    panelSafeBounds,
-    penBounds,
-    winnersPenBounds,
+    panelSafeBounds: layout.panelSafeBounds,
+    overlayBounds: layout.overlayBounds,
+    penBounds: layout.penBounds,
+    winnersPenBounds: layout.winnersPenBounds,
+    layoutChecks: layout.checks,
     canvasBounds,
     trackViewportBounds
   };
