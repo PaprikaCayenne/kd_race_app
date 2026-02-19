@@ -156,20 +156,20 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     ? session?.selectedReplayRaceId || null
     : null;
 
-  const panelStyles = useMemo(() => layoutPanels(layoutBounds?.infieldBounds), [layoutBounds]);
+  const panelStyles = useMemo(() => layoutPanels(layoutBounds?.panelSafeBounds), [layoutBounds]);
 
   useEffect(() => {
     panelStylesRef.current = panelStyles;
-    infieldBoundsRef.current = layoutBounds?.infieldBounds || null;
-  }, [panelStyles, layoutBounds?.infieldBounds]);
+    infieldBoundsRef.current = layoutBounds?.panelSafeBounds || null;
+  }, [panelStyles, layoutBounds?.panelSafeBounds]);
 
   useEffect(() => {
     resetPanelOffsets();
   }, [
-    layoutBounds?.infieldBounds?.x,
-    layoutBounds?.infieldBounds?.y,
-    layoutBounds?.infieldBounds?.width,
-    layoutBounds?.infieldBounds?.height,
+    layoutBounds?.panelSafeBounds?.x,
+    layoutBounds?.panelSafeBounds?.y,
+    layoutBounds?.panelSafeBounds?.width,
+    layoutBounds?.panelSafeBounds?.height,
     resetPanelOffsets
   ]);
 
@@ -224,14 +224,14 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     const offset = panelOffsets[key] || { x: 0, y: 0 };
     const nextLeft = baseStyle.left + offset.x;
     const nextTop = baseStyle.top + offset.y;
-    const clamped = clampPanelPosition(baseStyle, layoutBounds?.infieldBounds, nextLeft, nextTop);
+    const clamped = clampPanelPosition(baseStyle, layoutBounds?.panelSafeBounds, nextLeft, nextTop);
 
     return {
       ...baseStyle,
       left: clamped.left,
       top: clamped.top
     };
-  }, [layoutBounds?.infieldBounds, panelOffsets]);
+  }, [layoutBounds?.panelSafeBounds, panelOffsets]);
 
   useEffect(() => {
     const registerRaceRuntime = () => {
@@ -499,7 +499,10 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
         setLayoutBounds({
           trackBounds: track.trackBounds,
+          trackRingBounds: track.trackRingBounds,
           infieldBounds: track.infieldBounds,
+          infieldHoleBounds: track.infieldHoleBounds,
+          panelSafeBounds: track.panelSafeBounds,
           penBounds: track.penBounds,
           winnersPenBounds: track.winnersPenBounds,
           trackViewportBounds: track.trackViewportBounds

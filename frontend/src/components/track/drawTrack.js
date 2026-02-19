@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v2.9.0 — Enforces responsive 20px top/side track margins and exports viewport bounds
+// Version: v3.0.0 — Exports explicit dirt-ring, inner-hole, and panel-safe bounds for overlay logic
 // Date: 2026-02-19
 
 import { Graphics } from 'pixi.js';
@@ -173,10 +173,13 @@ export function drawDerbyTrack({
     bottom: app.screen.height
   };
 
-  const trackBounds = getBounds(outer);
-  const rawInfieldBounds = getBounds(inner);
-  const infieldBounds = clampRect(
-    insetRect(rawInfieldBounds, Math.max(14, laneWidth * 0.85)),
+  // Brown dirt + gray border ring outer envelope.
+  const trackRingBounds = getBounds(outer);
+  // Green infield hole envelope inside the ring.
+  const infieldHoleBounds = getBounds(inner);
+  // Safe rectangle for overlays inside the infield hole.
+  const panelSafeBounds = clampRect(
+    insetRect(infieldHoleBounds, Math.max(14, laneWidth * 0.85)),
     app.screen.width,
     app.screen.height,
     260,
@@ -185,10 +188,10 @@ export function drawDerbyTrack({
   );
 
   const bottomPadding = 16;
-  const belowTrackSpace = Math.max(108, app.screen.height - trackBounds.bottom - bottomPadding * 2);
+  const belowTrackSpace = Math.max(108, app.screen.height - trackRingBounds.bottom - bottomPadding * 2);
   const penHeight = Math.max(108, Math.min(164, belowTrackSpace));
   const penWidth = Math.max(190, Math.min(310, app.screen.width * 0.24));
-  const penY = Math.max(trackBounds.bottom + 10, app.screen.height - penHeight - bottomPadding);
+  const penY = Math.max(trackRingBounds.bottom + 10, app.screen.height - penHeight - bottomPadding);
 
   const penBounds = clampRect({
     x: 16,
@@ -213,8 +216,11 @@ export function drawDerbyTrack({
     centerline,
     startLine,
     finishLine,
-    trackBounds,
-    infieldBounds,
+    trackBounds: trackRingBounds,
+    trackRingBounds,
+    infieldBounds: panelSafeBounds,
+    infieldHoleBounds,
+    panelSafeBounds,
     penBounds,
     winnersPenBounds,
     canvasBounds,
