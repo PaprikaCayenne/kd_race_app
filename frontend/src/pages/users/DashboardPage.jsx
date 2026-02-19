@@ -224,6 +224,8 @@ export default function DashboardPage() {
   const sessionState = session?.state || 'setup';
   const replaying = sessionState === 'replaying';
   const bettingLocked = sessionState !== 'betting_open';
+  const hasLiveOrder = !replaying && liveOrder.length > 0;
+  const showBettingPanel = race?.horses?.length > 0 && !replaying && !hasLiveOrder;
   const totalBets = useMemo(() => Object.values(bets).reduce((sum, amt) => sum + amt, 0), [bets]);
   const availableBalance = balance - totalBets;
 
@@ -295,7 +297,22 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {race?.horses?.length > 0 && !replaying && (
+      {hasLiveOrder && (
+        <div className="w-full max-w-md bg-blue-50 border border-blue-200 rounded-xl p-4 shadow transition-opacity duration-300">
+          <h2 className="font-bold text-blue-800">Current Heat Order</h2>
+          <ol className="mt-2 space-y-1 text-sm">
+            {liveOrder.map((entry, idx) => (
+              <li key={`${entry.id}-${idx}`} className="flex items-center gap-2">
+                <span>{idx + 1}.</span>
+                <HorseSprite bodyHex={entry.bodyHex} saddleHex={entry.saddleHex} alt={entry.name} className="w-8 h-8" />
+                <span>{entry.name}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {showBettingPanel && (
         <div className="w-full max-w-md space-y-4">
           {bettingLocked ? (
             <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 shadow">
@@ -371,21 +388,6 @@ export default function DashboardPage() {
             ))}
           </ol>
           {replayOrder.length === 0 && <p className="text-sm text-indigo-700 mt-2">Waiting for replay ticks…</p>}
-        </div>
-      )}
-
-      {!replaying && liveOrder.length > 0 && (
-        <div className="w-full max-w-md bg-blue-50 border border-blue-200 rounded-xl p-4 shadow">
-          <h2 className="font-bold text-blue-800">Current Heat Order</h2>
-          <ol className="mt-2 space-y-1 text-sm">
-            {liveOrder.map((entry, idx) => (
-              <li key={`${entry.id}-${idx}`} className="flex items-center gap-2">
-                <span>{idx + 1}.</span>
-                <HorseSprite bodyHex={entry.bodyHex} saddleHex={entry.saddleHex} alt={entry.name} className="w-8 h-8" />
-                <span>{entry.name}</span>
-              </li>
-            ))}
-          </ol>
         </div>
       )}
 
