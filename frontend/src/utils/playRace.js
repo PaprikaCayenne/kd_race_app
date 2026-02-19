@@ -143,15 +143,31 @@ export function playRace({
       bodyHex: bodyHex || '#a0522d'
     }));
 
-    setLiveRanking(publicRanking.map(({ id, name, saddleHex, bodyHex }) => ({ id, name, saddleHex, bodyHex })));
+    const progressFeed = horses.map((horse) => {
+      const path = horsePaths.get(horse.localId);
+      if (!path) return null;
+      const distance = distanceMap.get(horse.localId) || 0;
+      const pct = getNormalizedProgress(distance, Math.max(1, path.arcLength || 1));
+      return {
+        id: horse.id,
+        localId: horse.localId,
+        name: horse.name,
+        saddleHex: horse.saddleHex || '#888888',
+        bodyHex: horse.bodyHex || '#a0522d',
+        pct
+      };
+    }).filter(Boolean);
 
-    if (socket?.connected && now - lastOrderEmit >= 200) {
-      socket.emit('race:order', {
+    if (socket?.connected && now - lastOrderEmit >= 100) {
+      socket.emit('race:progress', {
         raceId,
         elapsedMs: raceElapsed,
-        ranking: publicRanking
+        progress: progressFeed
       });
       lastOrderEmit = now;
+    } else if (!socket?.connected) {
+      // Fallback ordering when socket transport is unavailable.
+      setLiveRanking(publicRanking.map(({ id, name, saddleHex, bodyHex }) => ({ id, name, saddleHex, bodyHex })));
     }
 
     if (stopped.size === horses.length) {

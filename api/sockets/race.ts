@@ -1,6 +1,6 @@
 // File: api/sockets/race.ts
-// Version: v3.0.0 — Canonical session/order/replay broadcasts from server runtime
-// Date: 2026-02-18
+// Version: v3.1.0 — Canonical server-side live ordering from race progress ticks
+// Date: 2026-02-19
 
 import { Server, Socket } from 'socket.io';
 import { PrismaClient } from '@prisma/client';
@@ -17,6 +17,9 @@ import {
 
 const prisma = new PrismaClient();
 export let raceNamespace: ReturnType<Server['of']>;
+
+const DEFAULT_BODY_HEX = '#a0522d';
+const DEFAULT_SADDLE_HEX = '#888888';
 
 interface ReplayTickHorse {
   horseId: number;
@@ -37,22 +40,169 @@ interface ReplayRuntimeState {
   latestByHorse: Map<number, ReplayTickHorse>;
 }
 
+interface RankingSeed {
+  id?: number | null;
+  horseId?: number | null;
+  localId?: number | null;
+  name?: string | null;
+  bodyHex?: string | null;
+  saddleHex?: string | null;
+  normalizedProgress?: number | null;
+  pct?: number | null;
+  position?: number | null;
+}
+
+interface RankingEntry {
+  id: number;
+  horseId: number;
+  localId: number | null;
+  name: string;
+  bodyHex: string;
+  saddleHex: string;
+  normalizedProgress: number;
+  pct: number;
+  position: number;
+}
+
+interface RaceOrderPayload {
+  raceId?: string | number | bigint;
+  elapsedMs?: number;
+  ranking?: RankingSeed[];
+}
+
+interface RaceProgressPayload {
+  raceId?: string | number | bigint;
+  elapsedMs?: number;
+  progress?: RankingSeed[];
+}
+
 let replayRuntime: ReplayRuntimeState | null = null;
 const raceRuntimeSockets = new Set<string>();
 
-function normalizeAndSortRanking(ranking: any[]): any[] {
-  return [...ranking]
-    .map((entry) => ({
-      ...entry,
-      normalizedProgress: Number(entry.normalizedProgress ?? entry.pct ?? 0)
-    }))
+function toNumberOrNull(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function clampProgress(value: unknown): number {
+  const numeric = toNumberOrNull(value) ?? 0;
+  return Math.max(0, Math.min(1, numeric));
+}
+
+function parseRaceId(value: unknown): string | null {
+  if (typeof value === 'bigint') {
+    return value > 0n ? value.toString() : null;
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return String(Math.trunc(value));
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^\d+$/.test(trimmed)) return trimmed;
+  }
+
+  return null;
+}
+
+function enrichRankingFromCache(raceId: string | null, ranking: RankingSeed[]): RankingSeed[] {
+  if (!raceId) return ranking;
+
+  const cache = raceHorseCache.get(Number(raceId)) ?? [];
+  if (cache.length === 0) return ranking;
+
+  const byLocalId = new Map<number, any>();
+  const byHorseId = new Map<number, any>();
+
+  cache.forEach((entry) => {
+    const local = toNumberOrNull(entry?.localId);
+    if (local != null) byLocalId.set(local, entry);
+
+    const horseId = toNumberOrNull(entry?.horseId ?? entry?.id);
+    if (horseId != null) byHorseId.set(horseId, entry);
+  });
+
+  return ranking.map((row) => {
+    const localId = toNumberOrNull(row.localId);
+    const horseId = toNumberOrNull(row.horseId ?? row.id);
+
+    const cached = (
+      (localId != null ? byLocalId.get(localId) : null)
+      || (horseId != null ? byHorseId.get(horseId) : null)
+      || null
+    );
+
+    const resolvedHorseId = toNumberOrNull(row.horseId ?? row.id ?? cached?.horseId ?? cached?.id);
+
+    return {
+      id: resolvedHorseId,
+      horseId: resolvedHorseId,
+      localId: toNumberOrNull(row.localId ?? cached?.localId),
+      name: (row.name ?? cached?.name ?? '') as string,
+      bodyHex: (row.bodyHex ?? cached?.bodyHex ?? DEFAULT_BODY_HEX) as string,
+      saddleHex: (row.saddleHex ?? cached?.saddleHex ?? DEFAULT_SADDLE_HEX) as string,
+      normalizedProgress: row.normalizedProgress ?? row.pct ?? 0,
+      pct: row.pct ?? row.normalizedProgress ?? 0
+    };
+  });
+}
+
+function normalizeAndSortRanking(ranking: RankingSeed[]): RankingEntry[] {
+  const byHorseId = new Map<number, Omit<RankingEntry, 'position'>>();
+
+  ranking.forEach((entry) => {
+    const horseId = toNumberOrNull(entry.horseId ?? entry.id);
+    if (horseId == null || horseId <= 0) return;
+
+    const normalizedProgress = clampProgress(entry.normalizedProgress ?? entry.pct ?? 0);
+    const existing = byHorseId.get(horseId);
+
+    const merged: Omit<RankingEntry, 'position'> = {
+      id: horseId,
+      horseId,
+      localId: toNumberOrNull(entry.localId) ?? existing?.localId ?? null,
+      name: (entry.name ?? existing?.name ?? '') as string,
+      bodyHex: (entry.bodyHex ?? existing?.bodyHex ?? DEFAULT_BODY_HEX) as string,
+      saddleHex: (entry.saddleHex ?? existing?.saddleHex ?? DEFAULT_SADDLE_HEX) as string,
+      normalizedProgress,
+      pct: normalizedProgress
+    };
+
+    if (!existing || normalizedProgress >= existing.normalizedProgress) {
+      byHorseId.set(horseId, merged);
+      return;
+    }
+
+    byHorseId.set(horseId, {
+      ...existing,
+      localId: existing.localId ?? merged.localId,
+      name: existing.name || merged.name,
+      bodyHex: existing.bodyHex || merged.bodyHex,
+      saddleHex: existing.saddleHex || merged.saddleHex
+    });
+  });
+
+  return Array.from(byHorseId.values())
     .sort((a, b) => {
       if (b.normalizedProgress !== a.normalizedProgress) {
         return b.normalizedProgress - a.normalizedProgress;
       }
-      return (b.id || 0) - (a.id || 0);
+
+      const localA = a.localId ?? Number.MAX_SAFE_INTEGER;
+      const localB = b.localId ?? Number.MAX_SAFE_INTEGER;
+      if (localA !== localB) return localA - localB;
+
+      return a.id - b.id;
     })
-    .map((entry, idx) => ({ ...entry, position: idx + 1 }));
+    .map((entry, idx) => ({
+      ...entry,
+      position: idx + 1
+    }));
 }
 
 function stopReplayRuntime() {
@@ -261,17 +411,53 @@ export function setupRaceNamespace(io: Server): void {
       socket.emit('session:init', { session: getRaceSession() });
     });
 
-    socket.on('race:order', (payload) => {
+    socket.on('race:progress', (payload: RaceProgressPayload = {}) => {
       if (!raceRuntimeSockets.has(socket.id)) return;
+
       const session = getRaceSession();
       if (session.state === 'replaying') return;
-      if (session.activeRaceId && String(payload?.raceId) !== String(session.activeRaceId)) return;
 
-      const ranking = Array.isArray(payload?.ranking) ? payload.ranking : [];
-      const canonical = normalizeAndSortRanking(ranking);
+      const raceId = parseRaceId(payload.raceId) || (session.activeRaceId ? String(session.activeRaceId) : null);
+      if (!raceId) return;
+      if (session.activeRaceId && String(session.activeRaceId) !== String(raceId)) return;
+
+      const progress = Array.isArray(payload.progress) ? payload.progress : [];
+      const enriched = enrichRankingFromCache(
+        raceId,
+        progress.map((row) => ({
+          ...row,
+          normalizedProgress: row.normalizedProgress ?? row.pct ?? 0
+        }))
+      );
+
+      const canonical = normalizeAndSortRanking(enriched);
+      if (canonical.length === 0) return;
+
       raceNamespace.emit('race:order', {
-        raceId: payload?.raceId,
-        elapsedMs: payload?.elapsedMs,
+        raceId,
+        elapsedMs: Number(payload.elapsedMs) || 0,
+        ranking: canonical
+      });
+    });
+
+    // Backward compatibility for legacy clients that still emit race:order directly.
+    socket.on('race:order', (payload: RaceOrderPayload = {}) => {
+      if (!raceRuntimeSockets.has(socket.id)) return;
+
+      const session = getRaceSession();
+      if (session.state === 'replaying') return;
+
+      const raceId = parseRaceId(payload.raceId) || (session.activeRaceId ? String(session.activeRaceId) : null);
+      if (!raceId) return;
+      if (session.activeRaceId && String(session.activeRaceId) !== String(raceId)) return;
+
+      const ranking = Array.isArray(payload.ranking) ? payload.ranking : [];
+      const canonical = normalizeAndSortRanking(enrichRankingFromCache(raceId, ranking));
+      if (canonical.length === 0) return;
+
+      raceNamespace.emit('race:order', {
+        raceId,
+        elapsedMs: Number(payload.elapsedMs) || 0,
         ranking: canonical
       });
     });
