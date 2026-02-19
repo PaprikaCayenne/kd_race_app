@@ -260,9 +260,6 @@ export function initRaceListeners({
         raceId,
         raceDurationSeconds,
         setLiveRanking,
-        onFirstFinish: ({ horseId, localId }) => {
-          socket.emit('race:first-finish', { raceId, horseId, localId });
-        },
         onRaceEnd: (results) => {
           logInfo('[KD] 🏁 Race ended! Final results sent to backend.');
           logInfo(results);
@@ -281,10 +278,6 @@ export function initRaceListeners({
     const horses = horsesRef.current || [];
     if (!app || horses.length === 0) return;
     animateWalkIn({ app, horses, horseSpritesRef, labelSpritesRef, durationMs: 2200 });
-  });
-
-  socket.on('winner:preview', ({ winner }) => {
-    if (winner) setWinner?.(winner);
   });
 
   socket.on('admin:clear-stage', () => {

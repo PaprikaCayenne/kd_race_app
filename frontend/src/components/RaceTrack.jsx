@@ -97,6 +97,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const [lastFinishedRaceId, setLastFinishedRaceId] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [liveRanking, setLiveRanking] = useState([]);
+  const [replayRanking, setReplayRanking] = useState([]);
   const [raceNameDisplay, setRaceNameDisplay] = useState('');
   const [winner, setWinner] = useState(null);
   const [winnerHistory, setWinnerHistory] = useState([]);
@@ -134,6 +135,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       setReplayMode(activeReplay);
       if (!activeReplay) {
         setReplaySummary(null);
+        setReplayRanking([]);
       }
 
       replayWasActiveRef.current = activeReplay;
@@ -167,6 +169,16 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       })));
     };
 
+    const onReplayTick = ({ ranking }) => {
+      if (!Array.isArray(ranking)) return;
+      setReplayRanking(ranking.map((h) => ({
+        id: h.id || h.horseId,
+        name: h.name,
+        saddleHex: h.saddleHex,
+        bodyHex: h.bodyHex
+      })));
+    };
+
     const onLeaderboardUpdated = async () => {
       try {
         const res = await fetch('/api/admin/leaderboard');
@@ -180,6 +192,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     socket.on('session:init', onSession);
     socket.on('session:update', onSession);
     socket.on('race:order', onOrder);
+    socket.on('replay:tick', onReplayTick);
     socket.on('race:summary', onRaceSummary);
     socket.on('leaderboard:updated', onLeaderboardUpdated);
 
@@ -187,6 +200,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       socket.off('session:init', onSession);
       socket.off('session:update', onSession);
       socket.off('race:order', onOrder);
+      socket.off('replay:tick', onReplayTick);
       socket.off('race:summary', onRaceSummary);
       socket.off('leaderboard:updated', onLeaderboardUpdated);
     };
@@ -439,14 +453,16 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     runReplay();
   }, [selectedReplayRaceId, session?.replayPaused]);
 
-  const racePanelRanking = liveRanking.length > 0
-    ? liveRanking
-    : currentRaceHorses.map((horse) => ({
-        id: horse.id,
-        name: horse.name,
-        saddleHex: horse.saddleHex,
-        bodyHex: horse.bodyHex
-      }));
+  const racePanelRanking = replayMode
+    ? replayRanking
+    : (liveRanking.length > 0
+        ? liveRanking
+        : currentRaceHorses.map((horse) => ({
+            id: horse.id,
+            name: horse.name,
+            saddleHex: horse.saddleHex,
+            bodyHex: horse.bodyHex
+          })));
 
   const racePanelTitle = session?.heatNumber
     ? `Heat ${session.heatNumber}`
