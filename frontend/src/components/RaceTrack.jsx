@@ -704,22 +704,22 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
       {layoutBounds?.penBounds && (
         <div
-          className="absolute pen-surface rounded-xl p-3 shadow-xl z-40"
+          className="absolute pen-surface rounded-xl p-3 z-40"
           style={{
             left: layoutBounds.penBounds.x,
             top: layoutBounds.penBounds.y,
             width: layoutBounds.penBounds.width,
             height: layoutBounds.penBounds.height,
-            overflowY: 'auto'
+            overflow: 'hidden'
           }}
         >
           <h4 className="font-bold text-sm mb-2">🐎 Horse Pen (16)</h4>
           <div className="fence-strip mb-2" />
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-8 gap-1.5">
             {horsePenHorses.map((horse) => (
               <div key={horse.id} className="horse-chip" title={horse.name}>
                 <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-8 h-8" />
-                <span className="text-[10px] leading-tight max-w-20 truncate">{horse.name}</span>
+                <span className="text-[9px] leading-tight max-w-20 truncate">{horse.name}</span>
               </div>
             ))}
           </div>

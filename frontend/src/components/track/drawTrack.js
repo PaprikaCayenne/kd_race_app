@@ -194,11 +194,14 @@ export function drawDerbyTrack({
   const bottomPadding = 16;
   const belowTrackTop = Math.round(trackRingBounds.bottom + 14);
   const availableBelow = Math.max(96, app.screen.height - belowTrackTop - bottomPadding);
-  const penHeight = clamp(Math.round(availableBelow * 0.94), 180, 250);
-  const penWidth = clamp(Math.round(app.screen.width * 0.34), 280, 420);
+  const penHeight = clamp(Math.round(availableBelow * 0.96), 190, 260);
+  const penLeft = Math.max(12, Math.round(trackRingBounds.x));
   const penY = Math.max(belowTrackTop, app.screen.height - penHeight - bottomPadding);
-  const penLeft = Math.max(16, Math.round(trackRingBounds.x + 8));
   const winnerPenWidth = clamp(Math.round(app.screen.width * 0.24), 220, 320);
+  const penGap = 18;
+  const maxPenWidth = Math.max(300, app.screen.width - penLeft - winnerPenWidth - penGap - 20);
+  const penWidthTarget = clamp(Math.round(trackRingBounds.width * 0.58), 420, 700);
+  const penWidth = Math.min(maxPenWidth, penWidthTarget);
 
   const penBounds = clampRect({
     x: penLeft,
