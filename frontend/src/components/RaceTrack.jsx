@@ -697,9 +697,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         <HorseRankingOverlay
           ranking={racePanelRanking}
           raceName={racePanelTitle}
-          draggable
-          onDragStart={startDrag('race')}
-          panelStyle={applyPanelOffset('race', panelStyles.race)}
+          draggable={false}
+          panelStyle={panelStyles.race}
         />
       )}
 
@@ -714,9 +713,9 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
             overflowY: 'auto'
           }}
         >
-          <h4 className="font-bold text-sm mb-2">🐎 Horse Pen</h4>
+          <h4 className="font-bold text-sm mb-2">🐎 Horse Pen (16)</h4>
           <div className="fence-strip mb-2" />
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-4 gap-2">
             {horsePenHorses.map((horse) => (
               <div key={horse.id} className="horse-chip" title={horse.name}>
                 <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-8 h-8" />

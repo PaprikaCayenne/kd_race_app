@@ -92,17 +92,17 @@ html, body {
 }
 
 .horse-chip {
-  min-width: 44px;
-  min-height: 44px;
+  min-width: 66px;
+  min-height: 72px;
   border-radius: 10px;
   border: 1px solid rgba(53, 38, 18, 0.35);
   background: rgba(239, 252, 241, 0.94);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
   flex-direction: column;
-  padding: 4px;
+  padding: 6px 4px;
 }
 
 .winner-row {

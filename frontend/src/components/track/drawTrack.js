@@ -8,6 +8,10 @@ import { generateAllLanes, generateOffsetLane } from '@/utils/generateOffsetLane
 import { drawStartLine } from './drawStartLine';
 import { drawFinishLine } from './drawFinishLine';
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function getBounds(points = []) {
   if (!Array.isArray(points) || points.length === 0) {
     return { x: 0, y: 0, width: 0, height: 0, right: 0, bottom: 0 };
@@ -188,28 +192,31 @@ export function drawDerbyTrack({
   );
 
   const bottomPadding = 16;
-  const belowTrackSpace = Math.max(108, app.screen.height - trackRingBounds.bottom - bottomPadding * 2);
-  const penHeight = Math.max(108, Math.min(164, belowTrackSpace));
-  const penWidth = Math.max(190, Math.min(310, app.screen.width * 0.24));
-  const penY = Math.max(trackRingBounds.bottom + 10, app.screen.height - penHeight - bottomPadding);
+  const belowTrackTop = Math.round(trackRingBounds.bottom + 14);
+  const availableBelow = Math.max(96, app.screen.height - belowTrackTop - bottomPadding);
+  const penHeight = clamp(Math.round(availableBelow * 0.94), 180, 250);
+  const penWidth = clamp(Math.round(app.screen.width * 0.34), 280, 420);
+  const penY = Math.max(belowTrackTop, app.screen.height - penHeight - bottomPadding);
+  const penLeft = Math.max(16, Math.round(trackRingBounds.x + 8));
+  const winnerPenWidth = clamp(Math.round(app.screen.width * 0.24), 220, 320);
 
   const penBounds = clampRect({
-    x: 16,
+    x: penLeft,
     y: penY,
     width: penWidth,
     height: penHeight,
-    right: 16 + penWidth,
+    right: penLeft + penWidth,
     bottom: penY + penHeight
-  }, app.screen.width, app.screen.height, 170, 100, 12);
+  }, app.screen.width, app.screen.height, 220, 160, 12);
 
   const winnersPenBounds = clampRect({
-    x: app.screen.width - penWidth - 16,
+    x: app.screen.width - winnerPenWidth - 16,
     y: penY,
-    width: penWidth,
+    width: winnerPenWidth,
     height: penHeight,
     right: app.screen.width - 16,
     bottom: penY + penHeight
-  }, app.screen.width, app.screen.height, 170, 100, 12);
+  }, app.screen.width, app.screen.height, 180, 140, 12);
 
   return {
     lanes,
