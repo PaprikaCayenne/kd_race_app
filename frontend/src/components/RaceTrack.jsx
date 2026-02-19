@@ -465,7 +465,18 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         <div className="absolute bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center" style={panelStyles.winner}>
           <div className="confetti-wrap" aria-hidden="true">
             {Array.from({ length: 14 }).map((_, i) => (
-              <span key={i} className="confetti-dot" style={{ '--i': i, '--delay': `${Math.random() * 0.8 + i * 0.05}s` }} />
+              <span
+                key={i}
+                className="confetti-dot"
+                style={{
+                  '--i': i,
+                  '--delay': `${Math.random() * 0.9 + i * 0.04}s`,
+                  '--dx': `${Math.round((Math.random() - 0.5) * 140)}px`,
+                  '--dy': `${Math.round(-40 - Math.random() * 95)}px`,
+                  '--spin': `${Math.round((Math.random() - 0.5) * 360)}deg`,
+                  '--size': `${5 + Math.round(Math.random() * 6)}px`
+                }}
+              />
             ))}
           </div>
           <h3 className="text-xl font-black text-yellow-700">🏆 Winner</h3>
@@ -487,7 +498,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
       {layoutBounds?.penBounds && (
         <div
-          className="absolute bg-white/90 rounded-xl p-3 shadow-xl z-40"
+          className="absolute pen-surface rounded-xl p-3 shadow-xl z-40"
           style={{
             left: layoutBounds.penBounds.x,
             top: layoutBounds.penBounds.y,
@@ -544,7 +555,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
       {layoutBounds?.winnersPenBounds && (
         <div
-          className="absolute bg-white/90 rounded-xl p-3 shadow-xl z-40"
+          className="absolute winners-pen-surface rounded-xl p-3 shadow-xl z-40"
           style={{
             left: layoutBounds.winnersPenBounds.x,
             top: layoutBounds.winnersPenBounds.y,
