@@ -1,6 +1,6 @@
 // File: frontend/src/components/track/initRaceListeners.js
-// Version: v3.5.0 — Adds pre-race walk-in from pens on open-bets and first-finish winner trigger
-// Date: 2026-02-18
+// Version: v3.6.0 — Keeps canonical winner flow, stages walk-in, and swaps start/finish line at race start
+// Date: 2026-02-19
 
 import { setupHorses } from './setupHorses';
 import { generateHorsePaths } from '@/utils/generateHorsePaths';
@@ -230,7 +230,7 @@ export function initRaceListeners({
       if (startLine && typeof startLine.alpha === 'number') {
         appRef.current.ticker.add(() => {
           if (startLine.alpha > 0) {
-            startLine.alpha -= 0.03;
+            startLine.alpha -= 0.04;
             if (startLine.alpha < 0) startLine.alpha = 0;
           }
         });
@@ -242,11 +242,11 @@ export function initRaceListeners({
         setTimeout(() => {
           appRef.current.ticker.add(() => {
             if (finishLine.alpha < 1) {
-              finishLine.alpha += 0.02;
+              finishLine.alpha += 0.04;
               if (finishLine.alpha > 1) finishLine.alpha = 1;
             }
           });
-        }, 5000);
+        }, 1000);
       }
 
       playRace({

@@ -1,8 +1,8 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v3.8.0 — Adds tournament pen sync, replay selector on /race, and winner preview handling
-// Date: 2026-02-18
+// Version: v3.9.0 — Winner spotlight center, bounded draggable overlays, and pen/race UI polish
+// Date: 2026-02-19
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Application } from 'pixi.js';
 import { io } from 'socket.io-client';
 
@@ -15,12 +15,12 @@ import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
 import { playReplay, stopReplay } from '@/utils/playReplay';
 
-const VERSION = 'v3.8.0';
+const VERSION = 'v3.9.0';
 const socket = io('/race', { path: '/api/socket.io' });
 
 const TRACK_PADDING = 24;
 const HORIZONTAL_TRACK_PADDING = 80;
-const TRACK_HEIGHT = 760;
+const TRACK_HEIGHT = 700;
 const CANVAS_HEIGHT = 900;
 
 const CORNER_RADIUS = 200;
@@ -38,9 +38,13 @@ function layoutPanels(infieldBounds) {
   if (!infieldBounds) return null;
 
   const pad = 12;
-  const gap = clamp(Math.round(infieldBounds.width * 0.025), 10, 22);
-  const usableWidth = Math.max(240, infieldBounds.width - pad * 2 - gap * 2);
-  const colWidth = Math.max(140, Math.floor(usableWidth / 3));
+  const gap = clamp(Math.round(infieldBounds.width * 0.02), 10, 18);
+  const usableWidth = Math.max(280, infieldBounds.width - pad * 2 - gap * 2);
+
+  const leaderboardWidth = Math.max(150, Math.floor(usableWidth * 0.32));
+  const raceWidth = Math.max(125, Math.floor(usableWidth * 0.17));
+  const winnerWidth = Math.max(170, usableWidth - leaderboardWidth - raceWidth - gap * 2);
+
   const panelHeight = Math.max(120, infieldBounds.height - pad * 2);
   const top = Math.round(infieldBounds.y + pad);
   const left = Math.round(infieldBounds.x + pad);
@@ -49,25 +53,55 @@ function layoutPanels(infieldBounds) {
     leaderboard: {
       left,
       top,
-      width: colWidth,
+      width: leaderboardWidth,
       maxHeight: panelHeight,
       overflowY: 'auto'
     },
     winner: {
-      left: left + colWidth + gap,
-      top,
-      width: colWidth,
+      left: infieldBounds.x + (infieldBounds.width / 2),
+      top: infieldBounds.y + (infieldBounds.height / 2),
+      width: winnerWidth,
       maxHeight: panelHeight,
-      overflow: 'hidden'
+      overflow: 'hidden',
+      transform: 'translate(-50%, -50%)'
     },
     race: {
-      left: left + (colWidth + gap) * 2,
+      left: left + leaderboardWidth + gap + winnerWidth + gap,
       top,
-      width: colWidth,
+      width: raceWidth,
       maxHeight: panelHeight,
       overflowY: 'auto'
     }
   };
+}
+
+function clampPanelPosition(baseStyle, infieldBounds, targetLeft, targetTop) {
+  if (!baseStyle || !infieldBounds) return { left: targetLeft, top: targetTop };
+
+  const width = Number(baseStyle.width || 160);
+  const maxHeight = Number(baseStyle.maxHeight || 140);
+
+  const minLeft = infieldBounds.x + 6;
+  const maxLeft = Math.max(minLeft, infieldBounds.right - width - 6);
+  const minTop = infieldBounds.y + 6;
+  const maxTop = Math.max(minTop, infieldBounds.bottom - maxHeight - 6);
+
+  return {
+    left: clamp(targetLeft, minLeft, maxLeft),
+    top: clamp(targetTop, minTop, maxTop)
+  };
+}
+
+function buildWinnerRows(history = []) {
+  const rows = [];
+  const seen = new Set();
+  history.forEach((entry) => {
+    const key = `${entry.raceId || entry.horseName}-${entry.bettorName || ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push(entry);
+  });
+  return rows.slice(-8).reverse();
 }
 
 const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
@@ -93,6 +127,10 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const raceInfoRef = useRef(null);
   const replayWasActiveRef = useRef(false);
 
+  const dragStateRef = useRef(null);
+  const panelStylesRef = useRef(null);
+  const infieldBoundsRef = useRef(null);
+
   const [raceCompleted, setRaceCompleted] = useState(false);
   const [lastFinishedRaceId, setLastFinishedRaceId] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
@@ -109,6 +147,10 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const [replaySummary, setReplaySummary] = useState(null);
   const [layoutBounds, setLayoutBounds] = useState(null);
   const [session, setSession] = useState(null);
+  const [panelOffsets, setPanelOffsets] = useState({
+    leaderboard: { x: 0, y: 0 },
+    race: { x: 0, y: 0 }
+  });
 
   const selectedReplayRaceId = session?.state === 'replaying'
     ? session?.selectedReplayRaceId || null
@@ -117,13 +159,87 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const panelStyles = useMemo(() => layoutPanels(layoutBounds?.infieldBounds), [layoutBounds]);
 
   useEffect(() => {
+    panelStylesRef.current = panelStyles;
+    infieldBoundsRef.current = layoutBounds?.infieldBounds || null;
+  }, [panelStyles, layoutBounds?.infieldBounds]);
+
+  useEffect(() => {
+    setPanelOffsets({
+      leaderboard: { x: 0, y: 0 },
+      race: { x: 0, y: 0 }
+    });
+  }, [layoutBounds?.infieldBounds?.x, layoutBounds?.infieldBounds?.y, layoutBounds?.infieldBounds?.width, layoutBounds?.infieldBounds?.height]);
+
+  useEffect(() => {
+    const onMove = (event) => {
+      const drag = dragStateRef.current;
+      if (!drag) return;
+
+      const baseStyle = panelStylesRef.current?.[drag.key];
+      const infieldBounds = infieldBoundsRef.current;
+      if (!baseStyle || !infieldBounds) return;
+
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      const targetLeft = baseStyle.left + drag.origin.x + dx;
+      const targetTop = baseStyle.top + drag.origin.y + dy;
+
+      const clamped = clampPanelPosition(baseStyle, infieldBounds, targetLeft, targetTop);
+      setPanelOffsets((prev) => ({
+        ...prev,
+        [drag.key]: {
+          x: clamped.left - baseStyle.left,
+          y: clamped.top - baseStyle.top
+        }
+      }));
+    };
+
+    const onUp = () => {
+      dragStateRef.current = null;
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  const startDrag = useCallback((key) => (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+
+    dragStateRef.current = {
+      key,
+      startX: event.clientX,
+      startY: event.clientY,
+      origin: panelOffsets[key] || { x: 0, y: 0 }
+    };
+  }, [panelOffsets]);
+
+  const applyPanelOffset = useCallback((key, baseStyle) => {
+    if (!baseStyle) return baseStyle;
+
+    const offset = panelOffsets[key] || { x: 0, y: 0 };
+    const nextLeft = baseStyle.left + offset.x;
+    const nextTop = baseStyle.top + offset.y;
+    const clamped = clampPanelPosition(baseStyle, layoutBounds?.infieldBounds, nextLeft, nextTop);
+
+    return {
+      ...baseStyle,
+      left: clamped.left,
+      top: clamped.top
+    };
+  }, [layoutBounds?.infieldBounds, panelOffsets]);
+
+  useEffect(() => {
     const registerRaceRuntime = () => {
       socket.emit('race:screen:ready');
     };
 
     registerRaceRuntime();
     socket.on('connect', registerRaceRuntime);
-
     socket.emit('session:request-init');
 
     const onSession = ({ session: nextSession }) => {
@@ -263,14 +379,23 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           setAllHorses(Array.isArray(data.horsePool) ? data.horsePool : []);
           const winners = Array.isArray(data.winners) ? data.winners : [];
           if (winners.length > 0) {
-            setWinnerHistory(winners.map((horse, idx) => ({
-              raceId: `winner-${idx}`,
-              horseName: horse.name,
-              horseImage: horseSpriteDataUri(horse.bodyHex, horse.saddleHex),
-              bodyHex: horse.bodyHex,
-              saddleHex: horse.saddleHex,
-              bettorName: 'Heat Winner'
-            })));
+            setWinnerHistory((prev) => {
+              const byRace = [...prev];
+              winners.forEach((horse, idx) => {
+                const key = `winner-${idx}`;
+                if (byRace.some((entry) => entry.raceId === key)) return;
+                byRace.push({
+                  raceId: key,
+                  horseName: horse.name,
+                  horseImage: horseSpriteDataUri(horse.bodyHex, horse.saddleHex),
+                  bodyHex: horse.bodyHex,
+                  saddleHex: horse.saddleHex,
+                  bettorName: 'Heat Winner',
+                  winnings: 0
+                });
+              });
+              return byRace;
+            });
           }
           return;
         }
@@ -476,6 +601,15 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     ? `Heat ${session.heatNumber}`
     : (raceNameDisplay || 'Current Heat');
 
+  const sessionState = session?.state || 'setup';
+  const hideActiveHorsesFromPen = ['betting_open', 'betting_closed', 'running'].includes(sessionState);
+  const activeRaceHorseIds = new Set((currentRaceHorses || []).map((h) => h.id));
+  const horsePenHorses = hideActiveHorsesFromPen
+    ? allHorses.filter((horse) => !activeRaceHorseIds.has(horse.id))
+    : allHorses;
+
+  const winnerRows = buildWinnerRows(winnerHistory);
+
   return (
     <div ref={containerRef} className="relative w-screen overflow-hidden">
       <canvas ref={canvasRef} style={{ height: `${CANVAS_HEIGHT}px` }} className="block w-full" />
@@ -498,12 +632,14 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           users={leaderboard}
           winnerName={winner?.bettorName}
           compact
-          panelStyle={panelStyles.leaderboard}
+          draggable
+          onDragStart={startDrag('leaderboard')}
+          panelStyle={applyPanelOffset('leaderboard', panelStyles.leaderboard)}
         />
       )}
 
-      {winner && panelStyles && (
-        <div className="absolute bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center" style={panelStyles.winner}>
+      {winner && panelStyles && !replayMode && (
+        <div className="absolute winner-spotlight bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center" style={panelStyles.winner}>
           <div className="confetti-wrap" aria-hidden="true">
             {Array.from({ length: 14 }).map((_, i) => (
               <span
@@ -520,13 +656,13 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
               />
             ))}
           </div>
-          <h3 className="text-xl font-black text-yellow-700">🏆 Winner</h3>
-          <p className="text-sm text-gray-600 mt-1">Bettor</p>
-          <p className="text-lg font-extrabold text-gray-900 truncate">{winner.bettorName}</p>
-          <p className="text-sm text-gray-600 mt-2">Winnings</p>
-          <p className="text-lg font-bold text-green-700">{winner.winnings || 0} Lease Loons</p>
-          <p className="text-sm text-gray-600 mt-3">Horse</p>
-          <p className="text-xl font-bold text-red-700 truncate">{winner.horseName}</p>
+
+          <div className="flex items-center justify-center gap-2 text-slate-900 font-extrabold text-lg">
+            <span aria-hidden="true">👤</span>
+            <span className="truncate">Winner {winner.bettorName}</span>
+            <span className="text-green-700">{winner.winnings || 0}</span>
+          </div>
+          <p className="text-xl font-black text-red-700 truncate mt-2">{winner.horseName}</p>
           <div className="mt-3 mx-auto w-16 h-16 rounded-full border-2 border-gray-200 bg-white flex items-center justify-center">
             <HorseSprite bodyHex={winner.bodyHex} saddleHex={winner.saddleHex} alt={winner.horseName} className="w-12 h-12" />
           </div>
@@ -534,7 +670,13 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       )}
 
       {panelStyles && racePanelRanking.length > 0 && (
-        <HorseRankingOverlay ranking={racePanelRanking} raceName={racePanelTitle} panelStyle={panelStyles.race} />
+        <HorseRankingOverlay
+          ranking={racePanelRanking}
+          raceName={racePanelTitle}
+          draggable
+          onDragStart={startDrag('race')}
+          panelStyle={applyPanelOffset('race', panelStyles.race)}
+        />
       )}
 
       {layoutBounds?.penBounds && (
@@ -548,9 +690,10 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
             overflowY: 'auto'
           }}
         >
-          <h4 className="font-bold text-sm mb-2">🐎 Horse Pen (Tournament Horses)</h4>
+          <h4 className="font-bold text-sm mb-2">🐎 Horse Pen</h4>
+          <div className="fence-strip mb-2" />
           <div className="flex flex-wrap gap-2">
-            {allHorses.map((horse) => (
+            {horsePenHorses.map((horse) => (
               <div key={horse.id} className="horse-chip" title={horse.name}>
                 <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-8 h-8" />
                 <span className="text-[10px] leading-tight max-w-20 truncate">{horse.name}</span>
@@ -606,11 +749,16 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           }}
         >
           <h4 className="font-bold text-sm mb-2">🏅 Winners Pen</h4>
-          <div className="flex flex-wrap gap-2">
-            {winnerHistory.length === 0 && <p className="text-xs text-gray-500">No winners yet.</p>}
-            {winnerHistory.map((w, idx) => (
-              <div key={`${w.raceId || w.horseName}-${idx}`} className="winner-chip" title={`${w.horseName} (${w.bettorName || 'Heat Winner'})`}>
+          <div className="fence-strip mb-2" />
+          <div className="flex flex-col gap-2">
+            {winnerRows.length === 0 && <p className="text-xs text-gray-500">No winners yet.</p>}
+            {winnerRows.map((w, idx) => (
+              <div key={`${w.raceId || w.horseName}-${idx}`} className="winner-row" title={`${w.horseName} (${w.bettorName || 'Heat Winner'})`}>
                 <HorseSprite bodyHex={w.bodyHex} saddleHex={w.saddleHex} alt={w.horseName} className="w-8 h-8" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold truncate">{w.horseName}</p>
+                  <p className="text-[10px] text-gray-600 truncate">{w.bettorName || 'Heat Winner'} {w.winnings ? `· ${w.winnings}` : ''}</p>
+                </div>
               </div>
             ))}
           </div>

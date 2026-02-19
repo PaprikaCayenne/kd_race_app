@@ -1,8 +1,8 @@
 // File: frontend/src/pages/admin/AdminPage.jsx
-// Version: v2.8.0 — Uses canonical user-id admin APIs with clear auth failure messaging
-// Date: 2026-02-18
+// Version: v2.9.0 — Final-race/new-tournament labels and replay-first race flow controls
+// Date: 2026-02-19
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 
@@ -101,6 +101,20 @@ export default function AdminPage() {
     }, 1000);
   };
 
+  const isFinalHeat = useMemo(() => {
+    return Number(session?.heatNumber || raceState?.heatNumber || 0) === 5;
+  }, [raceState?.heatNumber, session?.heatNumber]);
+
+  const shouldGenerateNewTournament = useMemo(() => {
+    return Boolean(
+      isFinalHeat
+      && raceState
+      && raceState.endedAt
+      && session?.state !== 'running'
+      && session?.state !== 'replaying'
+    );
+  }, [isFinalHeat, raceState, session?.state]);
+
   const handleAdminAction = async (endpoint) => {
     try {
       if (endpoint === 'open-bets') {
@@ -108,14 +122,15 @@ export default function AdminPage() {
         return;
       }
 
-      if (endpoint === 'clear-horses') {
-        await axios.post('/api/admin/clear-horses', {}, { headers });
-        setStatus('✅ Race cleared for next setup');
-        await fetchRaceState();
-        return;
-      }
-
       if (endpoint === 'generate-race') {
+        if (shouldGenerateNewTournament) {
+          await axios.post('/api/admin/reset-tournament', {}, { headers });
+          const first = await axios.post('/api/admin/generate-race', {}, { headers });
+          setStatus(`✅ New tournament created. Generated Heat ${first.data.heatNumber}`);
+          await fetchRaceState();
+          return;
+        }
+
         const res = await axios.post('/api/admin/generate-race', {}, { headers });
         setStatus(`✅ Generated Heat ${res.data.heatNumber}`);
         await fetchRaceState();
@@ -300,8 +315,12 @@ export default function AdminPage() {
   const isRaceReady = raceState?.horses?.length >= 4;
   const canOpenBets = isRaceReady && session?.state !== 'running' && session?.state !== 'replaying';
   const canStartRace = isRaceReady && betCountdown === null;
-  const canClearRace = !!raceState;
   const allowGenerate = !raceState || !!raceState?.endedAt || session?.state === 'cleared';
+
+  const generateLabel = shouldGenerateNewTournament
+    ? '🎯 Generate New Tournament'
+    : (isFinalHeat ? '🎲 Generate Final Race' : '🎲 Generate Next Race');
+  const startLabel = isFinalHeat ? '🏁 Start Final Race' : '🏁 Start Race';
 
   return (
     <div className="p-4 text-gray-800 space-y-6 max-w-5xl mx-auto">
@@ -310,19 +329,18 @@ export default function AdminPage() {
         session={session}
         status={status}
         warnings={warnings}
-        onResetRace={() => handleAdminAction('clear-horses')}
       />
 
       <AdminButtons
         allowGenerateRace={allowGenerate}
         canOpenBets={canOpenBets}
         canStartRace={canStartRace}
-        canClearRace={canClearRace}
         betCountdown={betCountdown}
         countdownDisplay={countdownDisplay}
         onAction={handleAdminAction}
         onOpenBets={() => handleAdminAction('open-bets')}
-        onClearRace={() => handleAdminAction('clear-horses')}
+        generateLabel={generateLabel}
+        startLabel={startLabel}
       />
 
       <RacesPanel

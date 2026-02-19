@@ -1,6 +1,6 @@
 // File: frontend/src/utils/generateRacePacingPlan.js
-// Version: v2.4.0 — Uses seeded pacing plans keyed by race and keeps momentum variability stable
-// Date: 2026-02-18
+// Version: v2.5.0 — Adds gentle pack compression to keep races competitive while deterministic
+// Date: 2026-02-19
 
 import { mean } from 'd3-array';
 import { clamp } from 'lodash-es';
@@ -11,8 +11,8 @@ export function generateRacePacingPlan(horses, horsePaths, raceDurationSeconds =
   const TICK_RATE = 30;
   const TICK_MS = 1000 / TICK_RATE;
   const TARGET_TICKS = raceDurationSeconds * TICK_RATE;
-  const SPRINT_MULT = [1.08, 1.22];
-  const FATIGUE_MULT = [0.82, 0.94];
+  const SPRINT_MULT = [1.06, 1.18];
+  const FATIGUE_MULT = [0.86, 0.96];
   const EASING = BezierEasing(0.42, 0, 0.58, 1);
   const rng = seedrandom(String(seed));
 
@@ -22,16 +22,16 @@ export function generateRacePacingPlan(horses, horsePaths, raceDurationSeconds =
   horses.forEach((horse, i) => {
     const arcLength = horsePaths.get(horse.localId)?.arcLength || avgArc;
     const role = ['front-runner', 'comeback', 'volatile'][i % 3];
-    const baseSpeed = (arcLength / TARGET_TICKS) * randBetween(0.97, 1.03);
+    const baseSpeed = (arcLength / TARGET_TICKS) * randBetween(0.985, 1.015);
 
     const modifiers = [];
     const totalDuration = (arcLength / baseSpeed) * TICK_MS;
-    const modCount = Math.floor(randBetween(0, 3)) + 3;
+    const modCount = Math.floor(randBetween(0, 2.6)) + 3;
 
     for (let j = 0; j < modCount; j++) {
-      const type = rng() > 0.55 ? 'sprint' : 'fatigue';
-      const start = randBetween(0, totalDuration * 0.85);
-      const duration = randBetween(900, 2100);
+      const type = rng() > 0.58 ? 'sprint' : 'fatigue';
+      const start = randBetween(0, totalDuration * 0.86);
+      const duration = randBetween(850, 1800);
       const mult = type === 'sprint'
         ? randBetween(SPRINT_MULT[0], SPRINT_MULT[1])
         : randBetween(FATIGUE_MULT[0], FATIGUE_MULT[1]);
@@ -70,6 +70,7 @@ export function generateRacePacingPlan(horses, horsePaths, raceDurationSeconds =
             : 1 - (1 - mod.multiplier) * eased;
         }
       }
+
       dist += speed;
       t += TICK_MS;
     }
@@ -81,16 +82,24 @@ export function generateRacePacingPlan(horses, horsePaths, raceDurationSeconds =
   const meanTime = mean(finishTimes) || 0;
   const timeSpread = Math.max(...finishTimes) - Math.min(...finishTimes);
 
-  if (timeSpread > 6500) {
+  // Gentle pack compression keeps races close without forcing ties.
+  tickData.forEach((data) => {
+    const horse = horses.find((h) => h.localId === data.localId);
+    if (!horse?.racePacingPlan) return;
+
+    const delta = data.finalTime - meanTime;
+    const compress = clamp(-delta / 4500, -0.05, 0.05);
+    horse.racePacingPlan.baseSpeed = Number((horse.racePacingPlan.baseSpeed * (1 + compress)).toFixed(4));
+  });
+
+  if (timeSpread > 5200) {
     tickData.forEach((data) => {
       const horse = horses.find((h) => h.localId === data.localId);
       if (!horse?.racePacingPlan) return;
-      const delta = data.finalTime - meanTime;
-      const adjust = clamp(-delta / 5000, -0.06, 0.06);
 
-      horse.racePacingPlan.baseSpeed = Number(
-        (horse.racePacingPlan.baseSpeed * (1 + adjust)).toFixed(4)
-      );
+      const delta = data.finalTime - meanTime;
+      const adjust = clamp(-delta / 3800, -0.045, 0.045);
+      horse.racePacingPlan.baseSpeed = Number((horse.racePacingPlan.baseSpeed * (1 + adjust)).toFixed(4));
     });
   }
 

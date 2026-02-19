@@ -255,6 +255,8 @@ router.post('/reset-dev', async (req: Request, res: Response) => {
   if (!isAuthorized(req)) return unauthorized(res);
 
   try {
+    await clearReplayAndBroadcast('admin');
+
     await new Promise<void>((resolve, reject) => {
       exec('npx prisma db push --force-reset && npx tsx prisma/seed-dev.ts', (err, stdout) => {
         if (err) return reject(err);
@@ -285,6 +287,8 @@ router.post('/seed-reset', async (req: Request, res: Response) => {
   if (!isAuthorized(req)) return unauthorized(res);
 
   try {
+    await clearReplayAndBroadcast('admin');
+
     await new Promise<void>((resolve, reject) => {
       exec('npx prisma db push --force-reset && npx tsx prisma/seed.ts', (err, stdout) => {
         if (err) return reject(err);
@@ -372,6 +376,8 @@ router.post('/reset-tournament', async (req: Request, res: Response) => {
   if (!isAuthorized(req)) return unauthorized(res);
 
   try {
+    await clearReplayAndBroadcast('admin');
+
     await prisma.replayFrame.deleteMany();
     await prisma.result.deleteMany();
     await prisma.bet.deleteMany();

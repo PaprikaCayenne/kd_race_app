@@ -1,6 +1,6 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v2.7.0 — Exports responsive track/infield/pen bounds for safe panel layout
-// Date: 2026-02-18
+// Version: v2.8.0 — Tightens infield-safe layout and keeps pens clear of track overlap
+// Date: 2026-02-19
 
 import { Graphics } from 'pixi.js';
 import { generateCenterline } from '@/utils/generateTrackPathWithRoundedCorners';
@@ -84,11 +84,7 @@ export function drawDerbyTrack({
   debug = false,
   startLineOffset = 0,
   spriteWidth = 0,
-  horses = [],
-  horsePaths = new Map(),
-  debugDotsRef,
-  debugPathLinesRef,
-  labelSpritesRef
+  debugPathLinesRef
 }) {
   const trackContainer = new Graphics();
   const totalLaneWidth = (laneWidth * laneCount) + 2 * boundaryPadding;
@@ -146,8 +142,8 @@ export function drawDerbyTrack({
     laneCount,
     laneWidth,
     boundaryPadding,
-    spriteWidth,
-    delayMs: 5000
+    startLineOffset,
+    spriteWidth
   });
 
   if (debug) {
@@ -171,20 +167,19 @@ export function drawDerbyTrack({
   const trackBounds = getBounds(outer);
   const rawInfieldBounds = getBounds(inner);
   const infieldBounds = clampRect(
-    insetRect(rawInfieldBounds, Math.max(12, laneWidth * 0.7)),
+    insetRect(rawInfieldBounds, Math.max(14, laneWidth * 0.85)),
     app.screen.width,
     app.screen.height,
-    220,
-    140,
+    260,
+    170,
     16
   );
 
-  const penWidth = Math.max(180, app.screen.width * 0.26);
-  const penHeight = Math.max(120, Math.min(190, app.screen.height * 0.22));
-  const penY = Math.min(
-    app.screen.height - penHeight - 16,
-    Math.max(trackBounds.bottom + 12, infieldBounds.bottom + 10)
-  );
+  const bottomPadding = 16;
+  const belowTrackSpace = Math.max(108, app.screen.height - trackBounds.bottom - bottomPadding * 2);
+  const penHeight = Math.max(108, Math.min(164, belowTrackSpace));
+  const penWidth = Math.max(190, Math.min(310, app.screen.width * 0.24));
+  const penY = Math.max(trackBounds.bottom + 10, app.screen.height - penHeight - bottomPadding);
 
   const penBounds = clampRect({
     x: 16,
@@ -193,7 +188,7 @@ export function drawDerbyTrack({
     height: penHeight,
     right: 16 + penWidth,
     bottom: penY + penHeight
-  }, app.screen.width, app.screen.height, 160, 100, 12);
+  }, app.screen.width, app.screen.height, 170, 100, 12);
 
   const winnersPenBounds = clampRect({
     x: app.screen.width - penWidth - 16,
@@ -202,7 +197,7 @@ export function drawDerbyTrack({
     height: penHeight,
     right: app.screen.width - 16,
     bottom: penY + penHeight
-  }, app.screen.width, app.screen.height, 160, 100, 12);
+  }, app.screen.width, app.screen.height, 170, 100, 12);
 
   return {
     lanes,

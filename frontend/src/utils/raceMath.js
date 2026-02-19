@@ -1,5 +1,5 @@
-export const RACE_SPEED_MULTIPLIER = 5.2;
-export const START_LINE_FRONT_GAP_PX = 4;
+export const RACE_SPEED_MULTIPLIER = 4.85;
+export const START_LINE_FRONT_GAP_PX = 3;
 export const HORSE_LENGTH_PX = 48;
 export const POST_FINISH_RUNOUT_LENGTHS = 2;
 

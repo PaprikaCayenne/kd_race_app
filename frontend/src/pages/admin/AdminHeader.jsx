@@ -1,13 +1,12 @@
 // File: frontend/src/pages/admin/AdminHeader.jsx
-// Version: v2.3.0 — Keeps status pinned in header area and removes duplicated status rows
-// Date: 2026-02-18
+// Version: v2.4.0 — Keeps status in header area without clear-race action
+// Date: 2026-02-19
 
 export default function AdminHeader({
   raceState,
   session,
   status,
-  warnings,
-  onResetRace
+  warnings
 }) {
   const raceId = raceState?.id || session?.activeRaceId || '—';
   const raceName = raceState?.name || '—';
@@ -29,12 +28,6 @@ export default function AdminHeader({
               <li key={i}>{w}</li>
             ))}
           </ul>
-          <button
-            onClick={onResetRace}
-            className="mt-2 px-2 py-1 bg-red-600 text-white rounded text-sm"
-          >
-            🗑️ Reset Race
-          </button>
         </div>
       )}
     </div>
