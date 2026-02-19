@@ -12,6 +12,25 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function rectArea(rect) {
+  return Math.max(0, rect.width) * Math.max(0, rect.height);
+}
+
+function mergeRect(a, b) {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  const right = Math.max(a.right, b.right);
+  const bottom = Math.max(a.bottom, b.bottom);
+  return {
+    x,
+    y,
+    width: Math.max(0, right - x),
+    height: Math.max(0, bottom - y),
+    right,
+    bottom
+  };
+}
+
 function getBounds(points = []) {
   if (!Array.isArray(points) || points.length === 0) {
     return { x: 0, y: 0, width: 0, height: 0, right: 0, bottom: 0 };
@@ -177,10 +196,14 @@ export function drawDerbyTrack({
     bottom: app.screen.height
   };
 
-  // Brown dirt + gray border ring outer envelope.
-  const trackRingBounds = getBounds(outer);
-  // Green infield hole envelope inside the ring.
-  const infieldHoleBounds = getBounds(inner);
+  const innerCandidateBounds = getBounds(inner);
+  const outerCandidateBounds = getBounds(outer);
+  // Use merged envelope so naming/sign does not affect true outer ring bounds.
+  const trackRingBounds = mergeRect(innerCandidateBounds, outerCandidateBounds);
+  // Choose smaller envelope as the infield hole candidate.
+  const infieldHoleBounds = rectArea(innerCandidateBounds) <= rectArea(outerCandidateBounds)
+    ? innerCandidateBounds
+    : outerCandidateBounds;
   // Safe rectangle for overlays inside the infield hole.
   const panelSafeBounds = clampRect(
     insetRect(infieldHoleBounds, Math.max(14, laneWidth * 0.85)),
@@ -192,7 +215,7 @@ export function drawDerbyTrack({
   );
 
   const bottomPadding = 16;
-  const penTop = Math.round(trackRingBounds.bottom + 12);
+  const penTop = Math.round(trackRingBounds.bottom + 10);
   const availableBelow = Math.max(90, app.screen.height - penTop - bottomPadding);
   const penHeight = Math.min(clamp(Math.round(app.screen.height * 0.21), 150, 220), availableBelow);
   const penLeft = Math.max(10, Math.round(trackRingBounds.x));

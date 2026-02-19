@@ -717,8 +717,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           <div className="grid grid-cols-8 gap-1.5">
             {horsePenHorses.map((horse) => (
               <div key={horse.id} className="horse-chip" title={horse.name}>
-                <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-8 h-8" />
-                <span className="text-[9px] leading-tight max-w-20 truncate">{horse.name}</span>
+                <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-12 h-12" />
               </div>
             ))}
           </div>
