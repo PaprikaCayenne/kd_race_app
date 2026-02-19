@@ -11,9 +11,20 @@ import { clearRaceVisuals } from './clearRaceVisuals';
 const logInfo = (...args) => console.log('[KD]', ...args);
 const logWarn = (...args) => console.warn('[KD] ⚠️', ...args);
 
-function animateWalkIn({ app, horses, horseSpritesRef, labelSpritesRef, durationMs = 1800 }) {
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function quadBezier(p0, p1, p2, t) {
+  const u = 1 - t;
+  return (u * u * p0) + (2 * u * t * p1) + (t * t * p2);
+}
+
+function animateWalkIn({ app, horses, horseSpritesRef, labelSpritesRef, trackDataRef, durationMs = 1800 }) {
   const start = performance.now();
   const finalByLocalId = new Map();
+  const trackBounds = trackDataRef?.current?.trackRingBounds;
+  const entryY = trackBounds ? Math.max(trackBounds.y + 20, trackBounds.bottom - 40) : null;
 
   horses.forEach((horse) => {
     const sprite = horseSpritesRef.current.get(horse.localId);
@@ -28,7 +39,10 @@ function animateWalkIn({ app, horses, horseSpritesRef, labelSpritesRef, duration
       toX: pose.x,
       toY: pose.y,
       toRot: pose.rotation || 0,
-      label
+      label,
+      // Slight upward bend toward track before settling onto start line.
+      ctrlX: lerp(sprite.x, pose.x, 0.5),
+      ctrlY: entryY ?? (Math.min(sprite.y, pose.y) - 30)
     });
   });
 
@@ -42,9 +56,19 @@ function animateWalkIn({ app, horses, horseSpritesRef, labelSpritesRef, duration
     finalByLocalId.forEach((pose, localId) => {
       const sprite = horseSpritesRef.current.get(localId);
       if (!sprite) return;
-      sprite.x = pose.fromX + (pose.toX - pose.fromX) * eased;
-      sprite.y = pose.fromY + (pose.toY - pose.fromY) * eased;
-      sprite.rotation = pose.fromRot + (pose.toRot - pose.fromRot) * eased;
+      const x = quadBezier(pose.fromX, pose.ctrlX, pose.toX, eased);
+      const y = quadBezier(pose.fromY, pose.ctrlY, pose.toY, eased);
+
+      const lookAheadT = Math.min(1, eased + 0.012);
+      const lookX = quadBezier(pose.fromX, pose.ctrlX, pose.toX, lookAheadT);
+      const lookY = quadBezier(pose.fromY, pose.ctrlY, pose.toY, lookAheadT);
+      const curvedRotation = Math.atan2(lookY - y, lookX - x);
+
+      sprite.x = x;
+      sprite.y = y;
+      sprite.rotation = Number.isFinite(curvedRotation)
+        ? curvedRotation
+        : (pose.fromRot + (pose.toRot - pose.fromRot) * eased);
 
       if (pose.label) {
         pose.label.x = sprite.x;
@@ -273,11 +297,22 @@ export function initRaceListeners({
     });
   });
 
-  socket.on('admin:open-bets', () => {
+  socket.on('admin:open-bets', ({ seconds } = {}) => {
     const app = appRef.current;
     const horses = horsesRef.current || [];
     if (!app || horses.length === 0) return;
-    animateWalkIn({ app, horses, horseSpritesRef, labelSpritesRef, durationMs: 2200 });
+    const sec = Number(seconds);
+    const countdownDurationMs = Number.isFinite(sec) && sec > 2
+      ? Math.max(2200, (sec * 1000) - 300)
+      : 2200;
+    animateWalkIn({
+      app,
+      horses,
+      horseSpritesRef,
+      labelSpritesRef,
+      trackDataRef,
+      durationMs: countdownDurationMs
+    });
   });
 
   socket.on('admin:clear-stage', () => {

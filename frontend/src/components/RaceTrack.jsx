@@ -58,6 +58,11 @@ function buildWinnerRows(history = []) {
   return rows.slice(-8).reverse();
 }
 
+function formatLoons(value) {
+  const num = Number(value) || 0;
+  return new Intl.NumberFormat('en-US').format(num);
+}
+
 const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
@@ -491,7 +496,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     : (raceNameDisplay || 'Current Heat');
 
   const sessionState = session?.state || 'setup';
-  const hideActiveHorsesFromPen = ['betting_open', 'betting_closed', 'running'].includes(sessionState);
+  const hideActiveHorsesFromPen = ['setup', 'betting_open', 'betting_closed', 'running'].includes(sessionState);
   const activeRaceHorseIds = new Set((currentRaceHorses || []).map((h) => h.id));
   const horsePenHorses = hideActiveHorsesFromPen
     ? allHorses.filter((horse) => !activeRaceHorseIds.has(horse.id))
@@ -546,7 +551,16 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.32, ease: 'easeOut' }}
           className="absolute winner-spotlight bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center"
-          style={{ ...panelStyles.winner, overflow: 'visible' }}
+          style={{
+            ...panelStyles.winner,
+            left: layoutBounds?.infieldBounds
+              ? layoutBounds.infieldBounds.x + (layoutBounds.infieldBounds.width / 2)
+              : panelStyles.winner.left,
+            top: layoutBounds?.infieldBounds
+              ? layoutBounds.infieldBounds.y + (layoutBounds.infieldBounds.height / 2)
+              : panelStyles.winner.top,
+            overflow: 'visible'
+          }}
         >
           <div className="confetti-wrap" aria-hidden="true">
             {Array.from({ length: 14 }).map((_, i) => (
@@ -568,7 +582,9 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           <div className="flex items-center justify-center gap-2 text-slate-900 font-extrabold text-lg">
             <span aria-hidden="true">👤</span>
             <span className="truncate">Winner {winnerDisplay.bettorName}</span>
-            <span className="text-green-700">{winnerDisplay.winnings || 0}</span>
+            <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 font-black tracking-wide text-sm">
+              L$ {formatLoons(winnerDisplay.winnings)}
+            </span>
           </div>
           <p className="text-xl font-black text-red-700 truncate mt-2">{winnerDisplay.horseName}</p>
           <div className="mt-3 mx-auto w-16 h-16 rounded-full border-2 border-gray-200 bg-white flex items-center justify-center">

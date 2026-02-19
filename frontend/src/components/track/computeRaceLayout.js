@@ -67,6 +67,7 @@ export function computeRaceLayout({
     raceWidth -= giveBackR;
     winnerWidth = panelUsableWidth - leaderboardWidth - raceWidth - panelGap * 2;
   }
+  winnerWidth = clamp(Math.round(winnerWidth * 0.4), 130, 240);
 
   const leaderboardHeight = clamp(Math.round(panelSafeBounds.height * 0.74), 320, 420);
   const raceHeight = clamp(Math.round(panelSafeBounds.height * 0.82), 360, 500);
