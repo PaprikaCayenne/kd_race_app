@@ -14,7 +14,7 @@ model User {
   lastName      String
   nickname      String?
   deviceId      String          @unique
-  leaseLoons    Int             @default(1000) // 🪙 Lease Loons
+  leaseLoons    Int             @default(1000)
   isAdmin       Boolean         @default(false)
   createdAt     DateTime        @default(now())
   registrations Registration[]
@@ -39,6 +39,33 @@ model Horse {
   @@map("horses")
 }
 
+model Tournament {
+  id          String   @id
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  status      String   @default("active")
+  currentHeat Int      @default(1)
+  horsePool   Json
+  winners     Json
+  races       Race[]
+
+  @@map("tournaments")
+}
+
+model RaceSessionStore {
+  id                   String   @id
+  activeRaceId         String?
+  tournamentId         String?
+  heatNumber           Int      @default(1)
+  state                String   @default("setup")
+  selectedReplayRaceId String?
+  replayPaused         Boolean  @default(false)
+  liveStateBeforeReplay String  @default("setup")
+  updatedAt            DateTime @updatedAt
+
+  @@map("race_session_store")
+}
+
 model Registration {
   id         Int      @id @default(autoincrement())
   user       User     @relation(fields: [userId], references: [id])
@@ -53,24 +80,28 @@ model Registration {
 }
 
 model Race {
-  id           BigInt        @id @default(autoincrement()) @db.BigInt
-  name         String        @unique
-  type         String        @default("heat")
-  isFinal      Boolean       @default(false)
-  isTest       Boolean       @default(false)
-  generatedAt  DateTime      @default(now())
-  startedAt    DateTime?
-  endedAt      DateTime?
-  betsLocked   Boolean       @default(false)
-  betClosesAt  DateTime?
+  id            BigInt      @id @default(autoincrement()) @db.BigInt
+  name          String      @unique
+  type          String      @default("heat")
+  isFinal       Boolean     @default(false)
+  isTest        Boolean     @default(false)
+  generatedAt   DateTime    @default(now())
+  startedAt     DateTime?
+  endedAt       DateTime?
+  betsLocked    Boolean     @default(false)
+  betClosesAt   DateTime?
+  tournamentId  String?
+  heatNumber    Int?
 
+  tournament    Tournament? @relation(fields: [tournamentId], references: [id])
   registrations Registration[]
-  results        Result[]
-  replay         ReplayFrame[]
-  horsePaths     HorsePath[]
-  trackMeta      TrackMeta?
-  bets           Bet[]
+  results       Result[]
+  replay        ReplayFrame[]
+  horsePaths    HorsePath[]
+  trackMeta     TrackMeta?
+  bets          Bet[]
 
+  @@index([tournamentId])
   @@map("races")
 }
 
@@ -94,6 +125,7 @@ model Result {
   horse    Horse   @relation(fields: [horseId], references: [id])
   race     Race    @relation(fields: [raceId], references: [id])
 
+  @@unique([raceId, position])
   @@map("results")
 }
 
@@ -107,6 +139,7 @@ model ReplayFrame {
   race      Race    @relation(fields: [raceId], references: [id])
   horse     Horse   @relation(fields: [horseId], references: [id])
 
+  @@index([raceId, timeMs])
   @@map("replay_frames")
 }
 

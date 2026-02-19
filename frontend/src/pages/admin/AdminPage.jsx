@@ -1,9 +1,10 @@
 // File: frontend/src/pages/admin/AdminPage.jsx
-// Version: v2.6.0 — Unifies race generation, removes Final button, clears state each time
-// Date: 2025-05-29
+// Version: v2.9.0 — Final-race/new-tournament labels and replay-first race flow controls
+// Date: 2026-02-19
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { io } from 'socket.io-client';
 
 import AdminHeader from './AdminHeader.jsx';
 import AdminButtons from './AdminButtons.jsx';
@@ -15,14 +16,16 @@ import DevTools from './DevTools.jsx';
 const UI_PASSWORD = 'jll';
 const SECURE_API_PASS = '6a2e8819c6fb4c15';
 const headers = { 'x-admin-pass': SECURE_API_PASS };
+const raceSocket = io('/race', { path: '/api/socket.io' });
+
+function extractError(err, fallback) {
+  return err?.response?.data?.error || fallback;
+}
 
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [promptVisible, setPromptVisible] = useState(true);
   const [enteredPassword, setEnteredPassword] = useState('');
-
-  const [showReset, setShowReset] = useState(false);
-  const [isFinalRaceOverride, setIsFinalRaceOverride] = useState(false);
 
   const [users, setUsers] = useState([]);
   const [showUsers, setShowUsers] = useState(false);
@@ -31,6 +34,7 @@ export default function AdminPage() {
   const [warnings, setWarnings] = useState([]);
 
   const [raceState, setRaceState] = useState(null);
+  const [session, setSession] = useState(null);
   const [pastRaces, setPastRaces] = useState([]);
   const [showRaces, setShowRaces] = useState(false);
 
@@ -43,27 +47,29 @@ export default function AdminPage() {
 
   const fetchUsers = async () => {
     try {
-      const res = await axios.get('/api/user/all', { headers });
-      setUsers(res.data);
-    } catch {
-      setStatus('❌ Error loading users');
+      const res = await axios.get('/api/admin/users', { headers });
+      setUsers(res.data.users || []);
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Error loading users')}`);
     }
   };
 
   const fetchRaceState = async () => {
     try {
-      const res = await axios.get('/api/race/latest');
-      if (res.data.exists === false) {
-        setRaceState(null);
-      } else {
-        setRaceState(res.data);
-        setWarnings(res.data.warnings || []);
-      }
-      const pastRes = await axios.get('/api/race/races');
+      const [raceRes, pastRes, sessionRes] = await Promise.all([
+        axios.get('/api/race/latest'),
+        axios.get('/api/race/races'),
+        axios.get('/api/race/session')
+      ]);
+
+      setRaceState(raceRes.data.exists === false ? null : raceRes.data);
+      setWarnings(raceRes.data?.warnings || []);
       setPastRaces(pastRes.data || []);
-    } catch {
+      setSession(sessionRes.data?.session || null);
+    } catch (err) {
       setRaceState(null);
       setPastRaces([]);
+      setStatus(`❌ ${extractError(err, 'Failed to fetch race state')}`);
     }
   };
 
@@ -72,8 +78,8 @@ export default function AdminPage() {
       await axios.post('/api/admin/close-bets', {}, { headers });
       setStatus('✅ Bets auto-closed');
       await fetchRaceState();
-    } catch {
-      setStatus('❌ Failed to auto-close bets');
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to auto-close bets')}`);
     }
     setBetCountdown(null);
   };
@@ -95,51 +101,38 @@ export default function AdminPage() {
     }, 1000);
   };
 
+  const isFinalHeat = useMemo(() => {
+    return Number(session?.heatNumber || raceState?.heatNumber || 0) === 5;
+  }, [raceState?.heatNumber, session?.heatNumber]);
+
+  const shouldGenerateNewTournament = useMemo(() => {
+    return Boolean(
+      isFinalHeat
+      && raceState
+      && raceState.endedAt
+      && session?.state !== 'running'
+      && session?.state !== 'replaying'
+    );
+  }, [isFinalHeat, raceState, session?.state]);
+
   const handleAdminAction = async (endpoint) => {
     try {
-      if (endpoint === 'generate-race' || endpoint === 'final-race') {
-        await axios.post(`/api/admin/clear-horses`, {}, { headers });
-
-        const res = await axios.post(`/api/admin/${endpoint}`, {}, { headers });
-        setStatus(endpoint === 'final-race' ? '🎉 Final race generated' : '✅ Race generated');
-        setWarnings(res.data?.warnings || []);
-        setBetCountdown(null);
-        setCountdownDisplay('');
-        await fetchRaceState();
-
-        if (endpoint === 'final-race') {
-          setIsFinalRaceOverride(true);
-          setShowReset(true);
-        }
-
-        return;
-      }
-
-      if (endpoint === 'reset-tournament') {
-        await axios.post(`/api/admin/reset-tournament`, {}, { headers });
-        setStatus('♻️ Tournament reset successfully');
-        setShowReset(false);
-        setIsFinalRaceOverride(false);
-        await fetchRaceState();
-
-        // Clear horses from canvas
-        const socket = window?.raceSocket;
-        if (socket) socket.emit('admin:clear-stage');
-
-        return;
-      }
-
-
       if (endpoint === 'open-bets') {
         setShowBetModal(true);
         return;
       }
 
-      if (endpoint === 'clear-horses') {
-        await axios.post(`/api/admin/clear-horses`, {}, { headers });
-        const socket = window?.raceSocket;
-        if (socket) socket.emit('admin:clear-stage');
-        setStatus('✅ Race cleared for next setup');
+      if (endpoint === 'generate-race') {
+        if (shouldGenerateNewTournament) {
+          await axios.post('/api/admin/reset-tournament', {}, { headers });
+          const first = await axios.post('/api/admin/generate-race', {}, { headers });
+          setStatus(`✅ New tournament created. Generated Heat ${first.data.heatNumber}`);
+          await fetchRaceState();
+          return;
+        }
+
+        const res = await axios.post('/api/admin/generate-race', {}, { headers });
+        setStatus(`✅ Generated Heat ${res.data.heatNumber}`);
         await fetchRaceState();
         return;
       }
@@ -147,8 +140,8 @@ export default function AdminPage() {
       await axios.post(`/api/admin/${endpoint}`, {}, { headers });
       setStatus(`✅ ${endpoint.replace('-', ' ')} succeeded`);
       await fetchRaceState();
-    } catch {
-      setStatus(`❌ ${endpoint.replace('-', ' ')} failed`);
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, `${endpoint.replace('-', ' ')} failed`)}`);
     }
   };
 
@@ -157,82 +150,109 @@ export default function AdminPage() {
     setShowBetModal(false);
     startCountdown(betSeconds);
     try {
-      await axios.post(
-        '/api/admin/open-bets',
-        { seconds: betSeconds },
-        { headers }
-      );
+      await axios.post('/api/admin/open-bets', { seconds: betSeconds }, { headers });
       setStatus(`✅ Bets opened for ${betSeconds} seconds`);
       await fetchRaceState();
-    } catch {
-      setStatus('❌ Failed to open bets');
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to open bets')}`);
     }
   };
 
-
-  const updateUser = async (deviceId, updates) => {
+  const updateUser = async (userId, updates) => {
     const key = Object.keys(updates)[0];
     const value = updates[key];
     if (!window.confirm(`Update ${key} to "${value}"?`)) return;
     try {
-      await axios.put(`/api/admin/user/${deviceId}`, updates, { headers });
+      await axios.patch(`/api/admin/users/${userId}`, updates, { headers });
       setStatus('✅ User updated');
       await fetchUsers();
-    } catch {
-      setStatus('❌ Update failed');
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Update failed')}`);
     }
   };
 
+  const addLoons = async (userId, amount) => {
+    if (!window.confirm(`Add ${amount} Lease Loons to this user?`)) return;
+    try {
+      await axios.post(`/api/admin/users/${userId}/add-loons`, { amount }, { headers });
+      setStatus('✅ Lease Loons added');
+      await fetchUsers();
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to add loons')}`);
+    }
+  };
 
-  const deleteUser = async (deviceId) => {
+  const deleteUser = async (userId) => {
     const ok = window.confirm('Delete this user and related bets/registrations?');
     if (!ok) return;
     try {
-      await axios.delete(`/api/admin/user/${deviceId}`, { headers });
+      await axios.delete(`/api/admin/users/${userId}`, { headers });
       setStatus('✅ User deleted');
       await fetchUsers();
     } catch (err) {
-      setStatus(`❌ Delete failed: ${err?.response?.data?.error || 'Unknown error'}`);
+      setStatus(`❌ ${extractError(err, 'Delete failed')}`);
     }
   };
 
-const handleDevReset = async (type) => {
-  const map = {
-    tournament: {
-      endpoint: 'reset-tournament',
-      confirm: 'Reset all races, horses, and race names?',
-      danger: false
-    },
-    loons: {
-      endpoint: 'reset-loons',
-      confirm: 'Reset all user Lease Loons back to 1000?',
-      danger: false
-    },
-    dev: {
-      endpoint: 'reset-dev',
-      confirm: '⚠️ FULL DEV RESET. This will reseed test data from seed-dev.ts. Continue?',
-      danger: true
-    },
-    seed: {
-      endpoint: 'seed-reset',
-      confirm: '⚠️ This will hard reset the DB using seed.ts. Are you sure?',
-      danger: true
+  const handleDevReset = async (type) => {
+    const map = {
+      tournament: {
+        endpoint: 'reset-tournament',
+        confirm: 'Reset races and horses only? Users and loons are preserved.'
+      },
+      loons: {
+        endpoint: 'reset-loons',
+        confirm: 'Reset all user Lease Loons back to default?'
+      },
+      dev: {
+        endpoint: 'seed-reset',
+        confirm: '⚠️ Full Dev Reset. This wipes and reseeds everything. Continue?'
+      }
+    };
+
+    const { endpoint, confirm } = map[type];
+    const ok = window.confirm(confirm);
+    if (!ok) return;
+
+    try {
+      await axios.post(`/api/admin/${endpoint}`, {}, { headers });
+      setStatus(`✅ ${endpoint.replace('-', ' ')} complete`);
+      await fetchRaceState();
+      await fetchUsers();
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, `${endpoint.replace('-', ' ')} failed`)}`);
     }
   };
 
-  const { endpoint, confirm, danger } = map[type];
-  const ok = window.confirm(confirm);
-  if (!ok) return;
+  const startReplay = async (race) => {
+    try {
+      await axios.post('/api/admin/replay/start', { raceId: race.id }, { headers });
+      setStatus(`✅ Replay started for race ${race.id}`);
+      await fetchRaceState();
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to start replay')}`);
+    }
+  };
 
-  try {
-    await axios.post(`/api/admin/${endpoint}`, {}, { headers });
-    setStatus(`✅ ${endpoint.replace('-', ' ')} complete`);
-    await fetchRaceState();
-    await fetchUsers();
-  } catch {
-    setStatus(`❌ ${endpoint.replace('-', ' ')} failed`);
-  }
-};
+  const stopReplay = async () => {
+    try {
+      await axios.post('/api/admin/replay/stop', {}, { headers });
+      setStatus('✅ Replay stopped');
+      await fetchRaceState();
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to stop replay')}`);
+    }
+  };
+
+  const clearReplay = async () => {
+    try {
+      await axios.post('/api/admin/replay/clear', {}, { headers });
+      setStatus('✅ Replay cleared');
+      await fetchRaceState();
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to clear replay')}`);
+    }
+  };
 
   const submitPassword = () => {
     if (enteredPassword === UI_PASSWORD) {
@@ -253,42 +273,74 @@ const handleDevReset = async (type) => {
       fetchUsers();
       fetchRaceState();
     }
+
+    raceSocket.emit('session:request-init');
+    const onSession = ({ session: nextSession }) => setSession(nextSession || null);
+    const onLeaderboardUpdated = () => {
+      fetchUsers();
+      fetchRaceState();
+    };
+
+    raceSocket.on('session:init', onSession);
+    raceSocket.on('session:update', onSession);
+    raceSocket.on('leaderboard:updated', onLeaderboardUpdated);
+
     const iv = setInterval(fetchRaceState, 2000);
-    return () => clearInterval(iv);
+    return () => {
+      clearInterval(iv);
+      raceSocket.off('session:init', onSession);
+      raceSocket.off('session:update', onSession);
+      raceSocket.off('leaderboard:updated', onLeaderboardUpdated);
+    };
   }, []);
 
-  const isRaceReady = raceState?.horses?.length >= 4;
-  const isEnded = !!raceState?.endedAt;
-  const canOpenBets = isRaceReady && raceState?.betsLocked === false;
-  const canStartRace = isRaceReady && betCountdown === null && raceState?.betsLocked === true;
-  const canClearRace = !!raceState && (isRaceReady || !isEnded);
+  if (!isAuthenticated && promptVisible) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-white border rounded-xl p-5 shadow">
+          <h2 className="text-xl font-bold mb-3">Admin Login</h2>
+          <input
+            type="password"
+            value={enteredPassword}
+            onChange={(e) => setEnteredPassword(e.target.value)}
+            className="w-full border rounded px-3 py-2"
+            placeholder="Enter admin password"
+          />
+          <button className="mt-3 w-full bg-blue-600 text-white py-2 rounded" onClick={submitPassword}>Enter</button>
+        </div>
+      </div>
+    );
+  }
 
-  const raceCount = pastRaces.length;
-  const allowGenerate = !raceState || isEnded;
-  const isFinalRace = isFinalRaceOverride || (raceCount >= 4 && allowGenerate);
+  const isRaceReady = raceState?.horses?.length >= 4;
+  const canOpenBets = isRaceReady && session?.state !== 'running' && session?.state !== 'replaying';
+  const canStartRace = isRaceReady && betCountdown === null;
+  const allowGenerate = !raceState || !!raceState?.endedAt || session?.state === 'cleared';
+
+  const generateLabel = shouldGenerateNewTournament
+    ? '🎯 Generate New Tournament'
+    : (isFinalHeat ? '🎲 Generate Final Race' : '🎲 Generate Next Race');
+  const startLabel = isFinalHeat ? '🏁 Start Final Race' : '🏁 Start Race';
 
   return (
     <div className="p-4 text-gray-800 space-y-6 max-w-5xl mx-auto">
       <AdminHeader
         raceState={raceState}
+        session={session}
         status={status}
         warnings={warnings}
-        onResetRace={() => handleAdminAction('clear-horses')}
       />
 
       <AdminButtons
         allowGenerateRace={allowGenerate}
-        isFinalRace={isFinalRace}
-        showReset={showReset}
-        isRaceReady={isRaceReady}
         canOpenBets={canOpenBets}
         canStartRace={canStartRace}
-        canClearRace={canClearRace}
         betCountdown={betCountdown}
         countdownDisplay={countdownDisplay}
         onAction={handleAdminAction}
         onOpenBets={() => handleAdminAction('open-bets')}
-        onClearRace={() => handleAdminAction('clear-horses')}
+        generateLabel={generateLabel}
+        startLabel={startLabel}
       />
 
       <RacesPanel
@@ -296,7 +348,10 @@ const handleDevReset = async (type) => {
         setShowRaces={setShowRaces}
         raceState={raceState}
         pastRaces={pastRaces}
-        onReplaySelect={(race) => { window.location.href = `/race?replayRaceId=${race.id}`; }}
+        session={session}
+        onReplaySelect={startReplay}
+        onReplayStop={stopReplay}
+        onReplayClear={clearReplay}
       />
 
       {showBetModal && (
@@ -313,8 +368,8 @@ const handleDevReset = async (type) => {
         showUsers={showUsers}
         setShowUsers={setShowUsers}
         updateUser={updateUser}
+        addLoons={addLoons}
         deleteUser={deleteUser}
-        status={status}
       />
 
       <DevTools

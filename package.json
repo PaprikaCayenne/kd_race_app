@@ -7,6 +7,10 @@
     "ts-prune": "^0.10.3"
   },
   "scripts": {
-    "test": "node --test tests/*.test.mjs"
+    "lint": "echo 'No root lint configured for this monorepo'",
+    "test": "node --test tests/*.test.mjs",
+    "build": "npm run build --prefix frontend",
+    "smoke": "bash scripts/smoke_test.sh",
+    "verify:all": "bash scripts/verify_all.sh"
   }
 }

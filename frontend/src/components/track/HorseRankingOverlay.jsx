@@ -1,21 +1,31 @@
 // File: frontend/src/components/track/HorseRankingOverlay.jsx
-// Version: v2.3.0 — Shows horse icon and keeps live order aligned with track progress
-// Date: 2026-02-18
+// Version: v2.5.0 — Narrow race panel with larger sprites and optional drag handle
+// Date: 2026-02-19
 
 import React from 'react';
+import HorseSprite from '../HorseSprite';
 
-function buildHorseIcon(bodyHex = '#a0522d', saddleHex = '#888888') {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><ellipse cx="30" cy="36" rx="18" ry="12" fill="${bodyHex}"/><circle cx="47" cy="28" r="9" fill="${bodyHex}"/><rect x="24" y="29" width="14" height="10" rx="3" fill="${saddleHex}"/><rect x="18" y="44" width="5" height="12" rx="2" fill="#333"/><rect x="35" y="44" width="5" height="12" rx="2" fill="#333"/></svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-}
-
-export default function HorseRankingOverlay({ ranking, raceName = '🏇 Live Standings 🏇' }) {
+export default function HorseRankingOverlay({
+  ranking,
+  raceName = 'Heat',
+  panelStyle = undefined,
+  draggable = false,
+  onDragStart = undefined
+}) {
   return (
-    <div className="absolute top-[260px] right-[8%] w-[clamp(260px,24vw,360px)] bg-white/95 p-6 rounded-2xl shadow-2xl z-50 animate-fadeIn">
-      <h2 className="text-5xl font-extrabold text-center text-red-700 mb-4 border-b pb-2 border-red-200">
-        {raceName}
-      </h2>
-      <ol className="space-y-3 text-base">
+    <div
+      className="absolute bg-slate-100/95 border border-slate-300 p-3 rounded-2xl shadow-2xl z-50 animate-fadeIn"
+      style={panelStyle}
+    >
+      <div
+        className={`flex items-center justify-between mb-2 ${draggable ? 'cursor-move select-none' : ''}`}
+        onMouseDown={draggable ? onDragStart : undefined}
+      >
+        <h2 className="text-lg font-black text-slate-800 truncate">{raceName}</h2>
+        {draggable && <span className="text-[10px] text-slate-500 uppercase tracking-wide">Drag</span>}
+      </div>
+
+      <ol className="space-y-2 text-sm">
         {ranking.map((h, i) => {
           const badgeColor = h.saddleHex
             ? { backgroundColor: h.saddleHex }
@@ -24,20 +34,16 @@ export default function HorseRankingOverlay({ ranking, raceName = '🏇 Live Sta
           return (
             <li
               key={h.id}
-              className="flex items-center px-3 py-2 bg-gray-50 rounded-lg shadow-sm hover:bg-gray-100 transition gap-2"
+              className="flex items-center px-2 py-2 bg-white rounded-lg shadow-sm gap-2"
             >
               <span
-                className="text-white text-sm font-bold px-3 py-1 rounded-full"
+                className="text-white text-xs font-bold px-2 py-1 rounded-full shrink-0"
                 style={badgeColor}
               >
                 {i + 1}
               </span>
-              <img
-                src={buildHorseIcon(h.bodyHex, h.saddleHex)}
-                alt={h.name}
-                className="w-8 h-8 shrink-0"
-              />
-              <span className="flex-1 text-right font-medium text-gray-800 truncate">
+              <HorseSprite bodyHex={h.bodyHex} saddleHex={h.saddleHex} alt={h.name} className="w-10 h-10 shrink-0" />
+              <span className="flex-1 text-right font-semibold text-slate-800 truncate">
                 {h.name}
               </span>
             </li>

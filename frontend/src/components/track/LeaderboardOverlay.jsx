@@ -1,22 +1,40 @@
 // File: frontend/src/components/track/LeaderboardOverlay.jsx
-// Version: v1.2.0 — Highlights winner with lightweight confetti pulse
-// Date: 2026-02-18
+// Version: v1.4.0 — Adds richer styling and optional drag handle while staying in infield
+// Date: 2026-02-19
 
 import React from 'react';
 
-export default function LeaderboardOverlay({ users, winnerName, compact = false }) {
+export default function LeaderboardOverlay({
+  users,
+  winnerName,
+  compact = false,
+  panelStyle = undefined,
+  draggable = false,
+  onDragStart = undefined
+}) {
+  const baseClass = compact
+    ? 'w-full p-3 rounded-2xl shadow-xl border border-amber-200'
+    : 'absolute p-6 rounded-2xl shadow-2xl z-50 border border-amber-200';
+
   return (
-    <div className={`${compact ? 'w-full p-4 rounded-xl shadow-xl' : 'absolute top-[260px] left-[8%] w-[clamp(260px,28vw,420px)] p-6 rounded-2xl shadow-2xl z-50'} bg-white/90`}>
-      <h2 className={`${compact ? 'text-2xl mb-3' : 'text-5xl mb-6'} font-extrabold flex items-center`}>
-        <span className="mr-3">🏆</span> Leaderboard <span className="mr-3">🏆</span>
-      </h2>
-      <ol className={`list-decimal list-inside ${compact ? 'text-sm space-y-1' : 'text-2xl space-y-4'}`}>
+    <div className={`${baseClass} bg-gradient-to-b from-white/95 to-amber-50/90`} style={panelStyle}>
+      <div
+        className={`flex items-center justify-between ${compact ? 'mb-2' : 'mb-3'} ${draggable ? 'cursor-move select-none' : ''}`}
+        onMouseDown={draggable ? onDragStart : undefined}
+      >
+        <h2 className={`${compact ? 'text-lg' : 'text-2xl'} font-black text-amber-900`}>Leaderboard</h2>
+        {draggable && <span className="text-[10px] uppercase tracking-wide text-amber-700">Drag</span>}
+      </div>
+
+      <ol className={`list-decimal list-inside ${compact ? 'text-sm space-y-1' : 'text-lg space-y-2'}`}>
         {users.slice(0, 5).map((u, i) => {
           const isWinner = winnerName && u.nickname === winnerName;
           return (
-            <li key={u.id} className="flex justify-between items-center">
-              <span className={isWinner ? 'font-black text-yellow-700 winner-pop relative' : ''}>{i + 1}. {u.nickname}</span>
-              <span className="font-mono">{u.leaseLoons}</span>
+            <li key={u.id} className="flex justify-between items-center gap-3 rounded-md px-2 py-1 bg-white/70">
+              <span className={isWinner ? 'font-black text-amber-700 winner-pop relative truncate' : 'truncate font-semibold text-slate-800'}>
+                {i + 1}. {u.nickname}
+              </span>
+              <span className="font-mono text-slate-900 shrink-0">{u.leaseLoons}</span>
             </li>
           );
         })}

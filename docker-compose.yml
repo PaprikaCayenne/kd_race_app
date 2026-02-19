@@ -1,26 +1,26 @@
 # File: docker-compose.yml
-# Version: v0.8.2 — Adds static container_name for kd_api
+# Version: v0.8.3 — Use URL-encoded DB password for DATABASE_URL
 
 services:
-  # 🔧 Backend API
+  # Backend API
   kd_api:
     build:
       context: ./api
       dockerfile: Dockerfile
-    container_name: kd_race_app-kd_api-1  # ✅ Explicit name to match running container
+    container_name: kd_race_app-kd_api-1
     ports:
       - "4000:4000"
     volumes:
       - ./frontend_build:/app/public:ro
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=postgres://derby_admin:${DB_PASS}@192.168.50.209:5432/derby
+      - DATABASE_URL=postgres://derby_admin:${DB_PASS_URLENC}@192.168.50.209:5432/derby
       - API_ADMIN_PASS=${API_ADMIN_PASS}
     restart: unless-stopped
     networks:
       - kd_net
 
-  # 🌐 Nginx reverse proxy
+  # Nginx reverse proxy
   kd_nginx:
     image: nginx:alpine
     container_name: kd_race_app-kd_nginx-1

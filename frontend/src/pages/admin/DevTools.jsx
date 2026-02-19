@@ -1,6 +1,6 @@
 // File: frontend/src/pages/admin/DevTools.jsx
-// Version: v2.3.0 — Adds Seed Reset with confirmation
-// Date: 2025-05-29
+// Version: v2.4.0 — Removes direct seed reset button and keeps explicit dev reset actions
+// Date: 2026-02-18
 
 export default function DevTools({
   showDevTools,
@@ -32,15 +32,9 @@ export default function DevTools({
           </button>
           <button
             onClick={() => handleDevReset('dev')}
-            className="bg-red-200 hover:bg-red-300 px-4 py-2 rounded"
+            className="bg-red-300 hover:bg-red-400 px-4 py-2 rounded sm:col-span-2 font-semibold"
           >
-            ⚠️ Full Dev Reset (seed-dev.ts)
-          </button>
-          <button
-            onClick={() => handleDevReset('seed')}
-            className="bg-red-400 hover:bg-red-500 px-4 py-2 rounded text-white font-bold"
-          >
-            🧨 Reset Database (seed.ts)
+            ⚠️ Full Dev Reset (Wipes + Reseeds)
           </button>
         </div>
       )}

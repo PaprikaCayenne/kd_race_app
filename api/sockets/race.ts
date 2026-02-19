@@ -1,44 +1,319 @@
 // File: api/sockets/race.ts
-// Version: v2.7.0 — Fixes horseId mapping and applies payouts on socket race finish
-// Date: 2025-05-30
+// Version: v3.0.0 — Canonical session/order/replay broadcasts from server runtime
+// Date: 2026-02-18
 
-import { Server, Socket } from "socket.io";
-import { PrismaClient } from "@prisma/client";
-import { raceHorseCache } from "../routes/admin.js";
+import { Server, Socket } from 'socket.io';
+import { PrismaClient } from '@prisma/client';
+import { raceHorseCache } from '../routes/admin.js';
+import { buildCanonicalRaceSummary } from '../lib/raceSummary.js';
+import {
+  bootstrapRaceSession,
+  clearReplaySession,
+  getRaceSession,
+  startReplaySession,
+  stopReplaySession,
+  updateRaceSession
+} from '../lib/raceSession.js';
 
 const prisma = new PrismaClient();
-export let raceNamespace: ReturnType<Server["of"]>;
+export let raceNamespace: ReturnType<Server['of']>;
+
+interface ReplayTickHorse {
+  horseId: number;
+  name: string;
+  bodyHex: string;
+  saddleHex: string;
+  pct: number;
+}
+
+interface ReplayRuntimeState {
+  raceId: string;
+  running: boolean;
+  paused: boolean;
+  timer: NodeJS.Timeout | null;
+  startedAtMs: number;
+  cursor: number;
+  timeline: Array<{ timeMs: number; frames: ReplayTickHorse[] }>;
+  latestByHorse: Map<number, ReplayTickHorse>;
+}
+
+let replayRuntime: ReplayRuntimeState | null = null;
+const raceRuntimeSockets = new Set<string>();
+
+function normalizeAndSortRanking(ranking: any[]): any[] {
+  return [...ranking]
+    .map((entry) => ({
+      ...entry,
+      normalizedProgress: Number(entry.normalizedProgress ?? entry.pct ?? 0)
+    }))
+    .sort((a, b) => {
+      if (b.normalizedProgress !== a.normalizedProgress) {
+        return b.normalizedProgress - a.normalizedProgress;
+      }
+      return (b.id || 0) - (a.id || 0);
+    })
+    .map((entry, idx) => ({ ...entry, position: idx + 1 }));
+}
+
+function stopReplayRuntime() {
+  if (replayRuntime?.timer) {
+    clearInterval(replayRuntime.timer);
+  }
+  replayRuntime = null;
+}
+
+async function buildReplayTimeline(raceId: bigint): Promise<Array<{ timeMs: number; frames: ReplayTickHorse[] }>> {
+  const [frames, horses] = await Promise.all([
+    prisma.replayFrame.findMany({
+      where: { raceId },
+      orderBy: [{ timeMs: 'asc' }],
+      select: { timeMs: true, horseId: true, pct: true }
+    }),
+    prisma.horsePath.findMany({
+      where: { raceId },
+      orderBy: { index: 'asc' },
+      select: {
+        horse: {
+          select: {
+            id: true,
+            name: true,
+            bodyHex: true,
+            saddleHex: true
+          }
+        }
+      }
+    })
+  ]);
+
+  const horseById = new Map(horses.map((hp) => [hp.horse.id, hp.horse]));
+  const grouped = new Map<number, ReplayTickHorse[]>();
+
+  frames.forEach((frame) => {
+    const horse = horseById.get(frame.horseId);
+    if (!horse) return;
+
+    const bucket = grouped.get(frame.timeMs) || [];
+    bucket.push({
+      horseId: horse.id,
+      name: horse.name,
+      bodyHex: horse.bodyHex,
+      saddleHex: horse.saddleHex,
+      pct: Math.max(0, Math.min(1, Number(frame.pct) || 0))
+    });
+    grouped.set(frame.timeMs, bucket);
+  });
+
+  return Array.from(grouped.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([timeMs, framesAtTime]) => ({ timeMs, frames: framesAtTime }));
+}
+
+function emitSessionUpdate(origin = 'server') {
+  if (!raceNamespace) return;
+  raceNamespace.emit('session:update', { session: getRaceSession(), origin });
+}
+
+export async function patchSessionAndBroadcast(
+  patch: Parameters<typeof updateRaceSession>[0],
+  origin = 'server'
+) {
+  const current = getRaceSession();
+  const isReplayControlPatch = (
+    patch.state === 'replaying'
+    || Object.prototype.hasOwnProperty.call(patch, 'selectedReplayRaceId')
+    || Object.prototype.hasOwnProperty.call(patch, 'replayPaused')
+  );
+
+  let effectivePatch = patch;
+
+  if (current.state === 'replaying' && !isReplayControlPatch) {
+    const livePatch: Parameters<typeof updateRaceSession>[0] = {};
+
+    if (Object.prototype.hasOwnProperty.call(patch, 'activeRaceId')) {
+      livePatch.activeRaceId = patch.activeRaceId;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'tournamentId')) {
+      livePatch.tournamentId = patch.tournamentId;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'heatNumber')) {
+      livePatch.heatNumber = patch.heatNumber;
+    }
+    if (patch.state && patch.state !== 'replaying') {
+      livePatch.liveStateBeforeReplay = patch.state;
+    }
+
+    effectivePatch = livePatch;
+  }
+
+  if (Object.keys(effectivePatch).length === 0) {
+    emitSessionUpdate(origin);
+    return;
+  }
+
+  await updateRaceSession(effectivePatch);
+  emitSessionUpdate(origin);
+}
+
+export async function beginReplayAndBroadcast(raceId: string, origin = 'admin') {
+  await startReplaySession(raceId);
+  emitSessionUpdate(origin);
+  await startReplayRuntime(raceId);
+}
+
+export async function stopReplayAndBroadcast(origin = 'admin') {
+  if (replayRuntime) {
+    replayRuntime.paused = true;
+    replayRuntime.running = false;
+    if (replayRuntime.timer) clearInterval(replayRuntime.timer);
+    replayRuntime.timer = null;
+  }
+  await stopReplaySession();
+  emitSessionUpdate(origin);
+}
+
+export async function clearReplayAndBroadcast(origin = 'admin') {
+  stopReplayRuntime();
+  await clearReplaySession();
+  emitSessionUpdate(origin);
+  raceNamespace?.emit('replay:cleared');
+}
+
+async function startReplayRuntime(raceId: string) {
+  stopReplayRuntime();
+
+  const numericRaceId = BigInt(raceId);
+  const timeline = await buildReplayTimeline(numericRaceId);
+  if (timeline.length === 0) {
+    raceNamespace?.emit('replay:empty', { raceId });
+    return;
+  }
+
+  replayRuntime = {
+    raceId,
+    running: true,
+    paused: false,
+    timer: null,
+    startedAtMs: Date.now(),
+    cursor: 0,
+    timeline,
+    latestByHorse: new Map()
+  };
+
+  raceNamespace?.emit('replay:started', { raceId });
+
+  replayRuntime.timer = setInterval(() => {
+    if (!replayRuntime || replayRuntime.paused || !replayRuntime.running) return;
+
+    const elapsed = Date.now() - replayRuntime.startedAtMs;
+
+    while (
+      replayRuntime.cursor < replayRuntime.timeline.length
+      && replayRuntime.timeline[replayRuntime.cursor].timeMs <= elapsed
+    ) {
+      const entry = replayRuntime.timeline[replayRuntime.cursor];
+      entry.frames.forEach((frame) => replayRuntime?.latestByHorse.set(frame.horseId, frame));
+      replayRuntime.cursor += 1;
+    }
+
+    const ranking = normalizeAndSortRanking(
+      Array.from(replayRuntime.latestByHorse.values()).map((horse) => ({
+        id: horse.horseId,
+        horseId: horse.horseId,
+        name: horse.name,
+        bodyHex: horse.bodyHex,
+        saddleHex: horse.saddleHex,
+        normalizedProgress: horse.pct,
+        pct: horse.pct
+      }))
+    );
+
+    raceNamespace?.emit('replay:tick', {
+      raceId,
+      elapsedMs: elapsed,
+      ranking
+    });
+
+    if (replayRuntime.cursor >= replayRuntime.timeline.length) {
+      replayRuntime.running = false;
+      if (replayRuntime.timer) clearInterval(replayRuntime.timer);
+      replayRuntime.timer = null;
+      raceNamespace?.emit('replay:finished', { raceId });
+    }
+  }, 100);
+}
 
 export function setupRaceNamespace(io: Server): void {
-  raceNamespace = io.of("/race");
+  raceNamespace = io.of('/race');
 
-  raceNamespace.on("connection", (socket: Socket) => {
-    console.log("✅ [WS] Client connected to /race:", socket.id);
+  bootstrapRaceSession()
+    .then(() => emitSessionUpdate('bootstrap'))
+    .catch((err) => console.error('❌ [Session] bootstrap failed:', err));
 
-    socket.on("startRace", handleStartRace);
-    socket.on("admin:start-race", (payload) => handleStartRace(payload));
+  raceNamespace.on('connection', (socket: Socket) => {
+    console.log('✅ [WS] Client connected to /race:', socket.id);
+    socket.emit('session:init', { session: getRaceSession() });
 
-    socket.on("admin:open-bets", () => {
-      raceNamespace.emit("admin:open-bets");
+    socket.on('race:screen:ready', () => {
+      raceRuntimeSockets.add(socket.id);
     });
 
-    socket.on("admin:close-bets", () => {
-      raceNamespace.emit("admin:close-bets");
+    socket.on('session:request-init', () => {
+      socket.emit('session:init', { session: getRaceSession() });
     });
 
-    socket.on("race:setup-failed", async ({ raceId, reason }: { raceId: string; reason: string }) => {
+    socket.on('race:order', (payload) => {
+      if (!raceRuntimeSockets.has(socket.id)) return;
+      const session = getRaceSession();
+      if (session.state === 'replaying') return;
+      if (session.activeRaceId && String(payload?.raceId) !== String(session.activeRaceId)) return;
+
+      const ranking = Array.isArray(payload?.ranking) ? payload.ranking : [];
+      const canonical = normalizeAndSortRanking(ranking);
+      raceNamespace.emit('race:order', {
+        raceId: payload?.raceId,
+        elapsedMs: payload?.elapsedMs,
+        ranking: canonical
+      });
+    });
+
+    socket.on('startRace', handleStartRace);
+    socket.on('admin:start-race', (payload) => handleStartRace(payload));
+
+    socket.on('admin:open-bets', async () => {
+      await patchSessionAndBroadcast({ state: 'betting_open' }, 'admin');
+      raceNamespace.emit('admin:open-bets');
+    });
+
+    socket.on('admin:close-bets', async () => {
+      await patchSessionAndBroadcast({ state: 'betting_closed' }, 'admin');
+      raceNamespace.emit('admin:close-bets');
+    });
+
+    socket.on('admin:replay-start', async ({ raceId }) => {
+      if (!raceId) return;
+      await beginReplayAndBroadcast(String(raceId), 'admin');
+    });
+
+    socket.on('admin:replay-stop', async () => {
+      await stopReplayAndBroadcast('admin');
+    });
+
+    socket.on('admin:replay-clear', async () => {
+      await clearReplayAndBroadcast('admin');
+    });
+
+    socket.on('race:setup-failed', async ({ raceId, reason }: { raceId: string; reason: string }) => {
       try {
-        const deleted = await prisma.race.delete({ where: { id: BigInt(raceId) } });
-        console.log("🗑️ [DB] Invalid race deleted:", deleted.id.toString());
+        await prisma.race.delete({ where: { id: BigInt(raceId) } });
       } catch (err) {
-        console.error("❌ [DB] Failed to delete invalid race:", err);
+        console.error('❌ [DB] Failed to delete invalid race:', err);
       }
-      raceNamespace.emit("race:setup-aborted", { raceId, reason });
+      await patchSessionAndBroadcast({ state: 'cleared' }, 'race');
+      raceNamespace.emit('race:setup-aborted', { raceId, reason });
     });
 
-    socket.on("race:finish", async ({ raceId, leaderboard, results, replayFrames = [] }) => {
-      console.log(`🏁 [KD] Received race:finish for raceId=${raceId} — saving results`);
-
+    socket.on('race:finish', async ({ raceId, leaderboard, results, replayFrames = [] }) => {
+      if (!raceRuntimeSockets.has(socket.id)) return;
       try {
         const normalized = Array.isArray(results) && results.length > 0
           ? results
@@ -61,53 +336,69 @@ export function setupRaceNamespace(io: Server): void {
           where: { id: BigInt(raceId) },
           data: { endedAt: new Date() }
         });
-        console.log(`✅ [KD] Race ${raceId} marked as ended`);
+
+        const raceRow = await prisma.race.findUnique({
+          where: { id: BigInt(raceId) },
+          select: { tournamentId: true, heatNumber: true }
+        });
+
+        await patchSessionAndBroadcast({
+          state: 'finished',
+          tournamentId: raceRow?.tournamentId || null,
+          heatNumber: Math.min(5, Math.max(1, raceRow?.heatNumber || getRaceSession().heatNumber)) as 1 | 2 | 3 | 4 | 5
+        }, 'race');
       } catch (err) {
         console.error(`❌ [KD] Failed to finalize race ${raceId}:`, err);
       }
+    });
+
+    socket.on('disconnect', () => {
+      raceRuntimeSockets.delete(socket.id);
     });
   });
 }
 
 async function handleStartRace({
   raceId,
-  horses,
-  horsePaths
+  horses
 }: {
   raceId: string;
   horses: { id: number; name: string; color: string }[];
-  horsePaths: Record<number, any>;
 }) {
-  console.log("🧪 race:init is being emitted — backend log test");
-
   try {
     await prisma.race.update({
       where: { id: BigInt(raceId) },
-      data: { startedAt: new Date() }
+      data: { startedAt: new Date(), betsLocked: true }
     });
   } catch (err) {
-    console.error("[DB] Failed to update race with start time:", err);
+    console.error('[DB] Failed to update race with start time:', err);
     return;
   }
 
   const race = await prisma.race.findUnique({
     where: { id: BigInt(raceId) },
-    select: { name: true }
+    select: { name: true, tournamentId: true, heatNumber: true }
   });
 
-  if (!race) {
-    console.error(`[KD] ❌ No race found for raceId=${raceId}`);
-    return;
-  }
+  if (!race) return;
 
-  raceNamespace.emit("race:init", {
+  await patchSessionAndBroadcast({
+    activeRaceId: String(raceId),
+    selectedReplayRaceId: null,
+    replayPaused: false,
+    state: 'running',
+    tournamentId: race.tournamentId,
+    heatNumber: Math.min(5, Math.max(1, race.heatNumber || getRaceSession().heatNumber)) as 1 | 2 | 3 | 4 | 5
+  }, 'race');
+
+  raceNamespace.emit('race:init', {
     raceId,
     raceName: race.name,
     horses,
-    horsePaths
+    startAtPercent: 0
   });
 
-  raceNamespace.emit("race:start", {
+  raceNamespace.emit('race:start', {
     raceId,
     horses
   });
@@ -119,42 +410,41 @@ async function saveRaceResults(
 ): Promise<{ saved: boolean; resultHorseIds: number[] }> {
   const existing = await prisma.result.count({ where: { raceId } });
   if (existing > 0) {
-    console.log(`[KD] ℹ️ Results already exist for race ${raceId}; skipping duplicate save`);
     const prior = await prisma.result.findMany({
       where: { raceId },
-      orderBy: { position: "asc" },
+      orderBy: { position: 'asc' },
       select: { horseId: true }
     });
-    return { saved: false, resultHorseIds: prior.map(r => r.horseId) };
+    return { saved: false, resultHorseIds: prior.map((r) => r.horseId) };
   }
 
   const cache = raceHorseCache.get(Number(raceId));
   if (!cache) {
-    console.warn(`[KD] ⚠️ No horse cache found for race ${raceId}`);
     return { saved: false, resultHorseIds: [] };
   }
 
-  const normalized = results.map((entry, index) => {
-    const match = cache.find((h) => h.localId === entry.localId);
-    const inferredHorseId = match?.horseId ?? match?.id;
-    const horseId = entry.horseId ?? inferredHorseId;
+  const normalized = results
+    .sort((a, b) => (a.position || 0) - (b.position || 0))
+    .map((entry, index) => {
+      const match = cache.find((h) => h.localId === entry.localId);
+      const inferredHorseId = match?.horseId ?? match?.id;
+      const horseId = entry.horseId ?? inferredHorseId;
 
-    if (typeof horseId !== "number") {
-      throw new Error(`Horse id missing for localId=${entry.localId}`);
-    }
+      if (typeof horseId !== 'number') {
+        throw new Error(`Horse id missing for localId=${entry.localId}`);
+      }
 
-    return {
-      raceId,
-      horseId,
-      localId: entry.localId,
-      position: entry.position ?? index + 1,
-      timeMs: entry.timeMs
-    };
-  });
+      return {
+        raceId,
+        horseId,
+        localId: entry.localId,
+        position: entry.position ?? index + 1,
+        timeMs: entry.timeMs
+      };
+    });
 
   await prisma.result.createMany({ data: normalized });
-  console.log(`[KD] ✅ Saved ${normalized.length} race results`);
-  return { saved: true, resultHorseIds: normalized.map(r => r.horseId) };
+  return { saved: true, resultHorseIds: normalized.map((r) => r.horseId) };
 }
 
 async function applyRacePayouts(raceId: bigint, resultHorseIds: number[]): Promise<void> {
@@ -164,8 +454,6 @@ async function applyRacePayouts(raceId: bigint, resultHorseIds: number[]): Promi
   if (resultHorseIds[0] !== undefined) winners.set(resultHorseIds[0], 3);
   if (resultHorseIds[1] !== undefined) winners.set(resultHorseIds[1], 2);
   if (resultHorseIds[2] !== undefined) winners.set(resultHorseIds[2], 1.5);
-
-  if (winners.size === 0) return;
 
   const bets = await prisma.bet.findMany({ where: { raceId } });
   const payoutsByUser = new Map<number, number>();
@@ -177,23 +465,21 @@ async function applyRacePayouts(raceId: bigint, resultHorseIds: number[]): Promi
     payoutsByUser.set(bet.userId, (payoutsByUser.get(bet.userId) || 0) + winnings);
   }
 
-  if (payoutsByUser.size === 0) {
-    console.log(`[KD] ℹ️ No payout winners for race ${raceId}`);
-    return;
+  if (payoutsByUser.size > 0) {
+    await prisma.$transaction(
+      Array.from(payoutsByUser.entries()).map(([userId, totalWinnings]) =>
+        prisma.user.update({
+          where: { id: userId },
+          data: { leaseLoons: { increment: totalWinnings } }
+        })
+      )
+    );
   }
 
-  await prisma.$transaction(
-    Array.from(payoutsByUser.entries()).map(([userId, totalWinnings]) =>
-      prisma.user.update({
-        where: { id: userId },
-        data: { leaseLoons: { increment: totalWinnings } }
-      })
-    )
-  );
-
-  console.log(`[KD] ✅ Paid out ${payoutsByUser.size} users for race ${raceId}`);
+  const summary = await buildCanonicalRaceSummary(raceId);
+  raceNamespace.emit('race:summary', { raceId: raceId.toString(), summary });
+  raceNamespace.emit('leaderboard:updated');
 }
-
 
 async function saveReplayFrames(
   raceId: bigint,
@@ -223,7 +509,5 @@ async function saveReplayFrames(
     .filter(Boolean) as { raceId: bigint; horseId: number; pct: number; timeMs: number }[];
 
   if (frames.length === 0) return;
-
   await prisma.replayFrame.createMany({ data: frames });
-  console.log(`[KD] ✅ Saved ${frames.length} replay frames for race ${raceId}`);
 }
