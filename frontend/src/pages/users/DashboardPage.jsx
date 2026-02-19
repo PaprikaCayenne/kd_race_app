@@ -11,6 +11,10 @@ import HorseSprite from '../../components/HorseSprite.jsx';
 
 const raceSocket = io('/race', { path: '/api/socket.io' });
 
+function formatLoons(value) {
+  return new Intl.NumberFormat('en-US').format(Number(value) || 0);
+}
+
 function getCookie(name) {
   const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
   return match ? match[2] : null;
@@ -82,6 +86,16 @@ export default function DashboardPage() {
     }
   }, [user?.id]);
 
+  const refreshUserBalance = useCallback(async () => {
+    const userRes = await axios.get(`/api/user/${deviceId}`);
+    if (!userRes?.data) return;
+
+    setUser((prev) => ({ ...(prev || {}), ...userRes.data }));
+    if (typeof userRes.data.leaseLoons === 'number') {
+      setBalance(userRes.data.leaseLoons);
+    }
+  }, [deviceId]);
+
   useEffect(() => {
     betsRef.current = bets;
   }, [bets]);
@@ -107,7 +121,41 @@ export default function DashboardPage() {
     };
 
     const onLeaderboardUpdate = () => {
-      refreshLeaderboard().catch((err) => console.error('Failed to refresh leaderboard:', err));
+      Promise.allSettled([refreshLeaderboard(), refreshUserBalance()])
+        .catch((err) => console.error('Failed to refresh dashboard after leaderboard update:', err));
+    };
+
+    const onRaceSummary = ({ summary }) => {
+      if (!summary?.winningHorseId || !summary?.winningHorseName) return;
+
+      const nextWinner = {
+        raceId: summary.raceId,
+        bettorName: summary.topLoonWinner?.name || 'No winning bets',
+        winnings: summary.topLoonWinner?.loons || 0,
+        horseName: summary.winningHorseName,
+        bodyHex: summary.winningHorseBodyHex,
+        saddleHex: summary.winningHorseSaddleHex
+      };
+
+      setLatestWinner(nextWinner);
+      setWinnerHistory((prev) => {
+        const deduped = prev.filter((entry) => String(entry.raceId) !== String(summary.raceId));
+        return [
+          {
+            raceId: summary.raceId,
+            horseName: summary.winningHorseName,
+            winnerName: summary.topLoonWinner?.name || 'No winning bets',
+            loons: summary.topLoonWinner?.loons || 0,
+            horseMeta: {
+              bodyHex: summary.winningHorseBodyHex,
+              saddleHex: summary.winningHorseSaddleHex
+            }
+          },
+          ...deduped
+        ].slice(0, 8);
+      });
+
+      refreshLeaderboard().catch((err) => console.error('Failed to refresh leaderboard after race summary:', err));
     };
 
     raceSocket.on('session:init', onSession);
@@ -115,6 +163,7 @@ export default function DashboardPage() {
     raceSocket.on('race:order', onOrder);
     raceSocket.on('replay:tick', onReplayTick);
     raceSocket.on('leaderboard:updated', onLeaderboardUpdate);
+    raceSocket.on('race:summary', onRaceSummary);
 
     return () => {
       raceSocket.off('session:init', onSession);
@@ -122,8 +171,9 @@ export default function DashboardPage() {
       raceSocket.off('race:order', onOrder);
       raceSocket.off('replay:tick', onReplayTick);
       raceSocket.off('leaderboard:updated', onLeaderboardUpdate);
+      raceSocket.off('race:summary', onRaceSummary);
     };
-  }, [refreshLeaderboard]);
+  }, [refreshLeaderboard, refreshUserBalance]);
 
   useEffect(() => {
     const data = bundleQuery.data;
@@ -277,7 +327,7 @@ export default function DashboardPage() {
 
       <div className="bg-red-50 border border-red-200 rounded-xl shadow px-6 py-4 text-center w-full max-w-md">
         <p className="text-lg font-semibold">
-          Lease Loons Balance: <span className="text-red-700">{balance}</span>
+          Lease Loons Balance: <span className="text-red-700">L$ {formatLoons(balance)}</span>
         </p>
         {rank && (
           <p className="text-sm text-gray-700 mt-1">
@@ -289,7 +339,7 @@ export default function DashboardPage() {
           <p className="text-sm text-gray-600 mt-2">Betting is locked.</p>
         ) : (
           <p className="text-sm text-gray-600 mt-2">
-            You have <span className="font-bold text-red-700">{availableBalance}</span> Lease Loons remaining to bet.
+            You have <span className="font-bold text-red-700">L$ {formatLoons(availableBalance)}</span> Lease Loons remaining to bet.
           </p>
         )}
         {countdown > 0 && !bettingLocked && (
@@ -300,11 +350,11 @@ export default function DashboardPage() {
       {hasLiveOrder && (
         <div className="w-full max-w-md bg-blue-50 border border-blue-200 rounded-xl p-4 shadow transition-opacity duration-300">
           <h2 className="font-bold text-blue-800">Current Heat Order</h2>
-          <ol className="mt-2 space-y-1 text-sm">
+          <ol className="mt-2 space-y-1.5 text-sm">
             {liveOrder.map((entry, idx) => (
               <li key={`${entry.id}-${idx}`} className="flex items-center gap-2">
                 <span>{idx + 1}.</span>
-                <HorseSprite bodyHex={entry.bodyHex} saddleHex={entry.saddleHex} alt={entry.name} className="w-8 h-8" />
+                <HorseSprite bodyHex={entry.bodyHex} saddleHex={entry.saddleHex} alt={entry.name} className="w-9 h-9" />
                 <span>{entry.name}</span>
               </li>
             ))}
@@ -345,10 +395,15 @@ export default function DashboardPage() {
         <div className="w-full max-w-md bg-yellow-50 border border-yellow-200 rounded-xl p-4 shadow">
           <h2 className="font-bold text-lg text-yellow-800">Most Recent Winner</h2>
           <div className="flex items-center gap-3 mt-2">
-            <img src={latestWinner.horseImage} alt={latestWinner.horseName} className="w-10 h-10" />
+            <HorseSprite
+              bodyHex={latestWinner.bodyHex}
+              saddleHex={latestWinner.saddleHex}
+              alt={latestWinner.horseName}
+              className="w-10 h-10"
+            />
             <div>
               <p className="font-semibold">{latestWinner.horseName}</p>
-              <p className="text-sm text-gray-600">Top Loon Winner: {latestWinner.bettorName} ({latestWinner.winnings || 0})</p>
+              <p className="text-sm text-gray-600">Top Loon Winner: {latestWinner.bettorName} (L$ {formatLoons(latestWinner.winnings || 0)})</p>
             </div>
           </div>
         </div>
@@ -365,7 +420,7 @@ export default function DashboardPage() {
                   <HorseSprite bodyHex={entry.horseMeta.bodyHex} saddleHex={entry.horseMeta.saddleHex} alt={entry.horseName} className="w-7 h-7" />
                 )}
                 <div className="min-w-0">
-                  <p className="font-semibold truncate">{entry.winnerName} · {entry.loons}</p>
+                  <p className="font-semibold truncate">{entry.winnerName} · L$ {formatLoons(entry.loons)}</p>
                   <p className="text-xs text-gray-600 truncate">{entry.horseName}</p>
                 </div>
               </li>
@@ -392,12 +447,15 @@ export default function DashboardPage() {
       )}
 
       <div className="w-full max-w-md bg-gradient-to-b from-slate-100 to-slate-50 border border-slate-300 rounded-xl p-4 shadow-lg">
-        <h2 className="font-black text-slate-800 tracking-wide">Live Leaderboard</h2>
+        <h2 className="font-black text-slate-800 tracking-wide flex items-center gap-2">
+          <span aria-hidden="true">🏆</span>
+          <span>Live Leaderboard</span>
+        </h2>
         <ol className="mt-2 space-y-2 text-sm">
           {leaderboard.map((entry, i) => (
             <li key={entry.id} className="flex items-center justify-between rounded-md bg-white px-2 py-1 border border-slate-200">
               <span className="font-semibold text-slate-800">{i + 1}. {entry.nickname || 'Player'}</span>
-              <span className="font-mono text-slate-900">{entry.leaseLoons}</span>
+              <span className="font-mono text-slate-900">L$ {formatLoons(entry.leaseLoons)}</span>
             </li>
           ))}
         </ol>

@@ -94,6 +94,14 @@ export default function AdminPage() {
     ]);
   };
 
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (!usersQuery.error && !raceBundleQuery.error) return;
+
+    const err = usersQuery.error || raceBundleQuery.error;
+    setStatus(`❌ ${extractError(err, 'Failed to load admin data. Verify admin API password and server state.')}`);
+  }, [isAuthenticated, usersQuery.error, raceBundleQuery.error]);
+
   const isFinalHeat = useMemo(() => {
     return Number(session?.heatNumber || raceState?.heatNumber || 0) === 5;
   }, [raceState?.heatNumber, session?.heatNumber]);
@@ -317,7 +325,11 @@ export default function AdminPage() {
 
     raceSocket.emit('session:request-init');
     const onLeaderboardUpdated = () => {
-      refreshQueries();
+      refreshQueries().catch(() => {});
+    };
+
+    const onRaceSummary = () => {
+      refreshQueries().catch(() => {});
     };
 
     const onReplayLoaded = ({ elapsedMs = 0, durationMs = 0, rate = 1 } = {}) => {
@@ -364,6 +376,7 @@ export default function AdminPage() {
     };
 
     raceSocket.on('leaderboard:updated', onLeaderboardUpdated);
+    raceSocket.on('race:summary', onRaceSummary);
     raceSocket.on('replay:loaded', onReplayLoaded);
     raceSocket.on('replay:tick', onReplayTick);
     raceSocket.on('replay:paused', onReplayPaused);
@@ -374,6 +387,7 @@ export default function AdminPage() {
 
     return () => {
       raceSocket.off('leaderboard:updated', onLeaderboardUpdated);
+      raceSocket.off('race:summary', onRaceSummary);
       raceSocket.off('replay:loaded', onReplayLoaded);
       raceSocket.off('replay:tick', onReplayTick);
       raceSocket.off('replay:paused', onReplayPaused);
