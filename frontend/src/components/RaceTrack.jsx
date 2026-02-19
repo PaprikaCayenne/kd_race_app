@@ -35,21 +35,21 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
-function layoutPanels(panelSafeBounds, infieldHoleBounds) {
+function layoutPanels(panelSafeBounds) {
   if (!panelSafeBounds) return null;
 
   const pad = 12;
   const gap = clamp(Math.round(panelSafeBounds.width * 0.02), 10, 18);
   const usableWidth = Math.max(280, panelSafeBounds.width - pad * 2 - gap * 2);
 
-  const leaderboardWidth = Math.max(150, Math.floor(usableWidth * 0.32));
+  const leaderboardWidth = Math.max(112, Math.floor(usableWidth * 0.18));
   const raceWidth = Math.max(125, Math.floor(usableWidth * 0.17));
   const winnerWidth = Math.max(170, usableWidth - leaderboardWidth - raceWidth - gap * 2);
 
   const panelHeight = Math.max(120, panelSafeBounds.height - pad * 2);
   const top = Math.round(panelSafeBounds.y + pad);
   const left = Math.round(panelSafeBounds.x + pad);
-  const leaderboardLeftAnchor = Math.round((infieldHoleBounds?.x ?? panelSafeBounds.x) + 10);
+  const leaderboardLeftAnchor = Math.round(panelSafeBounds.x + Math.max(14, panelSafeBounds.width * 0.03));
   const leaderboardTopCenter = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
 
   return {
@@ -160,7 +160,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     : null;
 
   const panelStyles = useMemo(
-    () => layoutPanels(layoutBounds?.panelSafeBounds, layoutBounds?.infieldHoleBounds),
+    () => layoutPanels(layoutBounds?.panelSafeBounds),
     [layoutBounds]
   );
 
