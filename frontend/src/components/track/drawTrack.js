@@ -192,34 +192,33 @@ export function drawDerbyTrack({
   );
 
   const bottomPadding = 16;
-  const belowTrackTop = Math.round(trackRingBounds.bottom + 14);
-  const availableBelow = Math.max(96, app.screen.height - belowTrackTop - bottomPadding);
-  const penHeight = clamp(Math.round(availableBelow * 0.96), 190, 260);
-  const penLeft = Math.max(12, Math.round(trackRingBounds.x));
-  const penY = Math.max(belowTrackTop, app.screen.height - penHeight - bottomPadding);
-  const winnerPenWidth = clamp(Math.round(app.screen.width * 0.24), 220, 320);
+  const penTop = Math.round(trackRingBounds.bottom + 12);
+  const availableBelow = Math.max(90, app.screen.height - penTop - bottomPadding);
+  const penHeight = Math.min(clamp(Math.round(app.screen.height * 0.21), 150, 220), availableBelow);
+  const penLeft = Math.round(trackViewportBounds.x);
+  const winnerPenWidth = clamp(Math.round(app.screen.width * 0.22), 210, 300);
   const penGap = 18;
-  const maxPenWidth = Math.max(300, app.screen.width - penLeft - winnerPenWidth - penGap - 20);
-  const penWidthTarget = clamp(Math.round(trackRingBounds.width * 0.58), 420, 700);
-  const penWidth = Math.min(maxPenWidth, penWidthTarget);
+  const maxPenWidth = Math.max(320, app.screen.width - penLeft - winnerPenWidth - penGap - 20);
+  const penWidth = Math.min(maxPenWidth, clamp(Math.round(trackRingBounds.width * 0.6), 440, 760));
 
-  const penBounds = clampRect({
+  const penBounds = {
     x: penLeft,
-    y: penY,
+    y: penTop,
     width: penWidth,
     height: penHeight,
     right: penLeft + penWidth,
-    bottom: penY + penHeight
-  }, app.screen.width, app.screen.height, 220, 160, 12);
+    bottom: penTop + penHeight
+  };
 
-  const winnersPenBounds = clampRect({
-    x: app.screen.width - winnerPenWidth - 16,
-    y: penY,
+  const winnersPenX = app.screen.width - winnerPenWidth - 16;
+  const winnersPenBounds = {
+    x: winnersPenX,
+    y: penTop,
     width: winnerPenWidth,
-    height: penHeight,
-    right: app.screen.width - 16,
-    bottom: penY + penHeight
-  }, app.screen.width, app.screen.height, 180, 140, 12);
+    height: Math.min(penHeight, clamp(Math.round(penHeight * 0.9), 130, 200)),
+    right: winnersPenX + winnerPenWidth,
+    bottom: penTop + Math.min(penHeight, clamp(Math.round(penHeight * 0.9), 130, 200))
+  };
 
   return {
     lanes,

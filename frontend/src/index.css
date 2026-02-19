@@ -80,18 +80,13 @@ html, body {
 
 .pen-surface {
   background:
-    radial-gradient(circle at 22% 22%, rgba(255, 255, 255, 0.16), transparent 26%),
-    radial-gradient(circle at 75% 70%, rgba(255, 255, 255, 0.12), transparent 30%),
-    repeating-linear-gradient(
-      15deg,
-      rgba(42, 108, 58, 0.98) 0 18px,
-      rgba(36, 96, 53, 0.98) 18px 36px
-    );
-  border: 2px solid rgba(86, 54, 21, 0.45);
+    radial-gradient(circle at 22% 22%, rgba(255, 255, 255, 0.11), transparent 28%),
+    radial-gradient(circle at 78% 76%, rgba(255, 255, 255, 0.08), transparent 30%),
+    linear-gradient(160deg, rgba(186, 240, 186, 0.96), rgba(171, 230, 171, 0.96));
+  border: 2px solid rgba(114, 72, 29, 0.45);
   box-shadow:
-    inset 0 0 0 1px rgba(167, 243, 208, 0.2),
-    inset 0 14px 0 rgba(140, 88, 37, 0.32),
-    inset 0 -14px 0 rgba(140, 88, 37, 0.32);
+    inset 0 12px 0 rgba(129, 82, 35, 0.26),
+    inset 0 -12px 0 rgba(129, 82, 35, 0.26);
 }
 
 .fence-strip {
@@ -109,10 +104,10 @@ html, body {
 .horse-chip {
   width: 100%;
   min-width: 0;
-  min-height: 70px;
+  min-height: 62px;
   border-radius: 10px;
-  border: 1px solid rgba(83, 52, 22, 0.36);
-  background: rgba(239, 252, 241, 0.86);
+  border: 1px solid rgba(80, 102, 57, 0.3);
+  background: rgba(226, 246, 226, 0.75);
   display: flex;
   align-items: center;
   justify-content: center;
