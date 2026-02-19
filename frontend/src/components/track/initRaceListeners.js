@@ -123,6 +123,83 @@ function animateWalkIn({ app, horses, horseSpritesRef, labelSpritesRef, trackDat
   app.ticker.add(ticker);
 }
 
+function animatePostRaceSettlement({
+  app,
+  results,
+  horseSpritesRef,
+  labelSpritesRef,
+  trackDataRef,
+  durationMs = 2200
+}) {
+  if (!app || !Array.isArray(results) || results.length === 0) return;
+
+  const winnersPen = trackDataRef?.current?.winnersPenBounds || null;
+  const targetsByLocalId = new Map();
+  const sorted = [...results].sort((a, b) => (a.position || 99) - (b.position || 99));
+
+  sorted.forEach((result, index) => {
+    const localId = Number(result.localId);
+    if (!Number.isInteger(localId)) return;
+
+    const sprite = horseSpritesRef.current.get(localId);
+    if (!sprite) return;
+
+    const fromX = sprite.x;
+    const fromY = sprite.y;
+
+    if (result.position === 1 && winnersPen) {
+      const winnerX = winnersPen.x + (winnersPen.width * 0.48);
+      const winnerY = winnersPen.y + Math.min(winnersPen.height - 22, winnersPen.height * 0.58);
+      targetsByLocalId.set(localId, { fromX, fromY, toX: winnerX, toY: winnerY });
+      return;
+    }
+
+    const horizontalPush = 120 + (index * 24);
+    const direction = index % 2 === 0 ? -1 : 1;
+    const toX = Math.max(-40, Math.min(app.screen.width + 40, fromX + (direction * horizontalPush)));
+    const toY = app.screen.height + 60 + (index * 18);
+    targetsByLocalId.set(localId, { fromX, fromY, toX, toY });
+  });
+
+  if (targetsByLocalId.size === 0) return;
+
+  const start = performance.now();
+  const ticker = () => {
+    const now = performance.now();
+    const t = Math.max(0, Math.min(1, (now - start) / durationMs));
+    const eased = 1 - Math.pow(1 - t, 3);
+
+    targetsByLocalId.forEach((target, localId) => {
+      const sprite = horseSpritesRef.current.get(localId);
+      if (!sprite) return;
+
+      const prevX = sprite.x;
+      const prevY = sprite.y;
+      sprite.x = lerp(target.fromX, target.toX, eased);
+      sprite.y = lerp(target.fromY, target.toY, eased);
+
+      const dx = sprite.x - prevX;
+      const dy = sprite.y - prevY;
+      if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
+        sprite.rotation = Math.atan2(dy, dx);
+      }
+
+      const label = labelSpritesRef.current.get(localId);
+      if (label) {
+        label.x = sprite.x;
+        label.y = sprite.y - 20;
+        label.alpha = Math.max(0, 1 - (eased * 1.2));
+      }
+    });
+
+    if (t >= 1) {
+      app.ticker.remove(ticker);
+    }
+  };
+
+  app.ticker.add(ticker);
+}
+
 export function initRaceListeners({
   socket,
   appRef,
@@ -336,6 +413,14 @@ export function initRaceListeners({
         onRaceEnd: (results) => {
           logInfo('[KD] 🏁 Race ended! Final results sent to backend.');
           logInfo(results);
+
+          animatePostRaceSettlement({
+            app: appRef.current,
+            results,
+            horseSpritesRef,
+            labelSpritesRef,
+            trackDataRef
+          });
 
           if (setRaceCompleted) setRaceCompleted(true);
           if (setLastFinishedRaceId && raceInfoRef?.current?.raceId) {
