@@ -1,9 +1,10 @@
 // File: frontend/src/pages/users/DashboardPage.jsx
-// Version: v1.8.0 — Stabilizes bet tiles, reorders dashboard sections, and adds past-heat winner history
+// Version: v1.9.0 — Uses React Query for dashboard server-state and keeps bets stable while ticking
 // Date: 2026-02-19
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import axios from 'axios';
+import { useQuery } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
 import HorseBetTile from '../../components/HorseBetTile.jsx';
 import HorseSprite from '../../components/HorseSprite.jsx';
@@ -21,6 +22,26 @@ function getDeviceId() {
   localStorage.setItem('deviceId', id);
   document.cookie = `deviceId=${id}; path=/; max-age=31536000`;
   return id;
+}
+
+async function fetchDashboardBundle(deviceId) {
+  const [userRes, raceRes, winnerRes, sessionRes, racesRes, leaderboardRes] = await Promise.allSettled([
+    axios.get(`/api/user/${deviceId}`),
+    axios.get('/api/race/current'),
+    axios.get('/api/race/latest-winner'),
+    axios.get('/api/race/session'),
+    axios.get('/api/race/races'),
+    axios.get('/api/leaderboard')
+  ]);
+
+  return {
+    userRes,
+    raceRes,
+    winnerRes,
+    sessionRes,
+    racesRes,
+    leaderboardRes
+  };
 }
 
 export default function DashboardPage() {
@@ -41,6 +62,12 @@ export default function DashboardPage() {
   const [session, setSession] = useState(null);
 
   const initializedBetsRef = useRef(false);
+
+  const bundleQuery = useQuery({
+    queryKey: ['dashboard-bundle', deviceId],
+    queryFn: () => fetchDashboardBundle(deviceId),
+    refetchInterval: 5000
+  });
 
   const refreshLeaderboard = useCallback(async (knownUserId = null) => {
     const leaderboardRes = await axios.get('/api/leaderboard');
@@ -94,80 +121,92 @@ export default function DashboardPage() {
   }, [refreshLeaderboard]);
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        const [userRes, raceRes, winnerRes, sessionRes, racesRes] = await Promise.allSettled([
-          axios.get(`/api/user/${deviceId}`),
-          axios.get('/api/race/current'),
-          axios.get('/api/race/latest-winner'),
-          axios.get('/api/race/session'),
-          axios.get('/api/race/races')
-        ]);
+    const data = bundleQuery.data;
+    if (!data) return;
 
-        if (userRes.status === 'fulfilled') {
-          setUser(userRes.value.data);
-          setBalance(userRes.value.data.leaseLoons);
+    try {
+      const {
+        userRes,
+        raceRes,
+        winnerRes,
+        sessionRes,
+        racesRes,
+        leaderboardRes
+      } = data;
 
-          if (!initializedBetsRef.current) {
-            const initialBets = {};
-            if (userRes.value.data.bets?.length) {
-              userRes.value.data.bets.forEach((bet) => {
-                initialBets[bet.horseId] = bet.amount;
-              });
-            }
-            setBets(initialBets);
-            initializedBetsRef.current = true;
+      if (userRes.status === 'fulfilled') {
+        setUser(userRes.value.data);
+        setBalance(userRes.value.data.leaseLoons);
+
+        if (!initializedBetsRef.current) {
+          const initialBets = {};
+          if (userRes.value.data.bets?.length) {
+            userRes.value.data.bets.forEach((bet) => {
+              initialBets[bet.horseId] = bet.amount;
+            });
           }
-
-          await refreshLeaderboard(userRes.value.data.id);
-        } else {
-          setUser(null);
+          setBets(initialBets);
+          initializedBetsRef.current = true;
         }
-
-        if (raceRes.status === 'fulfilled') {
-          const raceData = raceRes.value.data || { horses: [] };
-          setRace(raceData);
-          setCountdown(raceData.countdownSeconds || 0);
-        } else {
-          setRace({ horses: [] });
-        }
-
-        if (winnerRes.status === 'fulfilled' && winnerRes.value?.data?.winner) {
-          setLatestWinner(winnerRes.value.data.winner);
-        }
-
-        if (sessionRes.status === 'fulfilled' && sessionRes.value?.data?.session) {
-          setSession(sessionRes.value.data.session);
-        }
-
-        if (racesRes.status === 'fulfilled' && Array.isArray(racesRes.value?.data)) {
-          const history = racesRes.value.data.map((raceRow) => {
-            const top = Array.isArray(raceRow.loonWinners)
-              ? raceRow.loonWinners.find((winner) => winner.isTop) || raceRow.loonWinners[0]
-              : null;
-
-            return {
-              raceId: raceRow.id,
-              horseName: raceRow.winningHorse,
-              winnerName: top?.name || raceRow.winningPlayer || 'No winning bets',
-              loons: top?.loons || 0,
-              horseMeta: raceRow.winningHorseMeta || null
-            };
-          }).filter((row) => row.horseName && row.horseName !== '—');
-
-          setWinnerHistory(history);
-        }
-      } catch (err) {
-        console.error('Failed to fetch dashboard data:', err);
-      } finally {
-        setCheckingUser(false);
+      } else {
+        setUser(null);
       }
-    }
 
-    fetchData();
-    const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
-  }, [deviceId, refreshLeaderboard]);
+      if (leaderboardRes.status === 'fulfilled') {
+        const leaderboardData = leaderboardRes.value?.data?.leaderboard || [];
+        setLeaderboard(leaderboardData);
+
+        const targetUserId = userRes.status === 'fulfilled' ? userRes.value.data.id : user?.id;
+        if (targetUserId != null) {
+          const userRank = leaderboardData.findIndex((u) => u.id === targetUserId);
+          if (userRank >= 0) setRank(userRank + 1);
+        }
+      }
+
+      if (raceRes.status === 'fulfilled') {
+        const raceData = raceRes.value.data || { horses: [] };
+        setRace(raceData);
+        setCountdown(raceData.countdownSeconds || 0);
+      } else {
+        setRace({ horses: [] });
+      }
+
+      if (winnerRes.status === 'fulfilled' && winnerRes.value?.data?.winner) {
+        setLatestWinner(winnerRes.value.data.winner);
+      }
+
+      if (sessionRes.status === 'fulfilled' && sessionRes.value?.data?.session) {
+        setSession(sessionRes.value.data.session);
+      }
+
+      if (racesRes.status === 'fulfilled' && Array.isArray(racesRes.value?.data)) {
+        const history = racesRes.value.data.map((raceRow) => {
+          const top = Array.isArray(raceRow.loonWinners)
+            ? raceRow.loonWinners.find((winner) => winner.isTop) || raceRow.loonWinners[0]
+            : null;
+
+          return {
+            raceId: raceRow.id,
+            horseName: raceRow.winningHorse,
+            winnerName: top?.name || raceRow.winningPlayer || 'No winning bets',
+            loons: top?.loons || 0,
+            horseMeta: raceRow.winningHorseMeta || null
+          };
+        }).filter((row) => row.horseName && row.horseName !== '—');
+
+        setWinnerHistory(history);
+      }
+    } finally {
+      setCheckingUser(false);
+    }
+  }, [bundleQuery.data, user?.id]);
+
+  useEffect(() => {
+    if (bundleQuery.error) {
+      setCheckingUser(false);
+      console.error('Failed to fetch dashboard data:', bundleQuery.error);
+    }
+  }, [bundleQuery.error]);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -180,7 +219,7 @@ export default function DashboardPage() {
   const sessionState = session?.state || 'setup';
   const replaying = sessionState === 'replaying';
   const bettingLocked = sessionState !== 'betting_open';
-  const totalBets = Object.values(bets).reduce((sum, amt) => sum + amt, 0);
+  const totalBets = useMemo(() => Object.values(bets).reduce((sum, amt) => sum + amt, 0), [bets]);
   const availableBalance = balance - totalBets;
 
   const handleBetChange = useCallback(

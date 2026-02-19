@@ -1,9 +1,10 @@
 // File: frontend/src/pages/admin/AdminPage.jsx
-// Version: v2.9.0 — Final-race/new-tournament labels and replay-first race flow controls
+// Version: v3.0.0 — Uses React Query for admin users/race bundle while preserving existing controls
 // Date: 2026-02-19
 
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
 
 import AdminHeader from './AdminHeader.jsx';
@@ -22,62 +23,75 @@ function extractError(err, fallback) {
   return err?.response?.data?.error || fallback;
 }
 
+async function fetchAdminUsers() {
+  const res = await axios.get('/api/admin/users', { headers });
+  return res.data.users || [];
+}
+
+async function fetchAdminRaceBundle() {
+  const [raceRes, pastRes, sessionRes] = await Promise.all([
+    axios.get('/api/race/latest'),
+    axios.get('/api/race/races'),
+    axios.get('/api/race/session')
+  ]);
+
+  return {
+    raceState: raceRes.data.exists === false ? null : raceRes.data,
+    warnings: raceRes.data?.warnings || [],
+    pastRaces: pastRes.data || [],
+    session: sessionRes.data?.session || null
+  };
+}
+
 export default function AdminPage() {
+  const queryClient = useQueryClient();
+
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [promptVisible, setPromptVisible] = useState(true);
   const [enteredPassword, setEnteredPassword] = useState('');
 
-  const [users, setUsers] = useState([]);
   const [showUsers, setShowUsers] = useState(false);
-
   const [status, setStatus] = useState('');
-  const [warnings, setWarnings] = useState([]);
 
-  const [raceState, setRaceState] = useState(null);
-  const [session, setSession] = useState(null);
-  const [pastRaces, setPastRaces] = useState([]);
   const [showRaces, setShowRaces] = useState(false);
-
   const [betSeconds, setBetSeconds] = useState(() => localStorage.getItem('betSeconds') || '60');
   const [betCountdown, setBetCountdown] = useState(null);
   const [countdownDisplay, setCountdownDisplay] = useState('');
   const [showBetModal, setShowBetModal] = useState(false);
-
   const [showDevTools, setShowDevTools] = useState(false);
 
-  const fetchUsers = async () => {
-    try {
-      const res = await axios.get('/api/admin/users', { headers });
-      setUsers(res.data.users || []);
-    } catch (err) {
-      setStatus(`❌ ${extractError(err, 'Error loading users')}`);
-    }
-  };
+  const usersQuery = useQuery({
+    queryKey: ['admin-users'],
+    queryFn: fetchAdminUsers,
+    enabled: isAuthenticated,
+    refetchInterval: 5000
+  });
 
-  const fetchRaceState = async () => {
-    try {
-      const [raceRes, pastRes, sessionRes] = await Promise.all([
-        axios.get('/api/race/latest'),
-        axios.get('/api/race/races'),
-        axios.get('/api/race/session')
-      ]);
+  const raceBundleQuery = useQuery({
+    queryKey: ['admin-race-bundle'],
+    queryFn: fetchAdminRaceBundle,
+    enabled: isAuthenticated,
+    refetchInterval: 2000
+  });
 
-      setRaceState(raceRes.data.exists === false ? null : raceRes.data);
-      setWarnings(raceRes.data?.warnings || []);
-      setPastRaces(pastRes.data || []);
-      setSession(sessionRes.data?.session || null);
-    } catch (err) {
-      setRaceState(null);
-      setPastRaces([]);
-      setStatus(`❌ ${extractError(err, 'Failed to fetch race state')}`);
-    }
+  const users = usersQuery.data || [];
+  const raceState = raceBundleQuery.data?.raceState || null;
+  const warnings = raceBundleQuery.data?.warnings || [];
+  const pastRaces = raceBundleQuery.data?.pastRaces || [];
+  const session = raceBundleQuery.data?.session || null;
+
+  const refreshQueries = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin-race-bundle'] })
+    ]);
   };
 
   const closeBetsAfterCountdown = async () => {
     try {
       await axios.post('/api/admin/close-bets', {}, { headers });
       setStatus('✅ Bets auto-closed');
-      await fetchRaceState();
+      await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, 'Failed to auto-close bets')}`);
     }
@@ -127,19 +141,19 @@ export default function AdminPage() {
           await axios.post('/api/admin/reset-tournament', {}, { headers });
           const first = await axios.post('/api/admin/generate-race', {}, { headers });
           setStatus(`✅ New tournament created. Generated Heat ${first.data.heatNumber}`);
-          await fetchRaceState();
+          await refreshQueries();
           return;
         }
 
         const res = await axios.post('/api/admin/generate-race', {}, { headers });
         setStatus(`✅ Generated Heat ${res.data.heatNumber}`);
-        await fetchRaceState();
+        await refreshQueries();
         return;
       }
 
       await axios.post(`/api/admin/${endpoint}`, {}, { headers });
       setStatus(`✅ ${endpoint.replace('-', ' ')} succeeded`);
-      await fetchRaceState();
+      await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, `${endpoint.replace('-', ' ')} failed`)}`);
     }
@@ -152,7 +166,7 @@ export default function AdminPage() {
     try {
       await axios.post('/api/admin/open-bets', { seconds: betSeconds }, { headers });
       setStatus(`✅ Bets opened for ${betSeconds} seconds`);
-      await fetchRaceState();
+      await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, 'Failed to open bets')}`);
     }
@@ -165,7 +179,7 @@ export default function AdminPage() {
     try {
       await axios.patch(`/api/admin/users/${userId}`, updates, { headers });
       setStatus('✅ User updated');
-      await fetchUsers();
+      await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, 'Update failed')}`);
     }
@@ -176,7 +190,7 @@ export default function AdminPage() {
     try {
       await axios.post(`/api/admin/users/${userId}/add-loons`, { amount }, { headers });
       setStatus('✅ Lease Loons added');
-      await fetchUsers();
+      await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, 'Failed to add loons')}`);
     }
@@ -188,7 +202,7 @@ export default function AdminPage() {
     try {
       await axios.delete(`/api/admin/users/${userId}`, { headers });
       setStatus('✅ User deleted');
-      await fetchUsers();
+      await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, 'Delete failed')}`);
     }
@@ -217,8 +231,7 @@ export default function AdminPage() {
     try {
       await axios.post(`/api/admin/${endpoint}`, {}, { headers });
       setStatus(`✅ ${endpoint.replace('-', ' ')} complete`);
-      await fetchRaceState();
-      await fetchUsers();
+      await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, `${endpoint.replace('-', ' ')} failed`)}`);
     }
@@ -228,7 +241,7 @@ export default function AdminPage() {
     try {
       await axios.post('/api/admin/replay/start', { raceId: race.id }, { headers });
       setStatus(`✅ Replay started for race ${race.id}`);
-      await fetchRaceState();
+      await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, 'Failed to start replay')}`);
     }
@@ -238,7 +251,7 @@ export default function AdminPage() {
     try {
       await axios.post('/api/admin/replay/stop', {}, { headers });
       setStatus('✅ Replay stopped');
-      await fetchRaceState();
+      await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, 'Failed to stop replay')}`);
     }
@@ -248,7 +261,7 @@ export default function AdminPage() {
     try {
       await axios.post('/api/admin/replay/clear', {}, { headers });
       setStatus('✅ Replay cleared');
-      await fetchRaceState();
+      await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, 'Failed to clear replay')}`);
     }
@@ -259,8 +272,6 @@ export default function AdminPage() {
       localStorage.setItem('adminUIAuthenticated', 'true');
       setIsAuthenticated(true);
       setPromptVisible(false);
-      fetchUsers();
-      fetchRaceState();
     } else {
       alert('Wrong password');
     }
@@ -270,26 +281,16 @@ export default function AdminPage() {
     if (localStorage.getItem('adminUIAuthenticated') === 'true') {
       setIsAuthenticated(true);
       setPromptVisible(false);
-      fetchUsers();
-      fetchRaceState();
     }
 
     raceSocket.emit('session:request-init');
-    const onSession = ({ session: nextSession }) => setSession(nextSession || null);
     const onLeaderboardUpdated = () => {
-      fetchUsers();
-      fetchRaceState();
+      refreshQueries();
     };
 
-    raceSocket.on('session:init', onSession);
-    raceSocket.on('session:update', onSession);
     raceSocket.on('leaderboard:updated', onLeaderboardUpdated);
 
-    const iv = setInterval(fetchRaceState, 2000);
     return () => {
-      clearInterval(iv);
-      raceSocket.off('session:init', onSession);
-      raceSocket.off('session:update', onSession);
       raceSocket.off('leaderboard:updated', onLeaderboardUpdated);
     };
   }, []);

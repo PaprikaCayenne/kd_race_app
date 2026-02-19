@@ -3,6 +3,7 @@
 // Date: 2026-02-19
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'framer-motion';
 import { Application } from 'pixi.js';
 import { io } from 'socket.io-client';
 
@@ -14,6 +15,7 @@ import HorseSprite from './HorseSprite';
 import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
 import { playReplay, stopReplay } from '@/utils/playReplay';
+import { useUIStore } from '@/stores/uiStore';
 
 const VERSION = 'v3.9.0';
 const socket = io('/race', { path: '/api/socket.io' });
@@ -147,10 +149,9 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const [replaySummary, setReplaySummary] = useState(null);
   const [layoutBounds, setLayoutBounds] = useState(null);
   const [session, setSession] = useState(null);
-  const [panelOffsets, setPanelOffsets] = useState({
-    leaderboard: { x: 0, y: 0 },
-    race: { x: 0, y: 0 }
-  });
+  const panelOffsets = useUIStore((state) => state.panelOffsets);
+  const setPanelOffset = useUIStore((state) => state.setPanelOffset);
+  const resetPanelOffsets = useUIStore((state) => state.resetPanelOffsets);
 
   const selectedReplayRaceId = session?.state === 'replaying'
     ? session?.selectedReplayRaceId || null
@@ -164,11 +165,14 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   }, [panelStyles, layoutBounds?.infieldBounds]);
 
   useEffect(() => {
-    setPanelOffsets({
-      leaderboard: { x: 0, y: 0 },
-      race: { x: 0, y: 0 }
-    });
-  }, [layoutBounds?.infieldBounds?.x, layoutBounds?.infieldBounds?.y, layoutBounds?.infieldBounds?.width, layoutBounds?.infieldBounds?.height]);
+    resetPanelOffsets();
+  }, [
+    layoutBounds?.infieldBounds?.x,
+    layoutBounds?.infieldBounds?.y,
+    layoutBounds?.infieldBounds?.width,
+    layoutBounds?.infieldBounds?.height,
+    resetPanelOffsets
+  ]);
 
   useEffect(() => {
     const onMove = (event) => {
@@ -185,13 +189,10 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       const targetTop = baseStyle.top + drag.origin.y + dy;
 
       const clamped = clampPanelPosition(baseStyle, infieldBounds, targetLeft, targetTop);
-      setPanelOffsets((prev) => ({
-        ...prev,
-        [drag.key]: {
-          x: clamped.left - baseStyle.left,
-          y: clamped.top - baseStyle.top
-        }
-      }));
+      setPanelOffset(drag.key, {
+        x: clamped.left - baseStyle.left,
+        y: clamped.top - baseStyle.top
+      });
     };
 
     const onUp = () => {
@@ -204,7 +205,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, []);
+  }, [setPanelOffset]);
 
   const startDrag = useCallback((key) => (event) => {
     if (event.button !== 0) return;
@@ -639,7 +640,13 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       )}
 
       {winner && panelStyles && !replayMode && (
-        <div className="absolute winner-spotlight bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center" style={panelStyles.winner}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.92, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ duration: 0.32, ease: 'easeOut' }}
+          className="absolute winner-spotlight bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center"
+          style={panelStyles.winner}
+        >
           <div className="confetti-wrap" aria-hidden="true">
             {Array.from({ length: 14 }).map((_, i) => (
               <span
@@ -666,7 +673,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           <div className="mt-3 mx-auto w-16 h-16 rounded-full border-2 border-gray-200 bg-white flex items-center justify-center">
             <HorseSprite bodyHex={winner.bodyHex} saddleHex={winner.saddleHex} alt={winner.horseName} className="w-12 h-12" />
           </div>
-        </div>
+        </motion.div>
       )}
 
       {panelStyles && racePanelRanking.length > 0 && (
