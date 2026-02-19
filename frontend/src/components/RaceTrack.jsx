@@ -42,14 +42,15 @@ function layoutPanels(panelSafeBounds) {
   const gap = clamp(Math.round(panelSafeBounds.width * 0.02), 10, 18);
   const usableWidth = Math.max(280, panelSafeBounds.width - pad * 2 - gap * 2);
 
-  const leaderboardWidth = Math.max(112, Math.floor(usableWidth * 0.18));
+  const leaderboardWidth = Math.max(104, Math.floor(usableWidth * 0.16));
   const raceWidth = Math.max(125, Math.floor(usableWidth * 0.17));
   const winnerWidth = Math.max(170, usableWidth - leaderboardWidth - raceWidth - gap * 2);
 
   const panelHeight = Math.max(120, panelSafeBounds.height - pad * 2);
+  const leaderboardHeight = clamp(Math.round(panelSafeBounds.height * 0.62), 220, 360);
   const top = Math.round(panelSafeBounds.y + pad);
   const left = Math.round(panelSafeBounds.x + pad);
-  const leaderboardLeftAnchor = Math.round(panelSafeBounds.x + Math.max(14, panelSafeBounds.width * 0.03));
+  const leaderboardLeftAnchor = Math.round(panelSafeBounds.x + Math.max(26, panelSafeBounds.width * 0.06));
   const leaderboardTopCenter = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
 
   return {
@@ -57,7 +58,7 @@ function layoutPanels(panelSafeBounds) {
       left: leaderboardLeftAnchor,
       top: leaderboardTopCenter,
       width: leaderboardWidth,
-      maxHeight: panelHeight,
+      maxHeight: leaderboardHeight,
       overflowY: 'auto',
       transform: 'translateY(-50%)'
     },
