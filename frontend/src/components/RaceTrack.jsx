@@ -644,7 +644,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
       {layoutBounds?.winnersPenBounds && (
         <div
-          className="absolute winners-pen-surface rounded-xl p-3 shadow-xl z-40"
+          className="absolute winners-pen-surface rounded-xl p-3 shadow-xl z-50"
           style={{
             left: layoutBounds.winnersPenBounds.x,
             top: layoutBounds.winnersPenBounds.y,
@@ -656,7 +656,11 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           <h4 className="font-bold text-sm mb-2">🏅 Winners Pen</h4>
           <div className="fence-strip mb-2" />
           <div className="flex flex-col gap-2">
-            {winnerRows.length === 0 && <p className="text-xs text-gray-500">No winners yet.</p>}
+            {winnerRows.length === 0 && (
+              <p className="text-xs font-semibold text-amber-50/95 bg-black/20 rounded-md px-2 py-1">
+                Waiting for heat winners...
+              </p>
+            )}
             {winnerRows.map((w, idx) => (
               <div key={`${w.raceId || w.horseName}-${idx}`} className="winner-row" title={`${w.horseName} (${w.bettorName || 'Heat Winner'})`}>
                 <HorseSprite bodyHex={w.bodyHex} saddleHex={w.saddleHex} alt={w.horseName} className="w-8 h-8" />

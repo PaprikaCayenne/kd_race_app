@@ -69,7 +69,7 @@ export function computeRaceLayout({
   }
 
   const leaderboardHeight = clamp(Math.round(panelSafeBounds.height * 0.74), 320, 420);
-  const raceHeight = clamp(Math.round(panelSafeBounds.height * 0.72), 320, 410);
+  const raceHeight = clamp(Math.round(panelSafeBounds.height * 0.82), 360, 500);
   const winnerHeight = clamp(Math.round(panelSafeBounds.height * 0.66), 240, 390);
 
   const centerY = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
@@ -106,10 +106,10 @@ export function computeRaceLayout({
   const availableBelow = Math.max(120, canvasHeight - penTop - bottomPadding);
   const penHeight = clamp(Math.round(availableBelow), 220, 280);
   const penLeft = Math.max(10, Math.round(trackRingBounds.x));
-  const winnersPenWidth = clamp(Math.round(canvasWidth * 0.22), 210, 320);
+  const winnersPenWidth = clamp(Math.round(canvasWidth * 0.22), 220, 330);
   const penGap = 18;
   const maxHorsePenWidth = Math.max(320, canvasWidth - penLeft - winnersPenWidth - penGap - 14);
-  const horsePenTarget = clamp(Math.round(trackRingBounds.width * 0.62), 460, 820);
+  const horsePenTarget = clamp(Math.round(trackRingBounds.width * 0.40), 300, 560);
   const penWidth = Math.min(maxHorsePenWidth, horsePenTarget);
 
   const penBounds = {
@@ -150,4 +150,3 @@ export function computeRaceLayout({
     checks
   };
 }
-
