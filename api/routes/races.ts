@@ -6,12 +6,9 @@ import express, { Request, Response } from 'express';
 import prisma from '../lib/prisma';
 import { raceHorseCache } from './admin.js';
 import { buildCanonicalRaceSummary } from '../lib/raceSummary.js';
+import { horseSpriteDataUri } from '../lib/horseSprite.js';
 
 const router = express.Router();
-
-function horseSvg(bodyHex: string, saddleHex: string): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><ellipse cx="30" cy="36" rx="18" ry="12" fill="${bodyHex}"/><circle cx="47" cy="28" r="9" fill="${bodyHex}"/><rect x="24" y="29" width="14" height="10" rx="3" fill="${saddleHex}"/><rect x="18" y="44" width="5" height="12" rx="2" fill="#333"/><rect x="35" y="44" width="5" height="12" rx="2" fill="#333"/></svg>`;
-}
 
 router.get('/races', async (_req: Request, res: Response) => {
   try {
@@ -250,7 +247,7 @@ router.get('/latest-winner', async (_req: Request, res: Response) => {
         bettorName: summary.topLoonWinner?.name || 'No winning bets',
         winnings: summary.topLoonWinner?.loons || 0,
         horseName: summary.winningHorseName,
-        horseImage: `data:image/svg+xml;utf8,${encodeURIComponent(horseSvg(summary.winningHorseBodyHex || '#a0522d', summary.winningHorseSaddleHex || '#888888'))}`,
+        horseImage: horseSpriteDataUri(summary.winningHorseBodyHex || '#a0522d', summary.winningHorseSaddleHex || '#888888'),
         bodyHex: summary.winningHorseBodyHex,
         saddleHex: summary.winningHorseSaddleHex
       }

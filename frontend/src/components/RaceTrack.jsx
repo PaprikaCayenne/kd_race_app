@@ -9,6 +9,8 @@ import { io } from 'socket.io-client';
 import { drawDerbyTrack } from './track/drawTrack';
 import { initRaceListeners } from './track/initRaceListeners';
 import { getSpriteDimensions } from '@/utils/spriteDimensionCache';
+import { horseSpriteDataUri } from '@/utils/horseSpriteSvg';
+import HorseSprite from './HorseSprite';
 import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
 import { playReplay } from '@/utils/playReplay';
@@ -27,11 +29,6 @@ const HORSE_PADDING = 0;
 const BOUNDARY_PADDING = 0;
 const START_LINE_OFFSET = 0;
 const RACE_DURATION_SECONDS = 180;
-
-function horseIcon(bodyHex = '#a0522d', saddleHex = '#888888') {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><ellipse cx="30" cy="36" rx="18" ry="12" fill="${bodyHex}"/><circle cx="47" cy="28" r="9" fill="${bodyHex}"/><rect x="24" y="29" width="14" height="10" rx="3" fill="${saddleHex}"/><rect x="18" y="44" width="5" height="12" rx="2" fill="#333"/><rect x="35" y="44" width="5" height="12" rx="2" fill="#333"/></svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
-}
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
@@ -108,18 +105,12 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const [countdownSeconds, setCountdownSeconds] = useState(0);
   const [replayMode, setReplayMode] = useState(false);
   const [replaySummary, setReplaySummary] = useState(null);
-  const [pastRaces, setPastRaces] = useState([]);
   const [layoutBounds, setLayoutBounds] = useState(null);
   const [session, setSession] = useState(null);
 
-  const queryReplayRaceId = useMemo(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('replayRaceId');
-  }, []);
-
   const selectedReplayRaceId = session?.state === 'replaying'
     ? session?.selectedReplayRaceId || null
-    : queryReplayRaceId;
+    : null;
 
   const panelStyles = useMemo(() => layoutPanels(layoutBounds?.infieldBounds), [layoutBounds]);
 
@@ -128,7 +119,11 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
     const onSession = ({ session: nextSession }) => {
       setSession(nextSession || null);
-      setReplayMode(Boolean(nextSession?.state === 'replaying' && nextSession?.selectedReplayRaceId));
+      const activeReplay = Boolean(nextSession?.state === 'replaying' && nextSession?.selectedReplayRaceId);
+      setReplayMode(activeReplay);
+      if (!activeReplay) {
+        setReplaySummary(null);
+      }
     };
 
     const onRaceSummary = ({ summary }) => {
@@ -138,7 +133,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         bettorName: summary.topLoonWinner?.name || 'No winning bets',
         winnings: summary.topLoonWinner?.loons || 0,
         horseName: summary.winningHorseName,
-        horseImage: horseIcon(summary.winningHorseBodyHex, summary.winningHorseSaddleHex),
+        horseImage: horseSpriteDataUri(summary.winningHorseBodyHex, summary.winningHorseSaddleHex),
         bodyHex: summary.winningHorseBodyHex,
         saddleHex: summary.winningHorseSaddleHex
       };
@@ -236,7 +231,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
             setWinnerHistory(winners.map((horse, idx) => ({
               raceId: `winner-${idx}`,
               horseName: horse.name,
-              horseImage: horseIcon(horse.bodyHex, horse.saddleHex),
+              horseImage: horseSpriteDataUri(horse.bodyHex, horse.saddleHex),
               bodyHex: horse.bodyHex,
               saddleHex: horse.saddleHex,
               bettorName: 'Heat Winner'
@@ -259,20 +254,6 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     fetchTournamentState();
     const interval = setInterval(fetchTournamentState, 4000);
     return () => clearInterval(interval);
-  }, [lastFinishedRaceId]);
-
-  useEffect(() => {
-    const fetchPastRaces = async () => {
-      try {
-        const res = await fetch('/api/race/races');
-        const data = await res.json();
-        setPastRaces(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.error('[KD] ❌ Failed to fetch races for replay:', err);
-      }
-    };
-
-    fetchPastRaces();
   }, [lastFinishedRaceId]);
 
   useEffect(() => {
@@ -488,7 +469,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           <p className="text-sm text-gray-600 mt-3">Horse</p>
           <p className="text-xl font-bold text-red-700 truncate">{winner.horseName}</p>
           <div className="mt-3 mx-auto w-16 h-16 rounded-full border-2 border-gray-200 bg-white flex items-center justify-center">
-            <img src={winner.horseImage} alt={winner.horseName} className="w-12 h-12" />
+            <HorseSprite bodyHex={winner.bodyHex} saddleHex={winner.saddleHex} alt={winner.horseName} className="w-12 h-12" />
           </div>
         </div>
       )}
@@ -512,7 +493,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           <div className="flex flex-wrap gap-2">
             {allHorses.map((horse) => (
               <div key={horse.id} className="horse-chip" title={horse.name}>
-                <img src={horseIcon(horse.bodyHex, horse.saddleHex)} alt={horse.name} className="w-8 h-8" />
+                <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-8 h-8" />
                 <span className="text-[10px] leading-tight max-w-20 truncate">{horse.name}</span>
               </div>
             ))}
@@ -536,7 +517,12 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         <div className="absolute bg-white/95 rounded-2xl shadow-2xl p-4 z-50" style={panelStyles.winner}>
           <h4 className="font-bold text-center text-lg">Replay Winner</h4>
           <div className="flex items-center justify-center gap-3 mt-2">
-            <img src={horseIcon(replaySummary.winner.bodyHex, replaySummary.winner.saddleHex)} alt={replaySummary.winner.horseName} className="w-10 h-10" />
+            <HorseSprite
+              bodyHex={replaySummary.winner.bodyHex}
+              saddleHex={replaySummary.winner.saddleHex}
+              alt={replaySummary.winner.horseName}
+              className="w-10 h-10"
+            />
             <span className="font-semibold truncate">{replaySummary.winner.horseName}</span>
           </div>
           <ul className="mt-3 text-sm">
@@ -565,7 +551,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
             {winnerHistory.length === 0 && <p className="text-xs text-gray-500">No winners yet.</p>}
             {winnerHistory.map((w, idx) => (
               <div key={`${w.raceId || w.horseName}-${idx}`} className="winner-chip" title={`${w.horseName} (${w.bettorName || 'Heat Winner'})`}>
-                <img src={w.horseImage || horseIcon(w.bodyHex, w.saddleHex)} alt={w.horseName} className="w-8 h-8" />
+                <HorseSprite bodyHex={w.bodyHex} saddleHex={w.saddleHex} alt={w.horseName} className="w-8 h-8" />
               </div>
             ))}
           </div>

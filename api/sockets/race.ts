@@ -6,6 +6,7 @@ import { Server, Socket } from 'socket.io';
 import { PrismaClient } from '@prisma/client';
 import { raceHorseCache } from '../routes/admin.js';
 import { buildCanonicalRaceSummary } from '../lib/raceSummary.js';
+import { horseSpriteDataUri } from '../lib/horseSprite.js';
 import {
   bootstrapRaceSession,
   clearReplaySession,
@@ -239,15 +240,13 @@ async function emitWinnerPreview(raceId: string, horseId: number, localId: numbe
     ? top.user.nickname || [top.user.firstName, top.user.lastName].filter(Boolean).join(' ') || 'Unknown bettor'
     : 'No bets placed';
 
-  const horseSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><ellipse cx="30" cy="36" rx="18" ry="12" fill="${horse.bodyHex}"/><circle cx="47" cy="28" r="9" fill="${horse.bodyHex}"/><rect x="24" y="29" width="14" height="10" rx="3" fill="${horse.saddleHex}"/><rect x="18" y="44" width="5" height="12" rx="2" fill="#333"/><rect x="35" y="44" width="5" height="12" rx="2" fill="#333"/></svg>`;
-
   raceNamespace?.emit('winner:preview', {
     winner: {
       raceId,
       bettorName,
       winnings: top ? top.amount * 3 : 0,
       horseName: horse.name,
-      horseImage: `data:image/svg+xml;utf8,${encodeURIComponent(horseSvg)}`,
+      horseImage: horseSpriteDataUri(horse.bodyHex, horse.saddleHex),
       bodyHex: horse.bodyHex,
       saddleHex: horse.saddleHex
     }
