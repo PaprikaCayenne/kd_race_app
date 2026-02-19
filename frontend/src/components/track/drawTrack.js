@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/drawTrack.js
-// Version: v2.8.0 — Tightens infield-safe layout and keeps pens clear of track overlap
+// Version: v2.9.0 — Enforces responsive 20px top/side track margins and exports viewport bounds
 // Date: 2026-02-19
 
 import { Graphics } from 'pixi.js';
@@ -164,6 +164,15 @@ export function drawDerbyTrack({
     bottom: app.screen.height
   };
 
+  const trackViewportBounds = {
+    x: horizontalPadding,
+    y: trackPadding,
+    width: Math.max(0, width - (horizontalPadding * 2)),
+    height: Math.max(0, app.screen.height - trackPadding),
+    right: Math.max(0, width - horizontalPadding),
+    bottom: app.screen.height
+  };
+
   const trackBounds = getBounds(outer);
   const rawInfieldBounds = getBounds(inner);
   const infieldBounds = clampRect(
@@ -208,6 +217,7 @@ export function drawDerbyTrack({
     infieldBounds,
     penBounds,
     winnersPenBounds,
-    canvasBounds
+    canvasBounds,
+    trackViewportBounds
   };
 }

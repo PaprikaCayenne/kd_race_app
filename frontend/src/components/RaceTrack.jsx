@@ -20,9 +20,8 @@ import { useUIStore } from '@/stores/uiStore';
 const VERSION = 'v3.9.0';
 const socket = io('/race', { path: '/api/socket.io' });
 
-const TRACK_PADDING = 24;
-const HORIZONTAL_TRACK_PADDING = 80;
-const TRACK_HEIGHT = 700;
+const TRACK_PADDING = 20;
+const HORIZONTAL_TRACK_PADDING = 20;
 const CANVAS_HEIGHT = 900;
 
 const CORNER_RADIUS = 200;
@@ -443,6 +442,10 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
   useEffect(() => {
     const containerWidth = containerRef.current?.offsetWidth || window.innerWidth;
+    const computedTrackHeight = Math.max(
+      520,
+      Math.min(CANVAS_HEIGHT - 170, Math.round(containerWidth * 0.58))
+    );
 
     const app = new Application({
       view: canvasRef.current,
@@ -472,7 +475,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         const track = drawDerbyTrack({
           app,
           width: containerWidth,
-          height: TRACK_HEIGHT,
+          height: computedTrackHeight,
           cornerRadius: CORNER_RADIUS,
           laneCount: LANE_COUNT,
           laneWidth,
@@ -498,7 +501,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           trackBounds: track.trackBounds,
           infieldBounds: track.infieldBounds,
           penBounds: track.penBounds,
-          winnersPenBounds: track.winnersPenBounds
+          winnersPenBounds: track.winnersPenBounds,
+          trackViewportBounds: track.trackViewportBounds
         });
 
         trackDataRef.current = {
