@@ -50,7 +50,7 @@ function layoutPanels(panelSafeBounds) {
   const leaderboardHeight = clamp(Math.round(panelSafeBounds.height * 0.62), 220, 360);
   const top = Math.round(panelSafeBounds.y + pad);
   const left = Math.round(panelSafeBounds.x + pad);
-  const leaderboardLeftAnchor = Math.round(panelSafeBounds.x + Math.max(26, panelSafeBounds.width * 0.06));
+  const leaderboardLeftAnchor = Math.round(panelSafeBounds.x + Math.max(34, panelSafeBounds.width * 0.075));
   const leaderboardTopCenter = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
 
   return {

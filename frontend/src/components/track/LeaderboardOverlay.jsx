@@ -12,6 +12,11 @@ export default function LeaderboardOverlay({
   draggable = false,
   onDragStart = undefined
 }) {
+  const formatLoons = (value) => {
+    const num = Number(value) || 0;
+    return new Intl.NumberFormat('en-US').format(num);
+  };
+
   const baseClass = compact
     ? 'absolute p-3.5 rounded-2xl shadow-xl border border-amber-200 z-50 min-h-[240px]'
     : 'absolute p-6 rounded-2xl shadow-2xl z-50 border border-amber-200 min-h-[280px]';
@@ -44,7 +49,7 @@ export default function LeaderboardOverlay({
                 </span>
               </div>
               <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 font-black tracking-wide text-sm">
-                L$ {u.leaseLoons}
+                L$ {formatLoons(u.leaseLoons)}
               </span>
             </li>
           );
