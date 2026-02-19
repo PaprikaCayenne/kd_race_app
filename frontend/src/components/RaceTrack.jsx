@@ -448,6 +448,10 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         bodyHex: horse.bodyHex
       }));
 
+  const racePanelTitle = session?.heatNumber
+    ? `Heat ${session.heatNumber}`
+    : (raceNameDisplay || 'Current Heat');
+
   return (
     <div ref={containerRef} className="relative w-screen overflow-hidden">
       <canvas ref={canvasRef} style={{ height: `${CANVAS_HEIGHT}px` }} className="block w-full" />
@@ -506,7 +510,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       )}
 
       {panelStyles && racePanelRanking.length > 0 && (
-        <HorseRankingOverlay ranking={racePanelRanking} raceName={raceNameDisplay || 'Current Race'} panelStyle={panelStyles.race} />
+        <HorseRankingOverlay ranking={racePanelRanking} raceName={racePanelTitle} panelStyle={panelStyles.race} />
       )}
 
       {layoutBounds?.penBounds && (
