@@ -6,7 +6,6 @@ import { Server, Socket } from 'socket.io';
 import { PrismaClient } from '@prisma/client';
 import { raceHorseCache } from '../routes/admin.js';
 import { buildCanonicalRaceSummary } from '../lib/raceSummary.js';
-import { horseSpriteDataUri } from '../lib/horseSprite.js';
 import {
   bootstrapRaceSession,
   clearReplaySession,
@@ -243,50 +242,6 @@ async function startReplayRuntime(raceId: string) {
   }, 100);
 }
 
-async function emitWinnerPreview(raceId: string, horseId: number, localId: number | null) {
-  let resolvedHorseId = horseId;
-
-  if (!Number.isInteger(resolvedHorseId) && localId != null) {
-    const cached = raceHorseCache.get(Number(raceId)) || [];
-    const match = cached.find((h) => h.localId === localId);
-    resolvedHorseId = Number(match?.id || match?.horseId);
-  }
-
-  if (!Number.isInteger(resolvedHorseId)) return;
-
-  const horse = await prisma.horse.findUnique({
-    where: { id: resolvedHorseId },
-    select: { name: true, bodyHex: true, saddleHex: true }
-  });
-  if (!horse) return;
-
-  const betsOnHorse = await prisma.bet.findMany({
-    where: { raceId: BigInt(raceId), horseId: resolvedHorseId },
-    orderBy: { amount: 'desc' },
-    select: {
-      amount: true,
-      user: { select: { nickname: true, firstName: true, lastName: true } }
-    }
-  });
-
-  const top = betsOnHorse[0] || null;
-  const bettorName = top
-    ? top.user.nickname || [top.user.firstName, top.user.lastName].filter(Boolean).join(' ') || 'Unknown bettor'
-    : 'No bets placed';
-
-  raceNamespace?.emit('winner:preview', {
-    winner: {
-      raceId,
-      bettorName,
-      winnings: top ? top.amount * 3 : 0,
-      horseName: horse.name,
-      horseImage: horseSpriteDataUri(horse.bodyHex, horse.saddleHex),
-      bodyHex: horse.bodyHex,
-      saddleHex: horse.saddleHex
-    }
-  });
-}
-
 export function setupRaceNamespace(io: Server): void {
   raceNamespace = io.of('/race');
 
@@ -319,14 +274,6 @@ export function setupRaceNamespace(io: Server): void {
         elapsedMs: payload?.elapsedMs,
         ranking: canonical
       });
-    });
-
-    socket.on('race:first-finish', async ({ raceId, horseId, localId }) => {
-      try {
-        await emitWinnerPreview(String(raceId), Number(horseId), Number.isInteger(Number(localId)) ? Number(localId) : null);
-      } catch (err) {
-        console.error('❌ [winner:preview] failed:', err);
-      }
     });
 
     socket.on('startRace', handleStartRace);
