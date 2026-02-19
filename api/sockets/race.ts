@@ -39,6 +39,7 @@ interface ReplayRuntimeState {
   startedAtMs: number;
   elapsedMs: number;
   durationMs: number;
+  playbackRate: number;
   timeline: Array<{ timeMs: number; frames: ReplayTickHorse[] }>;
   latestByHorse: Map<number, ReplayTickHorse>;
 }
@@ -309,6 +310,7 @@ function emitReplayTick() {
     raceId: replayRuntime.raceId,
     elapsedMs: replayRuntime.elapsedMs,
     durationMs: replayRuntime.durationMs,
+    rate: replayRuntime.playbackRate,
     ranking
   });
 }
@@ -332,6 +334,7 @@ async function loadReplayRuntime(raceId: string): Promise<boolean> {
     startedAtMs: Date.now(),
     elapsedMs: 0,
     durationMs,
+    playbackRate: 1,
     timeline,
     latestByHorse: new Map()
   };
@@ -341,7 +344,8 @@ async function loadReplayRuntime(raceId: string): Promise<boolean> {
   raceNamespace?.emit('replay:loaded', {
     raceId,
     elapsedMs: 0,
-    durationMs
+    durationMs,
+    rate: replayRuntime.playbackRate
   });
   emitReplayTick();
   return true;
@@ -353,12 +357,13 @@ function startReplayTicker(origin: string) {
   pauseReplayRuntime();
   replayRuntime.running = true;
   replayRuntime.paused = false;
-  replayRuntime.startedAtMs = Date.now() - replayRuntime.elapsedMs;
+  replayRuntime.startedAtMs = Date.now() - (replayRuntime.elapsedMs / Math.max(0.25, replayRuntime.playbackRate || 1));
 
   raceNamespace?.emit('replay:started', {
     raceId: replayRuntime.raceId,
     elapsedMs: replayRuntime.elapsedMs,
-    durationMs: replayRuntime.durationMs
+    durationMs: replayRuntime.durationMs,
+    rate: replayRuntime.playbackRate
   });
 
   emitReplayTick();
@@ -366,7 +371,7 @@ function startReplayTicker(origin: string) {
   replayRuntime.timer = setInterval(() => {
     if (!replayRuntime || replayRuntime.paused || !replayRuntime.running) return;
 
-    const elapsed = Date.now() - replayRuntime.startedAtMs;
+    const elapsed = (Date.now() - replayRuntime.startedAtMs) * Math.max(0.25, replayRuntime.playbackRate || 1);
     applyReplaySnapshot(elapsed);
     emitReplayTick();
 
@@ -374,7 +379,8 @@ function startReplayTicker(origin: string) {
       pauseReplayRuntime();
       raceNamespace?.emit('replay:finished', {
         raceId: replayRuntime.raceId,
-        durationMs: replayRuntime.durationMs
+        durationMs: replayRuntime.durationMs,
+        rate: replayRuntime.playbackRate
       });
 
       void stopReplaySession()
@@ -474,7 +480,8 @@ export async function stopReplayAndBroadcast(origin = 'admin') {
   raceNamespace?.emit('replay:paused', {
     raceId: replayRuntime?.raceId || getRaceSession().selectedReplayRaceId,
     elapsedMs: replayRuntime?.elapsedMs || 0,
-    durationMs: replayRuntime?.durationMs || 0
+    durationMs: replayRuntime?.durationMs || 0,
+    rate: replayRuntime?.playbackRate || 1
   });
 
   return true;
@@ -500,9 +507,39 @@ export async function seekReplayAndBroadcast(timeMs: number, origin = 'admin') {
   raceNamespace?.emit('replay:seeked', {
     raceId: replayRuntime?.raceId,
     elapsedMs: replayRuntime?.elapsedMs || 0,
-    durationMs: replayRuntime?.durationMs || 0
+    durationMs: replayRuntime?.durationMs || 0,
+    rate: replayRuntime?.playbackRate || 1
   });
 
+  return true;
+}
+
+export async function setReplaySpeedAndBroadcast(rate: number, origin = 'admin') {
+  const clampedRate = Math.max(0.25, Math.min(3, Number(rate) || 1));
+  const session = getRaceSession();
+  const replayRaceId = replayRuntime?.raceId || session.selectedReplayRaceId;
+  if (!replayRaceId) return false;
+
+  if (!replayRuntime || replayRuntime.raceId !== replayRaceId) {
+    const loaded = await loadReplayRuntime(replayRaceId);
+    if (!loaded) return false;
+  }
+
+  if (!replayRuntime) return false;
+  replayRuntime.playbackRate = clampedRate;
+
+  if (replayRuntime.running) {
+    replayRuntime.startedAtMs = Date.now() - (replayRuntime.elapsedMs / clampedRate);
+  }
+
+  raceNamespace?.emit('replay:rate', {
+    raceId: replayRuntime.raceId,
+    rate: clampedRate,
+    elapsedMs: replayRuntime.elapsedMs,
+    durationMs: replayRuntime.durationMs
+  });
+
+  emitSessionUpdate(origin);
   return true;
 }
 
@@ -620,6 +657,10 @@ export function setupRaceNamespace(io: Server): void {
 
     socket.on('admin:replay-seek', async ({ timeMs }) => {
       await seekReplayAndBroadcast(Number(timeMs) || 0, 'admin');
+    });
+
+    socket.on('admin:replay-rate', async ({ rate }) => {
+      await setReplaySpeedAndBroadcast(Number(rate) || 1, 'admin');
     });
 
     socket.on('admin:replay-clear', async () => {

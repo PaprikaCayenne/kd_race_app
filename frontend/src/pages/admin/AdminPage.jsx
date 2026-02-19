@@ -65,6 +65,7 @@ export default function AdminPage() {
   const [showDevTools, setShowDevTools] = useState(false);
   const [replayProgress, setReplayProgress] = useState({ elapsedMs: 0, durationMs: 0 });
   const [replaySeekMs, setReplaySeekMs] = useState(0);
+  const [replayRate, setReplayRate] = useState(1);
 
   const usersQuery = useQuery({
     queryKey: ['admin-users'],
@@ -124,6 +125,7 @@ export default function AdminPage() {
     if (session?.state === 'replaying') return;
     setReplayProgress({ elapsedMs: 0, durationMs: 0 });
     setReplaySeekMs(0);
+    setReplayRate(1);
   }, [session?.state]);
 
   const handleAdminAction = async (endpoint) => {
@@ -285,6 +287,18 @@ export default function AdminPage() {
     }
   };
 
+  const setReplaySpeed = async (rate) => {
+    if (session?.state !== 'replaying' || !session?.selectedReplayRaceId) return;
+
+    const nextRate = Math.max(0.25, Math.min(3, Number(rate) || 1));
+    try {
+      await axios.post('/api/admin/replay/speed', { rate: nextRate }, { headers });
+      setReplayRate(nextRate);
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to update replay speed')}`);
+    }
+  };
+
   const submitPassword = () => {
     if (enteredPassword === UI_PASSWORD) {
       localStorage.setItem('adminUIAuthenticated', 'true');
@@ -306,25 +320,28 @@ export default function AdminPage() {
       refreshQueries();
     };
 
-    const onReplayLoaded = ({ elapsedMs = 0, durationMs = 0 } = {}) => {
+    const onReplayLoaded = ({ elapsedMs = 0, durationMs = 0, rate = 1 } = {}) => {
       const elapsed = Number(elapsedMs) || 0;
       const duration = Number(durationMs) || 0;
       setReplayProgress({ elapsedMs: elapsed, durationMs: duration });
       setReplaySeekMs(elapsed);
+      setReplayRate(Math.max(0.25, Math.min(3, Number(rate) || 1)));
     };
 
-    const onReplayTick = ({ elapsedMs = 0, durationMs = 0 } = {}) => {
+    const onReplayTick = ({ elapsedMs = 0, durationMs = 0, rate = 1 } = {}) => {
       const elapsed = Number(elapsedMs) || 0;
       const duration = Number(durationMs) || 0;
       setReplayProgress({ elapsedMs: elapsed, durationMs: duration });
       setReplaySeekMs(elapsed);
+      setReplayRate(Math.max(0.25, Math.min(3, Number(rate) || 1)));
     };
 
-    const onReplayPaused = ({ elapsedMs = 0, durationMs = 0 } = {}) => {
+    const onReplayPaused = ({ elapsedMs = 0, durationMs = 0, rate = 1 } = {}) => {
       const elapsed = Number(elapsedMs) || 0;
       const duration = Number(durationMs) || 0;
       setReplayProgress({ elapsedMs: elapsed, durationMs: duration });
       setReplaySeekMs(elapsed);
+      setReplayRate(Math.max(0.25, Math.min(3, Number(rate) || 1)));
       refreshQueries();
     };
 
@@ -338,7 +355,12 @@ export default function AdminPage() {
     const onReplayCleared = () => {
       setReplayProgress({ elapsedMs: 0, durationMs: 0 });
       setReplaySeekMs(0);
+      setReplayRate(1);
       refreshQueries();
+    };
+
+    const onReplayRate = ({ rate = 1 } = {}) => {
+      setReplayRate(Math.max(0.25, Math.min(3, Number(rate) || 1)));
     };
 
     raceSocket.on('leaderboard:updated', onLeaderboardUpdated);
@@ -346,6 +368,7 @@ export default function AdminPage() {
     raceSocket.on('replay:tick', onReplayTick);
     raceSocket.on('replay:paused', onReplayPaused);
     raceSocket.on('replay:seeked', onReplayPaused);
+    raceSocket.on('replay:rate', onReplayRate);
     raceSocket.on('replay:finished', onReplayFinished);
     raceSocket.on('replay:cleared', onReplayCleared);
 
@@ -355,6 +378,7 @@ export default function AdminPage() {
       raceSocket.off('replay:tick', onReplayTick);
       raceSocket.off('replay:paused', onReplayPaused);
       raceSocket.off('replay:seeked', onReplayPaused);
+      raceSocket.off('replay:rate', onReplayRate);
       raceSocket.off('replay:finished', onReplayFinished);
       raceSocket.off('replay:cleared', onReplayCleared);
     };
@@ -430,6 +454,9 @@ export default function AdminPage() {
         replaySeekMs={replaySeekMs}
         onReplaySeekChange={setReplaySeekMs}
         onReplaySeekCommit={seekReplay}
+        replayRate={replayRate}
+        onReplayRateChange={setReplayRate}
+        onReplayRateCommit={setReplaySpeed}
       />
 
       {showBetModal && (

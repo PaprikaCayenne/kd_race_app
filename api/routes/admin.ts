@@ -13,6 +13,7 @@ import {
   playReplayAndBroadcast,
   raceNamespace,
   seekReplayAndBroadcast,
+  setReplaySpeedAndBroadcast,
   stopReplayAndBroadcast
 } from '../sockets/race.js';
 import { getRaceSession } from '../lib/raceSession.js';
@@ -32,6 +33,10 @@ const replayStartSchema = z.object({
 
 const replaySeekSchema = z.object({
   timeMs: z.coerce.number().int().min(0).max(60 * 60 * 1000)
+});
+
+const replaySpeedSchema = z.object({
+  rate: z.coerce.number().min(0.25).max(3)
 });
 
 const patchUserSchema = z.object({
@@ -575,6 +580,22 @@ router.post('/replay/seek', async (req: Request, res: Response) => {
   }
 
   res.json({ success: true, message: 'Replay cursor updated' });
+});
+
+router.post('/replay/speed', async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) return unauthorized(res);
+
+  const parsed = replaySpeedSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Valid replay rate is required (0.25 to 3).' });
+  }
+
+  const ok = await setReplaySpeedAndBroadcast(parsed.data.rate, 'admin');
+  if (!ok) {
+    return res.status(400).json({ error: 'No replay selected. Load a replay first.' });
+  }
+
+  res.json({ success: true, message: 'Replay speed updated', rate: parsed.data.rate });
 });
 
 router.post('/replay/clear', async (req: Request, res: Response) => {

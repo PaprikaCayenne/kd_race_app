@@ -17,13 +17,17 @@ export default function RacesPanel({
   replayProgress,
   replaySeekMs,
   onReplaySeekChange,
-  onReplaySeekCommit
+  onReplaySeekCommit,
+  replayRate = 1,
+  onReplayRateChange,
+  onReplayRateCommit
 }) {
   const replayActive = session?.state === 'replaying';
   const replayLoadedRaceId = replayActive ? session?.selectedReplayRaceId : null;
   const replayPaused = replayActive ? Boolean(session?.replayPaused) : true;
   const replayDuration = Math.max(0, Number(replayProgress?.durationMs) || 0);
   const replayElapsed = Math.max(0, Number(replaySeekMs ?? replayProgress?.elapsedMs) || 0);
+  const rateValue = Math.max(0.25, Math.min(3, Number(replayRate) || 1));
 
   return (
     <div>
@@ -83,6 +87,23 @@ export default function RacesPanel({
                 onTouchEnd={(e) => onReplaySeekCommit?.(Number(e.currentTarget.value) || 0)}
                 className="w-full"
               />
+              <div className="mt-3">
+                <div className="flex items-center justify-between text-xs text-slate-700 mb-1">
+                  <span>Replay speed</span>
+                  <span>{rateValue.toFixed(2)}x</span>
+                </div>
+                <input
+                  type="range"
+                  min={0.25}
+                  max={3}
+                  step={0.05}
+                  value={rateValue}
+                  onChange={(e) => onReplayRateChange?.(Number(e.target.value) || 1)}
+                  onMouseUp={(e) => onReplayRateCommit?.(Number(e.currentTarget.value) || 1)}
+                  onTouchEnd={(e) => onReplayRateCommit?.(Number(e.currentTarget.value) || 1)}
+                  className="w-full"
+                />
+              </div>
             </div>
           )}
 
