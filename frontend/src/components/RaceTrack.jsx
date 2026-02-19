@@ -13,7 +13,7 @@ import { horseSpriteDataUri } from '@/utils/horseSpriteSvg';
 import HorseSprite from './HorseSprite';
 import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
-import { playReplay } from '@/utils/playReplay';
+import { playReplay, stopReplay } from '@/utils/playReplay';
 
 const VERSION = 'v3.8.0';
 const socket = io('/race', { path: '/api/socket.io' });
@@ -91,6 +91,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const finishedHorsesRef = useRef(new Set());
   const usedHorseIdsRef = useRef(new Set());
   const raceInfoRef = useRef(null);
+  const replayWasActiveRef = useRef(false);
 
   const [raceCompleted, setRaceCompleted] = useState(false);
   const [lastFinishedRaceId, setLastFinishedRaceId] = useState(null);
@@ -120,10 +121,22 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     const onSession = ({ session: nextSession }) => {
       setSession(nextSession || null);
       const activeReplay = Boolean(nextSession?.state === 'replaying' && nextSession?.selectedReplayRaceId);
+      const app = appRef.current;
+
+      if (nextSession?.replayPaused && app?.__replayTicker) {
+        stopReplay(app);
+      }
+
+      if (!activeReplay && replayWasActiveRef.current && app?.__replayTicker) {
+        stopReplay(app);
+      }
+
       setReplayMode(activeReplay);
       if (!activeReplay) {
         setReplaySummary(null);
       }
+
+      replayWasActiveRef.current = activeReplay;
     };
 
     const onRaceSummary = ({ summary }) => {
