@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/computeRaceLayout.js
-// Version: v1.0.0 — Canonical layout solver for race overlays and pens
+// Version: v1.1.1 — Canonical layout solver with hard pen visibility clamps
 // Date: 2026-02-19
 
 function clamp(value, min, max) {
@@ -102,15 +102,19 @@ export function computeRaceLayout({
     }
   };
 
-  const penTop = Math.round(trackRingBounds.bottom + 10);
   const bottomPadding = 14;
-  const availableBelow = Math.max(120, canvasHeight - penTop - bottomPadding);
-  const penHeight = clamp(Math.round(availableBelow), 220, 280);
+  const minPenHeight = 150;
+  const preferredPenTop = Math.round(trackRingBounds.bottom + 10);
+  const maxVisiblePenTop = Math.max(12, canvasHeight - minPenHeight - bottomPadding);
+  const penTop = clamp(preferredPenTop, 12, maxVisiblePenTop);
+  const availableBelow = Math.max(minPenHeight, canvasHeight - penTop - bottomPadding);
+  const penHeight = Math.min(300, Math.round(availableBelow));
+
   const penLeft = Math.max(10, Math.round(trackRingBounds.x));
   const winnersPenWidth = clamp(Math.round(canvasWidth * 0.22), 220, 330);
   const penGap = 18;
-  const maxHorsePenWidth = Math.max(320, canvasWidth - penLeft - winnersPenWidth - penGap - 14);
-  const horsePenTarget = clamp(Math.round(trackRingBounds.width * 0.40), 300, 560);
+  const maxHorsePenWidth = Math.max(300, canvasWidth - penLeft - winnersPenWidth - penGap - 14);
+  const horsePenTarget = clamp(Math.round(trackRingBounds.width * 0.40), 280, 560);
   const penWidth = Math.min(maxHorsePenWidth, horsePenTarget);
 
   const penBounds = {
@@ -123,8 +127,8 @@ export function computeRaceLayout({
   };
 
   const winnersPenX = Math.max(10, canvasWidth - winnersPenWidth - 12);
-  const winnersMaxHeight = Math.max(120, canvasHeight - penTop - bottomPadding);
-  const winnersPenHeight = Math.min(clamp(Math.round(penHeight * 0.9), 150, 230), winnersMaxHeight);
+  const winnersMaxHeight = Math.max(minPenHeight, canvasHeight - penTop - bottomPadding);
+  const winnersPenHeight = Math.min(clamp(Math.round(penHeight * 0.9), minPenHeight, 240), winnersMaxHeight);
   const winnersPenY = penTop;
   const winnersPenBounds = {
     x: winnersPenX,
@@ -141,7 +145,10 @@ export function computeRaceLayout({
       (overlayBounds.race.left + overlayBounds.race.width) <= panelSafeBounds.right,
     pensBelowTrack:
       penBounds.y >= Math.round(trackRingBounds.bottom + 10) &&
-      winnersPenBounds.y >= Math.round(trackRingBounds.bottom + 10)
+      winnersPenBounds.y >= Math.round(trackRingBounds.bottom + 10),
+    pensVisibleWithinCanvas:
+      penBounds.bottom <= (canvasHeight - bottomPadding) &&
+      winnersPenBounds.bottom <= (canvasHeight - bottomPadding)
   };
 
   return {

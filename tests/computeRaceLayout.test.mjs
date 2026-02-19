@@ -29,3 +29,17 @@ test('computeRaceLayout keeps both pens below track ring', () => {
   assert.ok(layout.winnersPenBounds.y >= 648);
 });
 
+test('computeRaceLayout keeps pens visible when track runs low on vertical space', () => {
+  const canvasHeight = 900;
+  const layout = computeRaceLayout({
+    canvasWidth: 1400,
+    canvasHeight,
+    laneWidth: 42,
+    trackRingBounds: { x: 20, y: 20, width: 1360, height: 840, right: 1380, bottom: 860 },
+    infieldHoleBounds: { x: 250, y: 210, width: 900, height: 300, right: 1150, bottom: 510 }
+  });
+
+  assert.ok(layout.penBounds.bottom <= (canvasHeight - 14));
+  assert.ok(layout.winnersPenBounds.bottom <= (canvasHeight - 14));
+  assert.equal(layout.checks.pensVisibleWithinCanvas, true);
+});
