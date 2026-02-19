@@ -36,6 +36,65 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
+function createSeededRng(seed) {
+  let s = (seed >>> 0) || 1;
+  return () => {
+    s = (1664525 * s + 1013904223) >>> 0;
+    return s / 0x100000000;
+  };
+}
+
+function horseSeed(horse) {
+  const source = `${horse?.id || ''}-${horse?.name || ''}`;
+  let hash = 2166136261;
+  for (let i = 0; i < source.length; i += 1) {
+    hash ^= source.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function scatterHorsePen(horses, penBounds) {
+  if (!Array.isArray(horses) || !penBounds) return [];
+
+  const sprite = 64;
+  const gap = 3;
+  const insetX = 8;
+  const insetTop = 16;
+  const insetBottom = 8;
+  const areaWidth = Math.max(0, penBounds.width - insetX * 2);
+  const areaHeight = Math.max(0, penBounds.height - insetTop - insetBottom);
+  const step = sprite + gap;
+  const cols = Math.max(1, Math.floor((areaWidth + gap) / step));
+  const rows = Math.max(2, Math.floor((areaHeight + gap) / step));
+
+  const slots = [];
+  const maxSlots = cols * rows;
+  const jitter = Math.min(6, Math.max(1, Math.floor((step - sprite) / 2)));
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const baseX = insetX + col * step;
+      const baseY = insetTop + row * step;
+      const slotSeed = ((row + 1) * 2654435761) ^ ((col + 1) * 2246822519);
+      const rng = createSeededRng(slotSeed >>> 0);
+      const jx = Math.round((rng() - 0.5) * jitter * 2);
+      const jy = Math.round((rng() - 0.5) * jitter * 2);
+      slots.push({
+        x: clamp(baseX + jx, insetX, Math.max(insetX, insetX + areaWidth - sprite)),
+        y: clamp(baseY + jy, insetTop, Math.max(insetTop, insetTop + areaHeight - sprite))
+      });
+    }
+  }
+
+  return horses.slice(0, maxSlots).map((horse) => {
+    const rng = createSeededRng(horseSeed(horse));
+    const idx = Math.floor(rng() * slots.length);
+    const slot = slots.splice(idx, 1)[0] || { x: insetX, y: insetTop };
+    return { horse, x: slot.x, y: slot.y };
+  });
+}
+
 function layoutPanels(panelSafeBounds) {
   if (!panelSafeBounds) return null;
 
@@ -43,18 +102,16 @@ function layoutPanels(panelSafeBounds) {
   const gap = clamp(Math.round(panelSafeBounds.width * 0.02), 10, 18);
   const usableWidth = Math.max(280, panelSafeBounds.width - pad * 2 - gap * 2);
 
-  const leaderboardWidth = Math.max(104, Math.floor(usableWidth * 0.16));
+  const leaderboardWidth = Math.max(126, Math.floor(usableWidth * 0.195));
   const raceWidth = Math.max(114, Math.floor(usableWidth * 0.16));
   const winnerWidth = Math.max(170, usableWidth - leaderboardWidth - raceWidth - gap * 2);
 
   const panelHeight = Math.max(120, panelSafeBounds.height - pad * 2);
-  const leaderboardHeight = clamp(Math.round(panelSafeBounds.height * 0.62), 220, 360);
+  const leaderboardHeight = clamp(Math.round(panelSafeBounds.height * 0.74), 300, 420);
   const raceHeight = clamp(Math.round(panelSafeBounds.height * 0.66), 240, 390);
-  const top = Math.round(panelSafeBounds.y + pad);
-  const leaderboardLeftAnchor = Math.round(panelSafeBounds.x + Math.max(34, panelSafeBounds.width * 0.075));
+  const leaderboardLeftAnchor = Math.round(panelSafeBounds.x + 10);
   const leaderboardTopCenter = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
-  const raceRightInset = Math.round(Math.max(34, panelSafeBounds.width * 0.075));
-  const raceLeftAnchor = Math.round(panelSafeBounds.right - raceRightInset - raceWidth);
+  const raceLeftAnchor = Math.round(panelSafeBounds.right - raceWidth - 10);
   const raceTopCenter = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
 
   return {
@@ -63,7 +120,7 @@ function layoutPanels(panelSafeBounds) {
       top: leaderboardTopCenter,
       width: leaderboardWidth,
       maxHeight: leaderboardHeight,
-      overflowY: 'auto',
+      overflowY: 'hidden',
       transform: 'translateY(-50%)'
     },
     winner: {
@@ -627,11 +684,19 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const horsePenHorses = hideActiveHorsesFromPen
     ? allHorses.filter((horse) => !activeRaceHorseIds.has(horse.id))
     : allHorses;
+  const horsePenPlacements = useMemo(
+    () => scatterHorsePen(horsePenHorses, layoutBounds?.penBounds),
+    [horsePenHorses, layoutBounds?.penBounds]
+  );
 
   const winnerRows = buildWinnerRows(winnerHistory);
 
   return (
-    <div ref={containerRef} className="relative w-screen overflow-visible">
+    <div
+      ref={containerRef}
+      className="relative w-screen overflow-visible"
+      style={{ minHeight: `${CANVAS_HEIGHT + PEN_RESERVED_SPACE}px` }}
+    >
       <canvas ref={canvasRef} style={{ height: `${CANVAS_HEIGHT}px` }} className="block w-full" />
 
       {countdownSeconds > 0 && layoutBounds?.infieldBounds && (
@@ -715,10 +780,10 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           }}
         >
           <div className="fence-strip mb-2" />
-          <div className="grid grid-cols-8 gap-1">
-            {horsePenHorses.map((horse) => (
-              <div key={horse.id} className="horse-chip" title={horse.name}>
-                <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-12 h-12" />
+          <div className="relative w-full h-full">
+            {horsePenPlacements.map(({ horse, x, y }) => (
+              <div key={horse.id} className="horse-chip absolute" style={{ left: x, top: y }} title={horse.name}>
+                <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-16 h-16" />
               </div>
             ))}
           </div>
