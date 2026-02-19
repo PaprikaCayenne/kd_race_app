@@ -131,6 +131,24 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
       setReplayMode(Boolean(nextSession?.state === 'replaying' && nextSession?.selectedReplayRaceId));
     };
 
+    const onRaceSummary = ({ summary }) => {
+      if (!summary?.winningHorseName) return;
+      const canonicalWinner = {
+        raceId: summary.raceId,
+        bettorName: summary.topLoonWinner?.name || 'No winning bets',
+        winnings: summary.topLoonWinner?.loons || 0,
+        horseName: summary.winningHorseName,
+        horseImage: horseIcon(summary.winningHorseBodyHex, summary.winningHorseSaddleHex),
+        bodyHex: summary.winningHorseBodyHex,
+        saddleHex: summary.winningHorseSaddleHex
+      };
+      setWinner(canonicalWinner);
+      setWinnerHistory((prev) => {
+        if (prev.some((item) => item.raceId === canonicalWinner.raceId)) return prev;
+        return [...prev, canonicalWinner];
+      });
+    };
+
     const onOrder = ({ ranking }) => {
       if (!Array.isArray(ranking)) return;
       setLiveRanking(ranking.map((h) => ({
@@ -154,12 +172,14 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     socket.on('session:init', onSession);
     socket.on('session:update', onSession);
     socket.on('race:order', onOrder);
+    socket.on('race:summary', onRaceSummary);
     socket.on('leaderboard:updated', onLeaderboardUpdated);
 
     return () => {
       socket.off('session:init', onSession);
       socket.off('session:update', onSession);
       socket.off('race:order', onOrder);
+      socket.off('race:summary', onRaceSummary);
       socket.off('leaderboard:updated', onLeaderboardUpdated);
     };
   }, []);
@@ -172,7 +192,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         const res = await fetch('/api/race/latest-winner');
         const data = await res.json();
         if (data?.success && data.winner) {
-          setWinner((prev) => prev || data.winner);
+          setWinner(data.winner);
           setWinnerHistory((prev) => {
             if (prev.some((item) => item.raceId === data.winner.raceId)) return prev;
             return [...prev, data.winner];
@@ -500,39 +520,15 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         </div>
       )}
 
-      {panelStyles && (
+      {panelStyles && replayMode && (
         <div className="absolute bg-white/90 rounded-xl p-3 shadow z-50" style={{ ...panelStyles.race, top: panelStyles.race.top + 8 }}>
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="font-bold text-sm">Replays</h4>
-            <div className="flex gap-1">
-              <button
-                type="button"
-                onClick={() => socket.emit('admin:replay-stop')}
-                className="text-xs px-2 py-1 rounded bg-amber-500 text-white"
-              >
-                Stop
-              </button>
-              <button
-                type="button"
-                onClick={() => socket.emit('admin:replay-clear')}
-                className="text-xs px-2 py-1 rounded bg-orange-500 text-white"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-          <div className="max-h-32 overflow-y-auto space-y-1">
-            {pastRaces.slice(0, 8).map((race) => (
-              <button
-                key={race.id}
-                type="button"
-                className="w-full text-left text-xs hover:bg-gray-100 px-2 py-1 rounded"
-                onClick={() => socket.emit('admin:replay-start', { raceId: race.id })}
-              >
-                Replay Race #{race.raceNumber || race.id}
-              </button>
-            ))}
-          </div>
+          <h4 className="font-bold text-sm">Replay Active</h4>
+          <p className="text-xs text-gray-700 mt-1">
+            Admin is controlling replay for race #{selectedReplayRaceId || '—'}.
+          </p>
+          {session?.replayPaused && (
+            <p className="text-xs text-amber-700 mt-2 font-semibold">Replay paused</p>
+          )}
         </div>
       )}
 

@@ -1,5 +1,5 @@
 // File: frontend/src/pages/users/DashboardPage.jsx
-// Version: v1.6.0 — Subscribes to leaderboard updates for near real-time panel refresh
+// Version: v1.7.0 — Adds replay indicator/order panel synced from server replay ticks
 // Date: 2026-02-18
 
 import { useEffect, useState, useCallback } from 'react';
@@ -16,9 +16,7 @@ function getCookie(name) {
 
 function getDeviceId() {
   let id = localStorage.getItem('deviceId') || getCookie('deviceId');
-  if (!id) {
-    id = crypto.randomUUID();
-  }
+  if (!id) id = crypto.randomUUID();
   localStorage.setItem('deviceId', id);
   document.cookie = `deviceId=${id}; path=/; max-age=31536000`;
   return id;
@@ -32,13 +30,12 @@ export default function DashboardPage() {
   const [balance, setBalance] = useState(0);
   const [countdown, setCountdown] = useState(0);
   const [checkingUser, setCheckingUser] = useState(true);
-  const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [leaderboard, setLeaderboard] = useState([]);
   const [rank, setRank] = useState(null);
   const [latestWinner, setLatestWinner] = useState(null);
-  const [leadingHorse, setLeadingHorse] = useState(null);
   const [liveOrder, setLiveOrder] = useState([]);
+  const [replayOrder, setReplayOrder] = useState([]);
   const [session, setSession] = useState(null);
 
   const refreshLeaderboard = useCallback(async (knownUserId = null) => {
@@ -56,11 +53,21 @@ export default function DashboardPage() {
   useEffect(() => {
     raceSocket.emit('session:request-init');
 
-    const onSession = ({ session: nextSession }) => setSession(nextSession || null);
+    const onSession = ({ session: nextSession }) => {
+      setSession(nextSession || null);
+      if (nextSession?.state !== 'replaying') {
+        setReplayOrder([]);
+      }
+    };
+
     const onOrder = ({ ranking }) => {
-      const sorted = Array.isArray(ranking) ? ranking : [];
-      setLiveOrder(sorted);
-      setLeadingHorse(sorted[0] || null);
+      if (!Array.isArray(ranking)) return;
+      setLiveOrder(ranking);
+    };
+
+    const onReplayTick = ({ ranking }) => {
+      if (!Array.isArray(ranking)) return;
+      setReplayOrder(ranking);
     };
 
     const onLeaderboardUpdate = () => {
@@ -70,12 +77,14 @@ export default function DashboardPage() {
     raceSocket.on('session:init', onSession);
     raceSocket.on('session:update', onSession);
     raceSocket.on('race:order', onOrder);
+    raceSocket.on('replay:tick', onReplayTick);
     raceSocket.on('leaderboard:updated', onLeaderboardUpdate);
 
     return () => {
       raceSocket.off('session:init', onSession);
       raceSocket.off('session:update', onSession);
       raceSocket.off('race:order', onOrder);
+      raceSocket.off('replay:tick', onReplayTick);
       raceSocket.off('leaderboard:updated', onLeaderboardUpdate);
     };
   }, [refreshLeaderboard]);
@@ -83,7 +92,6 @@ export default function DashboardPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        setLoading(true);
         const [userRes, raceRes, winnerRes, sessionRes] = await Promise.allSettled([
           axios.get(`/api/user/${deviceId}`),
           axios.get('/api/race/current'),
@@ -111,7 +119,6 @@ export default function DashboardPage() {
           const raceData = raceRes.value.data || { horses: [] };
           setRace(raceData);
           setCountdown(raceData.countdownSeconds || 0);
-          if (!leadingHorse) setLeadingHorse(raceData.horses?.[0] || null);
         } else {
           setRace({ horses: [] });
         }
@@ -127,14 +134,13 @@ export default function DashboardPage() {
         console.error('Failed to fetch dashboard data:', err);
       } finally {
         setCheckingUser(false);
-        setLoading(false);
       }
     }
 
     fetchData();
-    const interval = setInterval(() => fetchData(), 5000);
+    const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
-  }, [deviceId, leadingHorse, refreshLeaderboard]);
+  }, [deviceId, refreshLeaderboard]);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -145,6 +151,7 @@ export default function DashboardPage() {
   }, [countdown]);
 
   const sessionState = session?.state || 'setup';
+  const replaying = sessionState === 'replaying';
   const bettingLocked = sessionState !== 'betting_open';
   const totalBets = Object.values(bets).reduce((sum, amt) => sum + amt, 0);
   const availableBalance = balance - totalBets;
@@ -223,22 +230,28 @@ export default function DashboardPage() {
             <img src={latestWinner.horseImage} alt={latestWinner.horseName} className="w-10 h-10" />
             <div>
               <p className="font-semibold">{latestWinner.horseName}</p>
-              <p className="text-sm text-gray-600">Winner: {latestWinner.bettorName}</p>
+              <p className="text-sm text-gray-600">Top Loon Winner: {latestWinner.bettorName}</p>
             </div>
           </div>
         </div>
       )}
 
-      {leadingHorse && (
-        <div className="w-full max-w-md bg-blue-50 border border-blue-200 rounded-xl p-4 shadow">
-          <h2 className="font-bold text-blue-800">Current Leader (Live)</h2>
-          <p className="text-sm mt-1">{leadingHorse.name}</p>
+      {replaying && (
+        <div className="w-full max-w-md bg-indigo-50 border border-indigo-200 rounded-xl p-4 shadow">
+          <h2 className="font-bold text-indigo-800">Replay In Progress</h2>
+          <p className="text-xs text-indigo-700 mt-1">Race {session?.selectedReplayRaceId}</p>
+          <ol className="mt-2 space-y-1 text-sm">
+            {replayOrder.map((entry, idx) => (
+              <li key={`${entry.horseId || entry.id}-${idx}`}>{idx + 1}. {entry.name}</li>
+            ))}
+          </ol>
+          {replayOrder.length === 0 && <p className="text-sm text-indigo-700 mt-2">Waiting for replay ticks…</p>}
         </div>
       )}
 
-      {liveOrder.length > 0 && (
-        <div className="w-full max-w-md bg-white border rounded-xl p-4 shadow">
-          <h2 className="font-bold">Race Order</h2>
+      {!replaying && liveOrder.length > 0 && (
+        <div className="w-full max-w-md bg-blue-50 border border-blue-200 rounded-xl p-4 shadow">
+          <h2 className="font-bold text-blue-800">Current Heat Order</h2>
           <ol className="mt-2 space-y-1 text-sm">
             {liveOrder.map((entry, idx) => (
               <li key={`${entry.id}-${idx}`}>{idx + 1}. {entry.name}</li>
@@ -256,7 +269,7 @@ export default function DashboardPage() {
         </ol>
       </div>
 
-      {race?.horses?.length > 0 && !bettingLocked && (
+      {race?.horses?.length > 0 && !bettingLocked && !replaying && (
         <div className="w-full max-w-md space-y-4">
           {race.horses.map((horse) => (
             <HorseBetTile

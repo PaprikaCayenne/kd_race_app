@@ -1,5 +1,5 @@
 // File: frontend/src/pages/admin/AdminPage.jsx
-// Version: v2.7.0 — Uses shared session state, replay controls, and full Manage Users actions
+// Version: v2.8.0 — Uses canonical user-id admin APIs with clear auth failure messaging
 // Date: 2026-02-18
 
 import React, { useEffect, useState } from 'react';
@@ -17,6 +17,10 @@ const UI_PASSWORD = 'jll';
 const SECURE_API_PASS = '6a2e8819c6fb4c15';
 const headers = { 'x-admin-pass': SECURE_API_PASS };
 const raceSocket = io('/race', { path: '/api/socket.io' });
+
+function extractError(err, fallback) {
+  return err?.response?.data?.error || fallback;
+}
 
 export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -45,8 +49,8 @@ export default function AdminPage() {
     try {
       const res = await axios.get('/api/admin/users', { headers });
       setUsers(res.data.users || []);
-    } catch {
-      setStatus('❌ Error loading users');
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Error loading users')}`);
     }
   };
 
@@ -62,9 +66,10 @@ export default function AdminPage() {
       setWarnings(raceRes.data?.warnings || []);
       setPastRaces(pastRes.data || []);
       setSession(sessionRes.data?.session || null);
-    } catch {
+    } catch (err) {
       setRaceState(null);
       setPastRaces([]);
+      setStatus(`❌ ${extractError(err, 'Failed to fetch race state')}`);
     }
   };
 
@@ -73,8 +78,8 @@ export default function AdminPage() {
       await axios.post('/api/admin/close-bets', {}, { headers });
       setStatus('✅ Bets auto-closed');
       await fetchRaceState();
-    } catch {
-      setStatus('❌ Failed to auto-close bets');
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to auto-close bets')}`);
     }
     setBetCountdown(null);
   };
@@ -121,8 +126,7 @@ export default function AdminPage() {
       setStatus(`✅ ${endpoint.replace('-', ' ')} succeeded`);
       await fetchRaceState();
     } catch (err) {
-      setStatus(`❌ ${endpoint.replace('-', ' ')} failed`);
-      console.error(err);
+      setStatus(`❌ ${extractError(err, `${endpoint.replace('-', ' ')} failed`)}`);
     }
   };
 
@@ -134,44 +138,44 @@ export default function AdminPage() {
       await axios.post('/api/admin/open-bets', { seconds: betSeconds }, { headers });
       setStatus(`✅ Bets opened for ${betSeconds} seconds`);
       await fetchRaceState();
-    } catch {
-      setStatus('❌ Failed to open bets');
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to open bets')}`);
     }
   };
 
-  const updateUser = async (deviceId, updates) => {
+  const updateUser = async (userId, updates) => {
     const key = Object.keys(updates)[0];
     const value = updates[key];
     if (!window.confirm(`Update ${key} to "${value}"?`)) return;
     try {
-      await axios.put(`/api/admin/user/${deviceId}`, updates, { headers });
+      await axios.patch(`/api/admin/users/${userId}`, updates, { headers });
       setStatus('✅ User updated');
       await fetchUsers();
-    } catch {
-      setStatus('❌ Update failed');
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Update failed')}`);
     }
   };
 
-  const addLoons = async (deviceId, amount) => {
+  const addLoons = async (userId, amount) => {
     if (!window.confirm(`Add ${amount} Lease Loons to this user?`)) return;
     try {
-      await axios.post(`/api/admin/user/${deviceId}/add-loons`, { amount }, { headers });
+      await axios.post(`/api/admin/users/${userId}/add-loons`, { amount }, { headers });
       setStatus('✅ Lease Loons added');
       await fetchUsers();
-    } catch {
-      setStatus('❌ Failed to add loons');
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to add loons')}`);
     }
   };
 
-  const deleteUser = async (deviceId) => {
+  const deleteUser = async (userId) => {
     const ok = window.confirm('Delete this user and related bets/registrations?');
     if (!ok) return;
     try {
-      await axios.delete(`/api/admin/user/${deviceId}`, { headers });
+      await axios.delete(`/api/admin/users/${userId}`, { headers });
       setStatus('✅ User deleted');
       await fetchUsers();
     } catch (err) {
-      setStatus(`❌ Delete failed: ${err?.response?.data?.error || 'Unknown error'}`);
+      setStatus(`❌ ${extractError(err, 'Delete failed')}`);
     }
   };
 
@@ -200,8 +204,8 @@ export default function AdminPage() {
       setStatus(`✅ ${endpoint.replace('-', ' ')} complete`);
       await fetchRaceState();
       await fetchUsers();
-    } catch {
-      setStatus(`❌ ${endpoint.replace('-', ' ')} failed`);
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, `${endpoint.replace('-', ' ')} failed`)}`);
     }
   };
 
@@ -210,8 +214,8 @@ export default function AdminPage() {
       await axios.post('/api/admin/replay/start', { raceId: race.id }, { headers });
       setStatus(`✅ Replay started for race ${race.id}`);
       await fetchRaceState();
-    } catch {
-      setStatus('❌ Failed to start replay');
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to start replay')}`);
     }
   };
 
@@ -220,8 +224,8 @@ export default function AdminPage() {
       await axios.post('/api/admin/replay/stop', {}, { headers });
       setStatus('✅ Replay stopped');
       await fetchRaceState();
-    } catch {
-      setStatus('❌ Failed to stop replay');
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to stop replay')}`);
     }
   };
 
@@ -230,8 +234,8 @@ export default function AdminPage() {
       await axios.post('/api/admin/replay/clear', {}, { headers });
       setStatus('✅ Replay cleared');
       await fetchRaceState();
-    } catch {
-      setStatus('❌ Failed to clear replay');
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to clear replay')}`);
     }
   };
 

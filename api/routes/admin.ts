@@ -1,5 +1,5 @@
 // File: api/routes/admin.ts
-// Version: v3.0.0 — Adds shared-session replay controls, 5-race tournament flow, and live user update broadcasts
+// Version: v3.1.0 — DB-backed tournament flow, replay control, and robust user admin APIs
 // Date: 2026-02-18
 
 import express, { Request, Response } from 'express';
@@ -18,18 +18,12 @@ export const raceHorseCache = new Map<number, any[]>();
 
 const DEFAULT_LOONS = 1000;
 
-interface TournamentState {
-  id: string;
-  horsePoolIds: number[];
-  heatHorseIds: number[][];
-  winnerHorseIds: number[];
-  raceIds: number[];
-}
-
-let tournamentState: TournamentState | null = null;
-
 function isAuthorized(req: Request): boolean {
   return req.headers['x-admin-pass'] === process.env.API_ADMIN_PASS;
+}
+
+function unauthorized(res: Response) {
+  return res.status(403).json({ error: 'Unauthorized admin request. Check x-admin-pass.' });
 }
 
 function shuffle<T>(values: T[]): T[] {
@@ -41,53 +35,67 @@ function shuffle<T>(values: T[]): T[] {
   return arr;
 }
 
-async function ensureTournamentState(): Promise<TournamentState> {
-  if (tournamentState) return tournamentState;
-
-  const horses = await prisma.horse.findMany({
-    select: { id: true },
-    orderBy: { id: 'asc' }
+async function getActiveTournament() {
+  return prisma.tournament.findFirst({
+    where: { status: 'active' },
+    orderBy: { createdAt: 'desc' }
   });
+}
 
+async function ensureActiveTournament() {
+  const active = await getActiveTournament();
+  if (active) return active;
+
+  const horses = await prisma.horse.findMany({ select: { id: true }, orderBy: { id: 'asc' } });
   if (horses.length < 16) {
     throw new Error('At least 16 horses are required to start a tournament');
   }
 
-  const horsePoolIds = shuffle(horses.map((h) => h.id)).slice(0, 16);
-  const heatHorseIds = [
-    horsePoolIds.slice(0, 4),
-    horsePoolIds.slice(4, 8),
-    horsePoolIds.slice(8, 12),
-    horsePoolIds.slice(12, 16)
-  ];
+  const horsePool = shuffle(horses.map((h) => h.id)).slice(0, 16);
 
-  tournamentState = {
-    id: `tournament-${Date.now()}`,
-    horsePoolIds,
-    heatHorseIds,
-    winnerHorseIds: [],
-    raceIds: []
-  };
-
-  return tournamentState;
+  return prisma.tournament.create({
+    data: {
+      id: `tournament-${Date.now()}`,
+      status: 'active',
+      currentHeat: 1,
+      horsePool,
+      winners: []
+    }
+  });
 }
 
-async function getTopHeatWinners(raceIds: number[]): Promise<number[]> {
+async function getHeatHorseIds(tournament: { horsePool: unknown; currentHeat: number }) {
+  const horsePool = Array.isArray(tournament.horsePool)
+    ? tournament.horsePool.map((id) => Number(id)).filter((id) => Number.isInteger(id))
+    : [];
+
+  if (horsePool.length < 16) {
+    throw new Error('Tournament horse pool is invalid');
+  }
+
+  if (tournament.currentHeat <= 4) {
+    const offset = (tournament.currentHeat - 1) * 4;
+    return horsePool.slice(offset, offset + 4);
+  }
+
   const winners = await prisma.result.findMany({
     where: {
-      raceId: { in: raceIds.map((id) => BigInt(id)) },
+      race: {
+        tournamentId: (tournament as any).id,
+        heatNumber: { in: [1, 2, 3, 4] }
+      },
       position: 1
     },
     orderBy: [{ raceId: 'asc' }],
-    select: { raceId: true, horseId: true }
+    select: { horseId: true }
   });
 
-  const byRace = new Map<number, number>();
-  winners.forEach((row) => byRace.set(Number(row.raceId), row.horseId));
+  const unique = Array.from(new Set(winners.map((w) => w.horseId))).slice(0, 4);
+  if (unique.length < 4) {
+    throw new Error('Heat winners are not ready yet. Finish heats 1-4 first.');
+  }
 
-  return raceIds
-    .map((raceId) => byRace.get(raceId))
-    .filter((horseId): horseId is number => typeof horseId === 'number');
+  return unique;
 }
 
 async function loadRaceHorses(horseIds: number[]) {
@@ -113,25 +121,28 @@ async function loadRaceHorses(horseIds: number[]) {
     .filter((horse): horse is NonNullable<typeof horse> => Boolean(horse));
 }
 
-async function createRaceWithHorses(
-  raceName: string,
-  raceType: 'heat' | 'final',
-  horseIds: number[],
-  heatNumber: 1 | 2 | 3 | 4 | 5
-) {
-  const horses = await loadRaceHorses(horseIds);
+async function createRaceWithHorses(params: {
+  tournamentId: string;
+  heatNumber: number;
+  raceName: string;
+  raceType: 'heat' | 'final';
+  horseIds: number[];
+}) {
+  const horses = await loadRaceHorses(params.horseIds);
   if (horses.length !== 4) throw new Error('Could not load four horses for race');
 
   const race = await prisma.race.create({
     data: {
-      name: raceName,
-      type: raceType,
-      isFinal: heatNumber === 5,
+      name: params.raceName,
+      type: params.raceType,
+      isFinal: params.heatNumber === 5,
       isTest: false,
       betsLocked: false,
       startedAt: null,
       endedAt: null,
-      betClosesAt: null
+      betClosesAt: null,
+      tournamentId: params.tournamentId,
+      heatNumber: params.heatNumber
     }
   });
 
@@ -147,19 +158,17 @@ async function createRaceWithHorses(
     }))
   });
 
-  if (raceNamespace) {
-    raceNamespace.emit('race:init', {
-      raceId: Number(race.id),
-      raceName,
-      horses,
-      startAtPercent: 0
-    });
-  }
+  raceNamespace?.emit('race:init', {
+    raceId: Number(race.id),
+    raceName: params.raceName,
+    horses,
+    startAtPercent: 0
+  });
 
-  patchSessionAndBroadcast({
+  await patchSessionAndBroadcast({
     activeRaceId: race.id.toString(),
-    tournamentId: tournamentState?.id || null,
-    heatNumber,
+    tournamentId: params.tournamentId,
+    heatNumber: Math.min(5, Math.max(1, params.heatNumber)) as 1 | 2 | 3 | 4 | 5,
     state: 'setup',
     selectedReplayRaceId: null,
     replayPaused: false
@@ -170,16 +179,32 @@ async function createRaceWithHorses(
 
 router.get('/tournament-state', async (_req: Request, res: Response) => {
   try {
-    const state = await ensureTournamentState();
-    const horsePool = await loadRaceHorses(state.horsePoolIds);
-    const winners = await loadRaceHorses(state.winnerHorseIds);
+    const tournament = await ensureActiveTournament();
+    const horsePoolIds = Array.isArray(tournament.horsePool)
+      ? tournament.horsePool.map((id: any) => Number(id)).filter((id: number) => Number.isInteger(id))
+      : [];
+
+    const winnerHorseIds = await prisma.result.findMany({
+      where: {
+        race: {
+          tournamentId: tournament.id,
+          heatNumber: { in: [1, 2, 3, 4] }
+        },
+        position: 1
+      },
+      orderBy: { raceId: 'asc' },
+      select: { horseId: true }
+    });
+
+    const horsePool = await loadRaceHorses(horsePoolIds);
+    const winners = await loadRaceHorses(Array.from(new Set(winnerHorseIds.map((w) => w.horseId))).slice(0, 4));
 
     res.json({
       success: true,
-      tournamentId: state.id,
+      tournamentId: tournament.id,
       horsePool,
       winners,
-      heatNumber: Math.min(5, state.raceIds.length + 1)
+      heatNumber: tournament.currentHeat
     });
   } catch (err) {
     console.error('❌ Failed to fetch tournament state:', err);
@@ -188,16 +213,16 @@ router.get('/tournament-state', async (_req: Request, res: Response) => {
 });
 
 router.post('/clear-horses', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+  if (!isAuthorized(req)) return unauthorized(res);
 
   raceHorseCache.clear();
-  patchSessionAndBroadcast({ state: 'cleared' }, 'admin');
+  await patchSessionAndBroadcast({ state: 'cleared' }, 'admin');
   raceNamespace?.emit('admin:clear-stage');
   res.status(200).json({ message: '✅ Cleared race horses and stage' });
 });
 
 router.post('/reset-dev', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+  if (!isAuthorized(req)) return unauthorized(res);
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -208,9 +233,8 @@ router.post('/reset-dev', async (req: Request, res: Response) => {
       });
     });
 
-    tournamentState = null;
     raceHorseCache.clear();
-    patchSessionAndBroadcast({
+    await patchSessionAndBroadcast({
       activeRaceId: null,
       tournamentId: null,
       heatNumber: 1,
@@ -228,7 +252,7 @@ router.post('/reset-dev', async (req: Request, res: Response) => {
 });
 
 router.post('/seed-reset', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+  if (!isAuthorized(req)) return unauthorized(res);
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -239,9 +263,8 @@ router.post('/seed-reset', async (req: Request, res: Response) => {
       });
     });
 
-    tournamentState = null;
     raceHorseCache.clear();
-    patchSessionAndBroadcast({
+    await patchSessionAndBroadcast({
       activeRaceId: null,
       tournamentId: null,
       heatNumber: 1,
@@ -259,51 +282,45 @@ router.post('/seed-reset', async (req: Request, res: Response) => {
 });
 
 router.post('/generate-race', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+  if (!isAuthorized(req)) return unauthorized(res);
 
   try {
-    const state = await ensureTournamentState();
-    const nextHeat = (state.raceIds.length + 1) as 1 | 2 | 3 | 4 | 5;
+    const tournament = await ensureActiveTournament();
 
-    if (nextHeat > 5) {
-      return res.status(400).json({ error: 'Tournament already has 5 races. Reset races to start a new tournament.' });
+    if (tournament.currentHeat > 5) {
+      return res.status(400).json({ error: 'Tournament already completed. Reset races to start a new tournament.' });
     }
 
-    let horseIds: number[];
-    let raceName: string;
-    let raceType: 'heat' | 'final' = 'heat';
+    const heatNumber = tournament.currentHeat;
+    const horseIds = await getHeatHorseIds(tournament as any);
+    const raceName = heatNumber < 5 ? `Heat ${heatNumber}` : 'Final Heat';
+    const raceType = heatNumber < 5 ? 'heat' : 'final';
 
-    if (nextHeat <= 4) {
-      horseIds = state.heatHorseIds[nextHeat - 1];
-      raceName = `Heat ${nextHeat} • ${state.id}`;
-    } else {
-      const winnerHorseIds = await getTopHeatWinners(state.raceIds.slice(0, 4));
-      if (winnerHorseIds.length < 4) {
-        return res.status(400).json({ error: 'Heat winners are not ready yet. Finish heats 1-4 first.' });
-      }
-      state.winnerHorseIds = winnerHorseIds.slice(0, 4);
-      horseIds = state.winnerHorseIds;
-      raceName = `Final • ${state.id}`;
-      raceType = 'final';
-    }
+    const created = await createRaceWithHorses({
+      tournamentId: tournament.id,
+      heatNumber,
+      raceName,
+      raceType,
+      horseIds
+    });
 
-    const created = await createRaceWithHorses(raceName, raceType, horseIds, nextHeat);
-    state.raceIds.push(created.raceId);
+    await prisma.tournament.update({
+      where: { id: tournament.id },
+      data: { currentHeat: Math.min(6, heatNumber + 1) }
+    });
 
     res.status(200).json({
       success: true,
-      message: `Race ${nextHeat} created`,
+      message: `Race ${heatNumber} created`,
       raceId: created.raceId,
       raceName,
       horses: created.horses,
-      tournamentId: state.id,
-      heatNumber: nextHeat,
-      horsePoolIds: state.horsePoolIds,
-      winnerHorseIds: state.winnerHorseIds
+      tournamentId: tournament.id,
+      heatNumber
     });
   } catch (err) {
     console.error('❌ Failed to generate race:', err);
-    res.status(500).json({ error: 'Failed to generate race', detail: err instanceof Error ? err.message : 'Unknown error' });
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to generate race' });
   }
 });
 
@@ -322,7 +339,7 @@ router.get('/leaderboard', async (_req: Request, res: Response) => {
 });
 
 router.post('/reset-tournament', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+  if (!isAuthorized(req)) return unauthorized(res);
 
   try {
     await prisma.replayFrame.deleteMany();
@@ -331,13 +348,12 @@ router.post('/reset-tournament', async (req: Request, res: Response) => {
     await prisma.registration.deleteMany();
     await prisma.horsePath.deleteMany();
     await prisma.race.deleteMany();
-    await prisma.raceName.updateMany({ data: { used: false, usedAt: null } });
+    await prisma.tournament.updateMany({ data: { status: 'archived' } });
 
-    tournamentState = null;
     raceHorseCache.clear();
 
     raceNamespace?.emit('admin:clear-stage');
-    patchSessionAndBroadcast({
+    await patchSessionAndBroadcast({
       activeRaceId: null,
       tournamentId: null,
       heatNumber: 1,
@@ -354,10 +370,10 @@ router.post('/reset-tournament', async (req: Request, res: Response) => {
 });
 
 router.post('/start-race', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+  if (!isAuthorized(req)) return unauthorized(res);
 
   try {
-    const latest = await prisma.race.findFirst({ orderBy: { id: 'desc' }, select: { id: true } });
+    const latest = await prisma.race.findFirst({ orderBy: { id: 'desc' }, select: { id: true, tournamentId: true, heatNumber: true } });
     if (!latest) return res.status(404).json({ error: 'No race found to start' });
 
     const horses = raceHorseCache.get(Number(latest.id));
@@ -365,8 +381,10 @@ router.post('/start-race', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No cached horses found for this race. Generate race first.' });
     }
 
-    patchSessionAndBroadcast({
+    await patchSessionAndBroadcast({
       activeRaceId: latest.id.toString(),
+      tournamentId: latest.tournamentId,
+      heatNumber: Math.min(5, Math.max(1, latest.heatNumber || 1)) as 1 | 2 | 3 | 4 | 5,
       state: 'running'
     }, 'admin');
 
@@ -383,13 +401,13 @@ router.post('/start-race', async (req: Request, res: Response) => {
 });
 
 router.post('/open-bets', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+  if (!isAuthorized(req)) return unauthorized(res);
 
   try {
     const latest = await prisma.race.findFirst({
       orderBy: { id: 'desc' },
       where: { endedAt: null },
-      select: { id: true }
+      select: { id: true, tournamentId: true, heatNumber: true }
     });
 
     if (!latest) return res.status(404).json({ error: 'No active race found' });
@@ -402,8 +420,14 @@ router.post('/open-bets', async (req: Request, res: Response) => {
       data: { betClosesAt, betsLocked: false }
     });
 
-    patchSessionAndBroadcast({ state: 'betting_open' }, 'admin');
-    raceNamespace?.emit('admin:open-bets');
+    await patchSessionAndBroadcast({
+      activeRaceId: latest.id.toString(),
+      tournamentId: latest.tournamentId,
+      heatNumber: Math.min(5, Math.max(1, latest.heatNumber || 1)) as 1 | 2 | 3 | 4 | 5,
+      state: 'betting_open'
+    }, 'admin');
+
+    raceNamespace?.emit('admin:open-bets', { seconds, betClosesAt: betClosesAt.toISOString() });
     res.json({ success: true, message: `Bets are now open for ${seconds} seconds.` });
   } catch (err) {
     console.error('❌ Failed to open bets:', err);
@@ -412,7 +436,7 @@ router.post('/open-bets', async (req: Request, res: Response) => {
 });
 
 router.post('/close-bets', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+  if (!isAuthorized(req)) return unauthorized(res);
 
   try {
     const latest = await prisma.race.findFirst({
@@ -428,7 +452,7 @@ router.post('/close-bets', async (req: Request, res: Response) => {
       data: { betClosesAt: new Date(), betsLocked: true }
     });
 
-    patchSessionAndBroadcast({ state: 'betting_closed' }, 'admin');
+    await patchSessionAndBroadcast({ state: 'betting_closed' }, 'admin');
     raceNamespace?.emit('admin:close-bets');
     res.json({ success: true, message: 'Bets are now closed.' });
   } catch (err) {
@@ -438,37 +462,37 @@ router.post('/close-bets', async (req: Request, res: Response) => {
 });
 
 router.post('/replay/start', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+  if (!isAuthorized(req)) return unauthorized(res);
 
   const raceId = String(req.body.raceId || '').trim();
   if (!raceId || Number.isNaN(Number(raceId))) {
     return res.status(400).json({ error: 'Valid raceId is required' });
   }
 
-  beginReplayAndBroadcast(raceId, 'admin');
+  await beginReplayAndBroadcast(raceId, 'admin');
   res.json({ success: true, message: `Replay started for race ${raceId}` });
 });
 
 router.post('/replay/stop', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
-  stopReplayAndBroadcast('admin');
+  if (!isAuthorized(req)) return unauthorized(res);
+  await stopReplayAndBroadcast('admin');
   res.json({ success: true, message: 'Replay paused' });
 });
 
 router.post('/replay/clear', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
-  clearReplayAndBroadcast('admin');
+  if (!isAuthorized(req)) return unauthorized(res);
+  await clearReplayAndBroadcast('admin');
   res.json({ success: true, message: 'Replay cleared' });
 });
 
 router.get('/users', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+  if (!isAuthorized(req)) return unauthorized(res);
 
   try {
     const users = await prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
       select: {
-        deviceId: true,
+        id: true,
         firstName: true,
         lastName: true,
         nickname: true,
@@ -483,12 +507,13 @@ router.get('/users', async (req: Request, res: Response) => {
   }
 });
 
-router.put('/user/:deviceId', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+router.patch('/users/:userId', async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) return unauthorized(res);
 
-  const { deviceId } = req.params;
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'Invalid userId' });
+
   const updates: Record<string, unknown> = {};
-
   for (const key of ['firstName', 'lastName', 'nickname', 'leaseLoons']) {
     if (Object.prototype.hasOwnProperty.call(req.body, key)) {
       updates[key] = req.body[key];
@@ -500,14 +525,7 @@ router.put('/user/:deviceId', async (req: Request, res: Response) => {
   }
 
   try {
-    const user = await prisma.user.findFirst({
-      where: { deviceId: { equals: deviceId, mode: 'insensitive' } },
-      select: { id: true }
-    });
-
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    const updated = await prisma.user.update({ where: { id: user.id }, data: updates });
+    const updated = await prisma.user.update({ where: { id: userId }, data: updates });
     raceNamespace?.emit('leaderboard:updated');
     res.json({ success: true, user: updated });
   } catch (err) {
@@ -516,23 +534,18 @@ router.put('/user/:deviceId', async (req: Request, res: Response) => {
   }
 });
 
-router.post('/user/:deviceId/add-loons', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+router.post('/users/:userId/add-loons', async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) return unauthorized(res);
 
-  const { deviceId } = req.params;
+  const userId = Number(req.params.userId);
   const amount = Number(req.body.amount);
-  if (!Number.isFinite(amount)) return res.status(400).json({ error: 'Valid amount required' });
+  if (!Number.isInteger(userId) || !Number.isFinite(amount)) {
+    return res.status(400).json({ error: 'Valid userId and amount required' });
+  }
 
   try {
-    const user = await prisma.user.findFirst({
-      where: { deviceId: { equals: deviceId, mode: 'insensitive' } },
-      select: { id: true }
-    });
-
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
     const updated = await prisma.user.update({
-      where: { id: user.id },
+      where: { id: userId },
       data: { leaseLoons: { increment: Math.trunc(amount) } }
     });
 
@@ -544,22 +557,16 @@ router.post('/user/:deviceId/add-loons', async (req: Request, res: Response) => 
   }
 });
 
-router.delete('/user/:deviceId', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+router.delete('/users/:userId', async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) return unauthorized(res);
 
-  const { deviceId } = req.params;
+  const userId = Number(req.params.userId);
+  if (!Number.isInteger(userId)) return res.status(400).json({ error: 'Invalid userId' });
 
   try {
-    const user = await prisma.user.findFirst({
-      where: { deviceId: { equals: deviceId, mode: 'insensitive' } },
-      select: { id: true }
-    });
-
-    if (!user) return res.status(404).json({ error: 'User not found' });
-
-    await prisma.bet.deleteMany({ where: { userId: user.id } });
-    await prisma.registration.deleteMany({ where: { userId: user.id } });
-    await prisma.user.delete({ where: { id: user.id } });
+    await prisma.bet.deleteMany({ where: { userId } });
+    await prisma.registration.deleteMany({ where: { userId } });
+    await prisma.user.delete({ where: { id: userId } });
 
     raceNamespace?.emit('leaderboard:updated');
     res.json({ success: true });
@@ -570,7 +577,7 @@ router.delete('/user/:deviceId', async (req: Request, res: Response) => {
 });
 
 router.post('/reset-loons', async (req: Request, res: Response) => {
-  if (!isAuthorized(req)) return res.status(403).json({ error: 'Unauthorized' });
+  if (!isAuthorized(req)) return unauthorized(res);
 
   try {
     const result = await prisma.user.updateMany({ data: { leaseLoons: DEFAULT_LOONS } });
