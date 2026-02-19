@@ -43,15 +43,18 @@ function layoutPanels(panelSafeBounds) {
   const usableWidth = Math.max(280, panelSafeBounds.width - pad * 2 - gap * 2);
 
   const leaderboardWidth = Math.max(104, Math.floor(usableWidth * 0.16));
-  const raceWidth = Math.max(125, Math.floor(usableWidth * 0.17));
+  const raceWidth = Math.max(114, Math.floor(usableWidth * 0.16));
   const winnerWidth = Math.max(170, usableWidth - leaderboardWidth - raceWidth - gap * 2);
 
   const panelHeight = Math.max(120, panelSafeBounds.height - pad * 2);
   const leaderboardHeight = clamp(Math.round(panelSafeBounds.height * 0.62), 220, 360);
+  const raceHeight = clamp(Math.round(panelSafeBounds.height * 0.66), 240, 390);
   const top = Math.round(panelSafeBounds.y + pad);
-  const left = Math.round(panelSafeBounds.x + pad);
   const leaderboardLeftAnchor = Math.round(panelSafeBounds.x + Math.max(34, panelSafeBounds.width * 0.075));
   const leaderboardTopCenter = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
+  const raceRightInset = Math.round(Math.max(34, panelSafeBounds.width * 0.075));
+  const raceLeftAnchor = Math.round(panelSafeBounds.right - raceRightInset - raceWidth);
+  const raceTopCenter = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
 
   return {
     leaderboard: {
@@ -71,11 +74,12 @@ function layoutPanels(panelSafeBounds) {
       transform: 'translate(-50%, -50%)'
     },
     race: {
-      left: left + leaderboardWidth + gap + winnerWidth + gap,
-      top,
+      left: raceLeftAnchor,
+      top: raceTopCenter,
       width: raceWidth,
-      maxHeight: panelHeight,
-      overflowY: 'auto'
+      maxHeight: raceHeight,
+      overflowY: 'auto',
+      transform: 'translateY(-50%)'
     }
   };
 }
