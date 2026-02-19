@@ -28,7 +28,7 @@ const LANE_COUNT = 4;
 const HORSE_PADDING = 0;
 const BOUNDARY_PADDING = 0;
 const START_LINE_OFFSET = 0;
-const RACE_DURATION_SECONDS = 180;
+const RACE_DURATION_SECONDS = 36;
 
 function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
