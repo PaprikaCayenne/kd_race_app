@@ -97,6 +97,10 @@ export default function AdminPage() {
     return Number(session?.heatNumber || raceState?.heatNumber || 0) === 5;
   }, [raceState?.heatNumber, session?.heatNumber]);
 
+  const currentHeatNumber = useMemo(() => {
+    return Math.max(1, Math.min(5, Number(session?.heatNumber || raceState?.heatNumber || 1)));
+  }, [raceState?.heatNumber, session?.heatNumber]);
+
   const shouldGenerateNewTournament = useMemo(() => {
     return Boolean(
       isFinalHeat
@@ -385,8 +389,11 @@ export default function AdminPage() {
 
   const generateLabel = shouldGenerateNewTournament
     ? '🎯 Generate New Tournament'
-    : (isFinalHeat ? '🎲 Generate Final Race' : '🎲 Generate Next Race');
-  const startLabel = isFinalHeat ? '🏁 Start Final Race' : '🏁 Start Race';
+    : (() => {
+      const nextHeat = raceState?.endedAt ? Math.min(5, currentHeatNumber + 1) : currentHeatNumber;
+      return `🎲 Generate Heat ${nextHeat}${nextHeat === 5 ? ' Final' : ''}`;
+    })();
+  const startLabel = isFinalHeat ? '🏁 Start Final Race' : `🏁 Start Heat ${currentHeatNumber}`;
 
   return (
     <div className="p-4 text-gray-800 space-y-6 max-w-5xl mx-auto">
@@ -398,6 +405,7 @@ export default function AdminPage() {
       />
 
       <AdminButtons
+        sessionState={session?.state || 'setup'}
         allowGenerateRace={allowGenerate}
         canOpenBets={canOpenBets}
         canStartRace={canStartRace}
