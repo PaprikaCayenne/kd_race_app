@@ -189,8 +189,10 @@ export function drawDerbyTrack({
     infieldHoleBounds,
     panelSafeBounds: layout.panelSafeBounds,
     overlayBounds: layout.overlayBounds,
+    centerAnchor: layout.centerAnchor,
     penBounds: layout.penBounds,
     winnersPenBounds: layout.winnersPenBounds,
+    horsePenSpriteSize: layout.horsePenSpriteSize,
     layoutChecks: layout.checks,
     canvasBounds,
     trackViewportBounds

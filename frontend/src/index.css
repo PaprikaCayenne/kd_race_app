@@ -1,5 +1,5 @@
 /* frontend/src/index.css */
-/* Version: v1.3.0 — UI polish for winner spotlight, paddock pens, and richer panel styling */
+/* Version: v1.4.0 — Race layout polish for centered winner fireworks and field-native pens */
 
 @tailwind base;
 @tailwind components;
@@ -24,21 +24,21 @@ html, body {
 
 @keyframes confetti-firework {
   0% {
-    transform: translate(-50%, -4px) scale(0.35) rotate(0deg);
+    transform: translate(-50%, 6px) scale(0.2) rotate(0deg);
     opacity: 0;
   }
-  12% {
+  15% {
     opacity: 1;
   }
   100% {
-    transform: translate(calc(-50% + var(--dx, 0px)), var(--dy, -70px)) scale(1.1) rotate(var(--spin, 180deg));
+    transform: translate(calc(-50% + var(--dx, 0px)), var(--dy, -70px)) scale(1.05) rotate(var(--spin, 180deg));
     opacity: 0;
   }
 }
 
 .confetti-wrap {
   position: absolute;
-  inset: -48px;
+  inset: -62px;
   pointer-events: none;
   overflow: visible;
   z-index: 60;
@@ -46,20 +46,20 @@ html, body {
 
 .confetti-dot {
   position: absolute;
-  top: 6px;
+  top: 10px;
   left: 50%;
   width: var(--size, 8px);
-  height: calc(var(--size, 8px) * 1.6);
+  height: calc(var(--size, 8px) * 1.5);
   border-radius: 3px;
   background: linear-gradient(180deg, #fde047, #ef4444);
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.45);
-  animation: confetti-firework 1.5s ease-out infinite;
+  animation: confetti-firework 1.6s ease-out infinite;
   animation-delay: var(--delay, 0s);
 }
 
 .confetti-dot:nth-child(2n) { background: linear-gradient(180deg, #22c55e, #3b82f6); }
 .confetti-dot:nth-child(3n) { background: linear-gradient(180deg, #f59e0b, #ef4444); }
-.confetti-dot:nth-child(4n) { background: linear-gradient(180deg, #a855f7, #ec4899); }
+.confetti-dot:nth-child(4n) { background: linear-gradient(180deg, #06b6d4, #a855f7); }
 
 .winner-pop::after {
   content: '✨';
@@ -73,21 +73,33 @@ html, body {
   backdrop-filter: blur(2px);
 }
 
+.pen-surface {
+  background:
+    radial-gradient(circle at 22% 22%, rgba(255, 255, 255, 0.08), transparent 28%),
+    radial-gradient(circle at 78% 76%, rgba(255, 255, 255, 0.06), transparent 30%),
+    linear-gradient(165deg, rgba(186, 240, 186, 0.96), rgba(171, 230, 171, 0.96));
+  border: 0;
+  box-shadow: none;
+  border-radius: 10px;
+}
+
 .winners-pen-surface {
   background:
     radial-gradient(circle at 22% 22%, rgba(255, 255, 255, 0.11), transparent 28%),
     radial-gradient(circle at 78% 76%, rgba(255, 255, 255, 0.08), transparent 30%),
-    linear-gradient(160deg, rgba(186, 240, 186, 0.96), rgba(171, 230, 171, 0.96));
-  border: 2px solid rgba(161, 129, 66, 0.92);
+    linear-gradient(165deg, rgba(186, 240, 186, 0.97), rgba(171, 230, 171, 0.97));
+  border: 2px solid rgba(156, 132, 87, 0.85);
+  border-radius: 10px;
   box-shadow:
     inset 0 0 0 1px rgba(255, 240, 184, 0.4),
-    inset 0 10px 0 rgba(123, 113, 97, 0.25),
-    inset 0 -10px 0 rgba(165, 135, 75, 0.28);
+    inset 0 10px 0 rgba(123, 113, 97, 0.2),
+    inset 0 -10px 0 rgba(165, 135, 75, 0.24);
   position: relative;
+  padding: 4px 6px 6px;
 }
 
 .winners-pen-surface::before {
-  content: '★ Winners ★';
+  content: 'Winners';
   position: absolute;
   top: -11px;
   right: 8px;
@@ -100,12 +112,6 @@ html, body {
   border-radius: 999px;
   padding: 2px 8px;
   border: 1px solid rgba(74, 58, 27, 0.55);
-}
-
-.pen-surface {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
 }
 
 .fence-strip {
@@ -121,8 +127,6 @@ html, body {
 }
 
 .horse-chip {
-  width: 64px;
-  height: 64px;
   border-radius: 4px;
   border: 0;
   background: transparent;

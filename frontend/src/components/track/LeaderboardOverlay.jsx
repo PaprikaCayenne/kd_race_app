@@ -1,5 +1,5 @@
 // File: frontend/src/components/track/LeaderboardOverlay.jsx
-// Version: v1.5.0 — Polished leaderboard visuals with lease loon currency styling
+// Version: v1.6.0 — Rich leaderboard styling with consistent loon currency formatting
 // Date: 2026-02-19
 
 import React from 'react';
@@ -18,8 +18,8 @@ export default function LeaderboardOverlay({
   };
 
   const baseClass = compact
-    ? 'absolute p-3.5 rounded-2xl shadow-xl border border-amber-200 z-50 min-h-[240px]'
-    : 'absolute p-6 rounded-2xl shadow-2xl z-50 border border-amber-200 min-h-[280px]';
+    ? 'absolute p-4 rounded-2xl shadow-xl border border-amber-200 z-50 min-h-[300px]'
+    : 'absolute p-6 rounded-2xl shadow-2xl z-50 border border-amber-200 min-h-[320px]';
 
   return (
     <div className={`${baseClass} bg-gradient-to-b from-[#fff9ee]/95 via-white/95 to-[#fef3c7]/90 backdrop-blur-[1px]`} style={panelStyle}>
@@ -29,12 +29,12 @@ export default function LeaderboardOverlay({
       >
         <div className="flex items-center gap-2">
           <span className={`${compact ? 'text-xl' : 'text-2xl'} leading-none`} aria-hidden="true">🏆</span>
-          <h2 className={`${compact ? 'text-xl' : 'text-3xl'} font-black tracking-tight text-amber-900`}>Leaderboard</h2>
+          <h2 className={`${compact ? 'text-[1.4rem]' : 'text-3xl'} font-black tracking-tight text-amber-900`}>Leaderboard</h2>
         </div>
         {draggable && <span className="text-[10px] uppercase tracking-wide text-amber-700">Drag</span>}
       </div>
 
-      <ol className={`${compact ? 'text-base space-y-2' : 'text-lg space-y-3'} list-none`}>
+      <ol className={`${compact ? 'text-base space-y-2.5' : 'text-lg space-y-3'} list-none`}>
         {users.slice(0, 5).map((u, i) => {
           const isWinner = winnerName && u.nickname === winnerName;
           const rankBadge = i + 1;

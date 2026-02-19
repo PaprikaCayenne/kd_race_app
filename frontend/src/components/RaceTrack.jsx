@@ -1,5 +1,5 @@
 // File: frontend/src/components/RaceTrack.jsx
-// Version: v4.0.0 — Canonical layout bounds wiring with shared pen placement
+// Version: v4.1.0 — Shared center-anchor layout and deterministic pen sizing polish
 // Date: 2026-02-19
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -16,13 +16,13 @@ import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
 import { computePenPlacements } from './track/penPlacement';
 
-const VERSION = 'v3.9.0';
+const VERSION = 'v4.1.0';
 const socket = io('/race', { path: '/api/socket.io' });
 
 const TRACK_PADDING = 20;
 const HORIZONTAL_TRACK_PADDING = 20;
 const CANVAS_HEIGHT = 900;
-const TRACK_BOTTOM_RESERVED_SPACE = 260;
+const TRACK_BOTTOM_RESERVED_SPACE = 290;
 
 const CORNER_RADIUS = 200;
 const LANE_COUNT = 4;
@@ -31,17 +31,20 @@ const BOUNDARY_PADDING = 0;
 const START_LINE_OFFSET = 0;
 const RACE_DURATION_SECONDS = 36;
 
-function scatterHorsePen(horses, penBounds) {
+function scatterHorsePen(horses, penBounds, spriteSizeHint = 68) {
   return computePenPlacements(horses, penBounds, {
-    spriteSize: 64,
-    gap: 3,
-    insetX: 8,
-    insetTop: 6,
-    insetBottom: 8
+    spriteSize: spriteSizeHint,
+    minSpriteSize: 54,
+    maxSpriteSize: 90,
+    gap: 4,
+    insetX: 6,
+    insetTop: 2,
+    insetBottom: 6
   }).map((entry) => ({
     horse: entry.horse,
     x: entry.x,
-    y: entry.y
+    y: entry.y,
+    size: entry.size
   }));
 }
 
@@ -450,9 +453,11 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           infieldHoleBounds: track.infieldHoleBounds,
           panelSafeBounds: track.panelSafeBounds,
           overlayBounds: track.overlayBounds,
+          centerAnchor: track.centerAnchor,
           layoutChecks: track.layoutChecks,
           penBounds: track.penBounds,
           winnersPenBounds: track.winnersPenBounds,
+          horsePenSpriteSize: track.horsePenSpriteSize,
           trackViewportBounds: track.trackViewportBounds
         });
 
@@ -544,16 +549,20 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     ? allHorses.filter((horse) => !activeRaceHorseIds.has(horse.id))
     : allHorses;
   const horsePenPlacements = useMemo(
-    () => scatterHorsePen(horsePenHorses, layoutBounds?.penBounds),
-    [horsePenHorses, layoutBounds?.penBounds]
+    () => scatterHorsePen(
+      horsePenHorses,
+      layoutBounds?.penBounds,
+      layoutBounds?.horsePenSpriteSize || 68
+    ),
+    [horsePenHorses, layoutBounds?.penBounds, layoutBounds?.horsePenSpriteSize]
   );
 
   const winnerRows = buildWinnerRows(winnerHistory);
   const winnerDisplay = winner || null;
   const containerMinHeight = Math.max(
     CANVAS_HEIGHT,
-    (layoutBounds?.penBounds?.bottom || 0) + 18,
-    (layoutBounds?.winnersPenBounds?.bottom || 0) + 18
+    (layoutBounds?.penBounds?.bottom || 0) + 24,
+    (layoutBounds?.winnersPenBounds?.bottom || 0) + 24
   );
 
   return (
@@ -568,8 +577,12 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
         <div
           className="absolute px-6 py-3 bg-black/70 text-white rounded-xl z-50 text-2xl font-extrabold"
           style={{
-            left: layoutBounds.infieldBounds.x + (layoutBounds.infieldBounds.width / 2),
-            top: layoutBounds.infieldBounds.y + (layoutBounds.infieldBounds.height / 2),
+            left: layoutBounds?.centerAnchor?.x
+              ? layoutBounds.centerAnchor.x
+              : layoutBounds.infieldBounds.x + (layoutBounds.infieldBounds.width / 2),
+            top: layoutBounds?.centerAnchor?.y
+              ? layoutBounds.centerAnchor.y
+              : layoutBounds.infieldBounds.y + (layoutBounds.infieldBounds.height / 2),
             transform: 'translate(-50%, -50%)'
           }}
         >
@@ -595,17 +608,17 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           className="absolute winner-spotlight bg-white/95 p-5 rounded-2xl shadow-2xl border border-yellow-200 z-50 text-center"
           style={{
             ...panelStyles.winner,
-            left: layoutBounds?.infieldBounds
-              ? layoutBounds.infieldBounds.x + (layoutBounds.infieldBounds.width / 2)
+            left: layoutBounds?.centerAnchor
+              ? layoutBounds.centerAnchor.x
               : panelStyles.winner.left,
-            top: layoutBounds?.infieldBounds
-              ? layoutBounds.infieldBounds.y + (layoutBounds.infieldBounds.height / 2)
+            top: layoutBounds?.centerAnchor
+              ? layoutBounds.centerAnchor.y
               : panelStyles.winner.top,
             overflow: 'visible'
           }}
         >
           <div className="confetti-wrap" aria-hidden="true">
-            {Array.from({ length: 14 }).map((_, i) => (
+            {Array.from({ length: 18 }).map((_, i) => (
               <span
                 key={i}
                 className="confetti-dot"
@@ -623,14 +636,14 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
           <div className="flex items-center justify-center gap-2 text-slate-900 font-extrabold text-lg">
             <span aria-hidden="true">👤</span>
-            <span className="truncate">Winner {winnerDisplay.bettorName}</span>
+            <span className="truncate">Winner: {winnerDisplay.bettorName}</span>
             <span className="shrink-0 rounded-full bg-emerald-100 text-emerald-800 px-2 py-0.5 font-black tracking-wide text-sm">
               L$ {formatLoons(winnerDisplay.winnings)}
             </span>
           </div>
           <p className="text-xl font-black text-red-700 truncate mt-2">{winnerDisplay.horseName}</p>
-          <div className="mt-3 mx-auto w-16 h-16 rounded-full border-2 border-gray-200 bg-white flex items-center justify-center">
-            <HorseSprite bodyHex={winnerDisplay.bodyHex} saddleHex={winnerDisplay.saddleHex} alt={winnerDisplay.horseName} className="w-12 h-12" />
+          <div className="mt-3 mx-auto w-20 h-20 rounded-full border-2 border-gray-200 bg-white flex items-center justify-center">
+            <HorseSprite bodyHex={winnerDisplay.bodyHex} saddleHex={winnerDisplay.saddleHex} alt={winnerDisplay.horseName} className="w-14 h-14" />
           </div>
         </motion.div>
       )}
@@ -646,7 +659,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
       {layoutBounds?.penBounds && (
         <div
-          className="absolute p-2 z-40"
+          className="absolute z-40 pen-surface"
           style={{
             left: layoutBounds.penBounds.x,
             top: layoutBounds.penBounds.y,
@@ -655,11 +668,16 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
             overflow: 'visible'
           }}
         >
-          <div className="fence-strip mb-1" />
-          <div className="relative w-full h-[calc(100%-14px)]">
-            {horsePenPlacements.map(({ horse, x, y }) => (
-              <div key={horse.id} className="horse-chip absolute" style={{ left: x, top: y }} title={horse.name}>
-                <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-16 h-16" />
+          <div className="fence-strip" />
+          <div className="relative w-full h-[calc(100%-10px)]">
+            {horsePenPlacements.map(({ horse, x, y, size }) => (
+              <div
+                key={horse.id}
+                className="horse-chip absolute"
+                style={{ left: x, top: y, width: size, height: size }}
+                title={horse.name}
+              >
+                <HorseSprite bodyHex={horse.bodyHex} saddleHex={horse.saddleHex} alt={horse.name} className="w-full h-full" />
               </div>
             ))}
           </div>
@@ -702,19 +720,18 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
       {layoutBounds?.winnersPenBounds && (
         <div
-          className="absolute winners-pen-surface rounded-xl p-3 shadow-xl z-50"
+          className="absolute winners-pen-surface z-50"
           style={{
             left: layoutBounds.winnersPenBounds.x,
             top: layoutBounds.winnersPenBounds.y,
             width: layoutBounds.winnersPenBounds.width,
             height: layoutBounds.winnersPenBounds.height,
-            overflowY: 'auto',
+            overflowY: 'hidden',
             overflowX: 'visible'
           }}
         >
-          <h4 className="font-bold text-sm mb-2">🏅 Winners Pen</h4>
-          <div className="fence-strip mb-2" />
-          <div className="flex flex-col gap-2">
+          <div className="fence-strip mb-1.5" />
+          <div className="flex flex-col gap-1.5 overflow-y-auto h-[calc(100%-12px)] px-1 pb-1">
             {winnerRows.length === 0 && (
               <p className="text-xs font-semibold text-amber-50/95 bg-black/20 rounded-md px-2 py-1">
                 Waiting for heat winners...
@@ -725,7 +742,9 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
                 <HorseSprite bodyHex={w.bodyHex} saddleHex={w.saddleHex} alt={w.horseName} className="w-8 h-8" />
                 <div className="min-w-0">
                   <p className="text-xs font-semibold truncate text-emerald-50">{w.horseName}</p>
-                  <p className="text-[10px] text-emerald-100/90 truncate">{w.bettorName || 'Heat Winner'} {w.winnings ? `· ${w.winnings}` : ''}</p>
+                  <p className="text-[10px] text-emerald-100/90 truncate">
+                    {w.bettorName || 'Heat Winner'}{w.winnings ? ` · L$ ${formatLoons(w.winnings)}` : ''}
+                  </p>
                 </div>
               </div>
             ))}

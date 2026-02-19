@@ -410,6 +410,23 @@ export function initRaceListeners({
         raceId,
         raceDurationSeconds,
         setLiveRanking,
+        onFirstFinish: ({ horseId, localId, finishTimeMs }) => {
+          const firstHorse = horses.find((horse) => (
+            Number(horse.localId) === Number(localId)
+            || Number(horse.id) === Number(horseId)
+          ));
+          if (!firstHorse) return;
+
+          setWinner?.({
+            raceId,
+            bettorName: 'Settling bets...',
+            winnings: 0,
+            horseName: firstHorse.name,
+            bodyHex: firstHorse.bodyHex,
+            saddleHex: firstHorse.saddleHex,
+            firstFinishTimeMs: finishTimeMs
+          });
+        },
         onRaceEnd: (results) => {
           logInfo('[KD] 🏁 Race ended! Final results sent to backend.');
           logInfo(results);

@@ -1,39 +1,47 @@
 // File: frontend/src/components/track/computeRaceLayout.js
-// Version: v1.1.1 — Canonical layout solver with hard pen visibility clamps
+// Version: v1.2.0 — Canonical race layout solver with shared infield center and outer-track pen anchors
 // Date: 2026-02-19
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function insetRect(rect, padding) {
-  const pad = Math.max(0, Number(padding) || 0);
-  const width = Math.max(0, rect.width - pad * 2);
-  const height = Math.max(0, rect.height - pad * 2);
+function withEdges(rect) {
   return {
-    x: rect.x + pad,
-    y: rect.y + pad,
-    width,
-    height,
-    right: rect.x + pad + width,
-    bottom: rect.y + pad + height
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    right: rect.x + rect.width,
+    bottom: rect.y + rect.height
   };
 }
 
-function clampRect(rect, canvasWidth, canvasHeight, minWidth = 120, minHeight = 80, outerPadding = 12) {
-  const x = Math.max(outerPadding, Math.min(rect.x, canvasWidth - outerPadding - minWidth));
-  const y = Math.max(outerPadding, Math.min(rect.y, canvasHeight - outerPadding - minHeight));
-  const width = Math.max(minWidth, Math.min(rect.width, canvasWidth - x - outerPadding));
-  const height = Math.max(minHeight, Math.min(rect.height, canvasHeight - y - outerPadding));
+function insetRect(rect, padding) {
+  const pad = Math.max(0, Number(padding) || 0);
+  const width = Math.max(0, rect.width - (pad * 2));
+  const height = Math.max(0, rect.height - (pad * 2));
+  return withEdges({
+    x: rect.x + pad,
+    y: rect.y + pad,
+    width,
+    height
+  });
+}
 
-  return {
+function clampRect(rect, canvasWidth, canvasHeight, minWidth = 120, minHeight = 80, outerPadding = 12) {
+  const boundedWidth = Math.max(minWidth, Math.min(rect.width, canvasWidth - (outerPadding * 2)));
+  const boundedHeight = Math.max(minHeight, Math.min(rect.height, canvasHeight - (outerPadding * 2)));
+
+  const x = clamp(rect.x, outerPadding, canvasWidth - outerPadding - boundedWidth);
+  const y = clamp(rect.y, outerPadding, canvasHeight - outerPadding - boundedHeight);
+
+  return withEdges({
     x,
     y,
-    width,
-    height,
-    right: x + width,
-    bottom: y + height
-  };
+    width: boundedWidth,
+    height: boundedHeight
+  });
 }
 
 export function computeRaceLayout({
@@ -43,58 +51,62 @@ export function computeRaceLayout({
   trackRingBounds,
   infieldHoleBounds
 }) {
+  const infieldPanelInset = clamp(Math.round(laneWidth * 0.9), 16, 30);
   const panelSafeBounds = clampRect(
-    insetRect(infieldHoleBounds, Math.max(14, laneWidth * 0.85)),
+    insetRect(infieldHoleBounds, infieldPanelInset),
     canvasWidth,
     canvasHeight,
-    260,
-    170,
+    380,
+    220,
     16
   );
 
-  const panelGap = clamp(Math.round(panelSafeBounds.width * 0.02), 10, 18);
-  const panelUsableWidth = Math.max(320, panelSafeBounds.width - panelGap * 2 - 20);
+  const panelInsetX = 10;
+  const panelGap = clamp(Math.round(panelSafeBounds.width * 0.02), 10, 20);
+  const panelCenterX = Math.round(panelSafeBounds.x + (panelSafeBounds.width / 2));
+  const panelCenterY = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
 
-  let leaderboardWidth = clamp(Math.round(panelUsableWidth * 0.23), 132, 260);
-  let raceWidth = clamp(Math.round(panelUsableWidth * 0.20), 130, 220);
-  let winnerWidth = panelUsableWidth - leaderboardWidth - raceWidth - panelGap * 2;
+  let leaderboardWidth = clamp(Math.round(panelSafeBounds.width * 0.24), 168, 290);
+  let raceWidth = clamp(Math.round(panelSafeBounds.width * 0.23), 168, 300);
 
-  if (winnerWidth < 210) {
-    const shortage = 210 - winnerWidth;
-    const giveBackL = Math.min(Math.max(0, leaderboardWidth - 132), Math.ceil(shortage / 2));
-    leaderboardWidth -= giveBackL;
-    const giveBackR = Math.min(Math.max(0, raceWidth - 130), shortage - giveBackL);
-    raceWidth -= giveBackR;
-    winnerWidth = panelUsableWidth - leaderboardWidth - raceWidth - panelGap * 2;
+  const sideOccupied = leaderboardWidth + raceWidth + (panelGap * 2) + (panelInsetX * 2);
+  let centerAvailable = Math.max(130, panelSafeBounds.width - sideOccupied);
+
+  if (centerAvailable < 160) {
+    const shortage = 160 - centerAvailable;
+    const reduceLeft = Math.min(shortage, Math.max(0, leaderboardWidth - 150));
+    leaderboardWidth -= reduceLeft;
+    const reduceRight = Math.min(shortage - reduceLeft, Math.max(0, raceWidth - 150));
+    raceWidth -= reduceRight;
+    centerAvailable = Math.max(130, panelSafeBounds.width - (leaderboardWidth + raceWidth + (panelGap * 2) + (panelInsetX * 2)));
   }
-  winnerWidth = clamp(Math.round(winnerWidth * 0.4), 130, 240);
 
-  const leaderboardHeight = clamp(Math.round(panelSafeBounds.height * 0.74), 320, 420);
-  const raceHeight = clamp(Math.round(panelSafeBounds.height * 0.82), 360, 500);
-  const winnerHeight = clamp(Math.round(panelSafeBounds.height * 0.66), 240, 390);
+  const winnerWidth = clamp(Math.round(centerAvailable * 0.58), 130, 230);
 
-  const centerY = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
+  const leaderboardHeight = clamp(Math.round(panelSafeBounds.height * 0.74), 300, 430);
+  const raceHeight = clamp(Math.round(panelSafeBounds.height * 0.86), 360, 520);
+  const winnerHeight = clamp(Math.round(panelSafeBounds.height * 0.62), 220, 340);
 
   const overlayBounds = {
     leaderboard: {
-      left: Math.round(panelSafeBounds.x + 10),
-      top: centerY,
+      left: Math.round(panelSafeBounds.x + panelInsetX),
+      top: panelCenterY,
       width: leaderboardWidth,
       maxHeight: leaderboardHeight,
       overflowY: 'hidden',
       transform: 'translateY(-50%)'
     },
     winner: {
-      left: Math.round(panelSafeBounds.x + (panelSafeBounds.width / 2)),
-      top: centerY,
+      left: panelCenterX,
+      top: panelCenterY,
       width: winnerWidth,
       maxHeight: winnerHeight,
       overflow: 'visible',
       transform: 'translate(-50%, -50%)'
     },
     race: {
-      left: Math.round(panelSafeBounds.right - raceWidth - 10),
-      top: centerY,
+      left: Math.round(panelSafeBounds.right - raceWidth - panelInsetX),
+      top: panelCenterY,
       width: raceWidth,
       maxHeight: raceHeight,
       overflowY: 'hidden',
@@ -103,52 +115,59 @@ export function computeRaceLayout({
   };
 
   const bottomPadding = 14;
-  const minPenHeight = 150;
+  const minPenHeight = 180;
+  const maxPenHeight = 300;
+
   const preferredPenTop = Math.round(trackRingBounds.bottom + 10);
   const maxVisiblePenTop = Math.max(12, canvasHeight - minPenHeight - bottomPadding);
   const penTop = clamp(preferredPenTop, 12, maxVisiblePenTop);
+
   const availableBelow = Math.max(minPenHeight, canvasHeight - penTop - bottomPadding);
-  const penHeight = Math.min(300, Math.round(availableBelow));
+  const penHeight = clamp(Math.round(availableBelow), minPenHeight, maxPenHeight);
 
-  const penLeft = Math.max(10, Math.round(trackRingBounds.x));
-  const winnersPenWidth = clamp(Math.round(canvasWidth * 0.22), 220, 330);
-  const penGap = 18;
-  const maxHorsePenWidth = Math.max(300, canvasWidth - penLeft - winnersPenWidth - penGap - 14);
-  const horsePenTarget = clamp(Math.round(trackRingBounds.width * 0.40), 280, 560);
-  const penWidth = Math.min(maxHorsePenWidth, horsePenTarget);
+  const outerTrackLeft = clamp(Math.round(trackRingBounds.x), 10, canvasWidth - 220);
+  const outerTrackRight = clamp(Math.round(trackRingBounds.right), outerTrackLeft + 280, canvasWidth - 10);
 
-  const penBounds = {
-    x: penLeft,
+  const winnersPenWidth = clamp(Math.round((outerTrackRight - outerTrackLeft) * 0.26), 210, 330);
+  const penGap = 16;
+
+  const winnersPenX = clamp(
+    outerTrackRight - winnersPenWidth,
+    outerTrackLeft + 230 + penGap,
+    canvasWidth - winnersPenWidth - 10
+  );
+
+  const horsePenMaxWidth = Math.max(240, winnersPenX - outerTrackLeft - penGap);
+  const horsePenTarget = clamp(Math.round((outerTrackRight - outerTrackLeft) * 0.5), 320, 760);
+  const penWidth = clamp(horsePenTarget, 240, horsePenMaxWidth);
+
+  const penBounds = withEdges({
+    x: outerTrackLeft,
     y: penTop,
     width: penWidth,
-    height: penHeight,
-    right: penLeft + penWidth,
-    bottom: penTop + penHeight
-  };
+    height: penHeight
+  });
 
-  const winnersPenX = Math.max(10, canvasWidth - winnersPenWidth - 12);
-  const winnersMaxHeight = Math.max(minPenHeight, canvasHeight - penTop - bottomPadding);
-  const winnersPenHeight = Math.min(clamp(Math.round(penHeight * 0.9), minPenHeight, 240), winnersMaxHeight);
-  const winnersPenY = penTop;
-  const winnersPenBounds = {
+  const winnersPenHeight = clamp(Math.round(penHeight * 0.92), 170, 250);
+  const winnersPenY = clamp(penTop + Math.max(0, penHeight - winnersPenHeight), 12, canvasHeight - winnersPenHeight - bottomPadding);
+
+  const winnersPenBounds = withEdges({
     x: winnersPenX,
     y: winnersPenY,
     width: winnersPenWidth,
-    height: winnersPenHeight,
-    right: winnersPenX + winnersPenWidth,
-    bottom: winnersPenY + winnersPenHeight
-  };
+    height: winnersPenHeight
+  });
 
   const checks = {
     overlaysInsideInfield:
-      overlayBounds.leaderboard.left >= panelSafeBounds.x &&
-      (overlayBounds.race.left + overlayBounds.race.width) <= panelSafeBounds.right,
+      overlayBounds.leaderboard.left >= panelSafeBounds.x
+      && (overlayBounds.race.left + overlayBounds.race.width) <= panelSafeBounds.right,
     pensBelowTrack:
-      penBounds.y >= Math.round(trackRingBounds.bottom + 10) &&
-      winnersPenBounds.y >= Math.round(trackRingBounds.bottom + 10),
+      penBounds.y >= Math.round(trackRingBounds.bottom + 8)
+      && winnersPenBounds.y >= Math.round(trackRingBounds.bottom + 8),
     pensVisibleWithinCanvas:
-      penBounds.bottom <= (canvasHeight - bottomPadding) &&
-      winnersPenBounds.bottom <= (canvasHeight - bottomPadding)
+      penBounds.bottom <= (canvasHeight - bottomPadding)
+      && winnersPenBounds.bottom <= (canvasHeight - bottomPadding)
   };
 
   return {
@@ -156,6 +175,11 @@ export function computeRaceLayout({
     overlayBounds,
     penBounds,
     winnersPenBounds,
+    centerAnchor: { x: panelCenterX, y: panelCenterY },
+    horsePenSpriteSize: clamp(Math.round(Math.min(
+      (penBounds.width - 14) / 6,
+      (penBounds.height - 14) / 3
+    )), 54, 86),
     checks
   };
 }
