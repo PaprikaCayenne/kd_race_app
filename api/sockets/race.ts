@@ -117,7 +117,40 @@ export async function patchSessionAndBroadcast(
   patch: Parameters<typeof updateRaceSession>[0],
   origin = 'server'
 ) {
-  await updateRaceSession(patch);
+  const current = getRaceSession();
+  const isReplayControlPatch = (
+    patch.state === 'replaying'
+    || Object.prototype.hasOwnProperty.call(patch, 'selectedReplayRaceId')
+    || Object.prototype.hasOwnProperty.call(patch, 'replayPaused')
+  );
+
+  let effectivePatch = patch;
+
+  if (current.state === 'replaying' && !isReplayControlPatch) {
+    const livePatch: Parameters<typeof updateRaceSession>[0] = {};
+
+    if (Object.prototype.hasOwnProperty.call(patch, 'activeRaceId')) {
+      livePatch.activeRaceId = patch.activeRaceId;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'tournamentId')) {
+      livePatch.tournamentId = patch.tournamentId;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'heatNumber')) {
+      livePatch.heatNumber = patch.heatNumber;
+    }
+    if (patch.state && patch.state !== 'replaying') {
+      livePatch.liveStateBeforeReplay = patch.state;
+    }
+
+    effectivePatch = livePatch;
+  }
+
+  if (Object.keys(effectivePatch).length === 0) {
+    emitSessionUpdate(origin);
+    return;
+  }
+
+  await updateRaceSession(effectivePatch);
   emitSessionUpdate(origin);
 }
 
