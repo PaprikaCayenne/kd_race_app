@@ -39,6 +39,7 @@ interface ReplayRuntimeState {
 }
 
 let replayRuntime: ReplayRuntimeState | null = null;
+const raceRuntimeSockets = new Set<string>();
 
 function normalizeAndSortRanking(ranking: any[]): any[] {
   return [...ranking]
@@ -297,11 +298,20 @@ export function setupRaceNamespace(io: Server): void {
     console.log('✅ [WS] Client connected to /race:', socket.id);
     socket.emit('session:init', { session: getRaceSession() });
 
+    socket.on('race:screen:ready', () => {
+      raceRuntimeSockets.add(socket.id);
+    });
+
     socket.on('session:request-init', () => {
       socket.emit('session:init', { session: getRaceSession() });
     });
 
     socket.on('race:order', (payload) => {
+      if (!raceRuntimeSockets.has(socket.id)) return;
+      const session = getRaceSession();
+      if (session.state === 'replaying') return;
+      if (session.activeRaceId && String(payload?.raceId) !== String(session.activeRaceId)) return;
+
       const ranking = Array.isArray(payload?.ranking) ? payload.ranking : [];
       const canonical = normalizeAndSortRanking(ranking);
       raceNamespace.emit('race:order', {
@@ -356,6 +366,7 @@ export function setupRaceNamespace(io: Server): void {
     });
 
     socket.on('race:finish', async ({ raceId, leaderboard, results, replayFrames = [] }) => {
+      if (!raceRuntimeSockets.has(socket.id)) return;
       try {
         const normalized = Array.isArray(results) && results.length > 0
           ? results
@@ -392,6 +403,10 @@ export function setupRaceNamespace(io: Server): void {
       } catch (err) {
         console.error(`❌ [KD] Failed to finalize race ${raceId}:`, err);
       }
+    });
+
+    socket.on('disconnect', () => {
+      raceRuntimeSockets.delete(socket.id);
     });
   });
 }

@@ -117,6 +117,13 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
   const panelStyles = useMemo(() => layoutPanels(layoutBounds?.infieldBounds), [layoutBounds]);
 
   useEffect(() => {
+    const registerRaceRuntime = () => {
+      socket.emit('race:screen:ready');
+    };
+
+    registerRaceRuntime();
+    socket.on('connect', registerRaceRuntime);
+
     socket.emit('session:request-init');
 
     const onSession = ({ session: nextSession }) => {
@@ -197,6 +204,7 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     socket.on('leaderboard:updated', onLeaderboardUpdated);
 
     return () => {
+      socket.off('connect', registerRaceRuntime);
       socket.off('session:init', onSession);
       socket.off('session:update', onSession);
       socket.off('race:order', onOrder);
