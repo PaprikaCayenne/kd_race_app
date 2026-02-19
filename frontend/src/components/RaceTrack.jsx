@@ -35,32 +35,35 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, n));
 }
 
-function layoutPanels(infieldBounds) {
-  if (!infieldBounds) return null;
+function layoutPanels(panelSafeBounds, infieldHoleBounds) {
+  if (!panelSafeBounds) return null;
 
   const pad = 12;
-  const gap = clamp(Math.round(infieldBounds.width * 0.02), 10, 18);
-  const usableWidth = Math.max(280, infieldBounds.width - pad * 2 - gap * 2);
+  const gap = clamp(Math.round(panelSafeBounds.width * 0.02), 10, 18);
+  const usableWidth = Math.max(280, panelSafeBounds.width - pad * 2 - gap * 2);
 
   const leaderboardWidth = Math.max(150, Math.floor(usableWidth * 0.32));
   const raceWidth = Math.max(125, Math.floor(usableWidth * 0.17));
   const winnerWidth = Math.max(170, usableWidth - leaderboardWidth - raceWidth - gap * 2);
 
-  const panelHeight = Math.max(120, infieldBounds.height - pad * 2);
-  const top = Math.round(infieldBounds.y + pad);
-  const left = Math.round(infieldBounds.x + pad);
+  const panelHeight = Math.max(120, panelSafeBounds.height - pad * 2);
+  const top = Math.round(panelSafeBounds.y + pad);
+  const left = Math.round(panelSafeBounds.x + pad);
+  const leaderboardLeftAnchor = Math.round((infieldHoleBounds?.x ?? panelSafeBounds.x) + 10);
+  const leaderboardTopCenter = Math.round(panelSafeBounds.y + (panelSafeBounds.height / 2));
 
   return {
     leaderboard: {
-      left,
-      top,
+      left: leaderboardLeftAnchor,
+      top: leaderboardTopCenter,
       width: leaderboardWidth,
       maxHeight: panelHeight,
-      overflowY: 'auto'
+      overflowY: 'auto',
+      transform: 'translateY(-50%)'
     },
     winner: {
-      left: infieldBounds.x + (infieldBounds.width / 2),
-      top: infieldBounds.y + (infieldBounds.height / 2),
+      left: panelSafeBounds.x + (panelSafeBounds.width / 2),
+      top: panelSafeBounds.y + (panelSafeBounds.height / 2),
       width: winnerWidth,
       maxHeight: panelHeight,
       overflow: 'hidden',
@@ -156,7 +159,10 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     ? session?.selectedReplayRaceId || null
     : null;
 
-  const panelStyles = useMemo(() => layoutPanels(layoutBounds?.panelSafeBounds), [layoutBounds]);
+  const panelStyles = useMemo(
+    () => layoutPanels(layoutBounds?.panelSafeBounds, layoutBounds?.infieldHoleBounds),
+    [layoutBounds]
+  );
 
   useEffect(() => {
     panelStylesRef.current = panelStyles;
@@ -640,9 +646,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
           users={leaderboard}
           winnerName={winner?.bettorName}
           compact
-          draggable
-          onDragStart={startDrag('leaderboard')}
-          panelStyle={applyPanelOffset('leaderboard', panelStyles.leaderboard)}
+          draggable={false}
+          panelStyle={panelStyles.leaderboard}
         />
       )}
 
