@@ -1,3 +1,10 @@
+function formatReplayClock(ms = 0) {
+  const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 export default function RacesPanel({
   showRaces,
   setShowRaces,
@@ -5,9 +12,19 @@ export default function RacesPanel({
   pastRaces,
   session,
   onReplaySelect,
-  onReplayStop,
-  onReplayClear
+  onReplayToggle,
+  onReplayClear,
+  replayProgress,
+  replaySeekMs,
+  onReplaySeekChange,
+  onReplaySeekCommit
 }) {
+  const replayActive = session?.state === 'replaying';
+  const replayLoadedRaceId = replayActive ? session?.selectedReplayRaceId : null;
+  const replayPaused = replayActive ? Boolean(session?.replayPaused) : true;
+  const replayDuration = Math.max(0, Number(replayProgress?.durationMs) || 0);
+  const replayElapsed = Math.max(0, Number(replaySeekMs ?? replayProgress?.elapsedMs) || 0);
+
   return (
     <div>
       <button
@@ -21,13 +38,18 @@ export default function RacesPanel({
         <div className="mt-4 border p-4 rounded bg-white space-y-4">
           <h2 className="text-xl font-bold">Current Race: {raceState?.name || '—'}</h2>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={onReplayStop}
-              className="px-3 py-1 rounded bg-amber-500 text-white text-sm"
+              onClick={onReplayToggle}
+              disabled={!replayLoadedRaceId}
+              className={`px-3 py-1 rounded text-white text-sm ${
+                replayLoadedRaceId
+                  ? (replayPaused ? 'bg-blue-600 hover:bg-blue-700' : 'bg-amber-600 hover:bg-amber-700')
+                  : 'bg-gray-400 cursor-not-allowed'
+              }`}
             >
-              Stop Replay
+              {replayPaused ? 'Start Replay' : 'Pause Replay'}
             </button>
             <button
               type="button"
@@ -37,9 +59,32 @@ export default function RacesPanel({
               Clear Replay
             </button>
             <span className="text-xs text-gray-600 self-center">
-              Replay state: {session?.state === 'replaying' ? (session?.replayPaused ? 'paused' : 'playing') : 'inactive'}
+              Replay: {replayLoadedRaceId ? `Race ${replayLoadedRaceId}` : 'none loaded'}
+            </span>
+            <span className="text-xs text-gray-600 self-center">
+              State: {replayActive ? (replayPaused ? 'paused' : 'playing') : 'inactive'}
             </span>
           </div>
+
+          {replayLoadedRaceId && replayDuration > 0 && (
+            <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
+              <div className="flex items-center justify-between text-xs text-slate-700 mb-1">
+                <span>{formatReplayClock(replayElapsed)}</span>
+                <span>{formatReplayClock(replayDuration)}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={replayDuration}
+                step={100}
+                value={Math.min(replayDuration, replayElapsed)}
+                onChange={(e) => onReplaySeekChange?.(Number(e.target.value) || 0)}
+                onMouseUp={(e) => onReplaySeekCommit?.(Number(e.currentTarget.value) || 0)}
+                onTouchEnd={(e) => onReplaySeekCommit?.(Number(e.currentTarget.value) || 0)}
+                className="w-full"
+              />
+            </div>
+          )}
 
           {pastRaces.length === 0 ? (
             <p className="text-gray-500">No completed races with replay data yet.</p>
@@ -86,7 +131,7 @@ export default function RacesPanel({
                             onClick={() => onReplaySelect?.(race)}
                             className="text-blue-600 hover:underline font-medium"
                           >
-                            Start Replay
+                            Load Replay
                           </button>
                         ) : (
                           <span className="text-gray-400">Pending</span>

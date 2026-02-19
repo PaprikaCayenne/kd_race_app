@@ -14,7 +14,6 @@ import { horseSpriteDataUri } from '@/utils/horseSpriteSvg';
 import HorseSprite from './HorseSprite';
 import LeaderboardOverlay from './track/LeaderboardOverlay';
 import HorseRankingOverlay from './track/HorseRankingOverlay';
-import { playReplay, stopReplay } from '@/utils/playReplay';
 import { computePenPlacements } from './track/penPlacement';
 
 const VERSION = 'v3.9.0';
@@ -129,15 +128,6 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
     const onSession = ({ session: nextSession }) => {
       setSession(nextSession || null);
       const activeReplay = Boolean(nextSession?.state === 'replaying' && nextSession?.selectedReplayRaceId);
-      const app = appRef.current;
-
-      if (nextSession?.replayPaused && app?.__replayTicker) {
-        stopReplay(app);
-      }
-
-      if (!activeReplay && replayWasActiveRef.current && app?.__replayTicker) {
-        stopReplay(app);
-      }
 
       setReplayMode(activeReplay);
       if (!activeReplay) {
@@ -178,6 +168,32 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
     const onReplayTick = ({ ranking }) => {
       if (!Array.isArray(ranking)) return;
+
+      ranking.forEach((entry) => {
+        const localId = Number(entry.localId);
+        if (!Number.isInteger(localId)) return;
+
+        const path = horsePathsRef.current.get(localId);
+        const sprite = horseSpritesRef.current.get(localId);
+        if (!path || !sprite) return;
+
+        const pct = Math.max(0, Math.min(1, Number(entry.pct ?? entry.normalizedProgress) || 0));
+        const distance = pct * Math.max(1, path.arcLength || 1);
+        const point = path.getPointAtDistance(distance);
+        const next = path.getPointAtDistance(Math.min(distance + 1, path.stopDistance ?? path.arcLength));
+        if (!point || !next) return;
+
+        sprite.x = point.x;
+        sprite.y = point.y;
+        sprite.rotation = Math.atan2(next.y - point.y, next.x - point.x);
+
+        const label = labelSpritesRef.current.get(localId);
+        if (label) {
+          label.x = point.x;
+          label.y = point.y - 20;
+        }
+      });
+
       setReplayRanking(ranking.map((h) => ({
         id: h.id || h.horseId,
         name: h.name,
@@ -443,9 +459,8 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
   useEffect(() => {
     if (!selectedReplayRaceId || !trackReadyRef.current || !appRef.current) return;
-    if (session?.replayPaused) return;
 
-    const runReplay = async () => {
+    const loadReplaySummary = async () => {
       try {
         const res = await fetch(`/api/race/${selectedReplayRaceId}/replay`);
         const data = await res.json();
@@ -453,32 +468,13 @@ const RaceTrack = ({ setRaceName, setRaceWarnings }) => {
 
         setReplayMode(true);
         setReplaySummary({ winner: data.winner, loonWinners: data.loonWinners || [] });
-
-        const replayHorses = data.horses.slice(0, 4);
-        const replayData = {};
-
-        replayHorses.forEach((horse) => {
-          const path = horsePathsRef.current.get(horse.localId);
-          if (!path) return;
-          replayData[horse.localId] = data.frames
-            .filter((f) => f.horseId === horse.id)
-            .map((f) => ({ time: f.timeMs, distance: Math.max(0, Math.min(1, f.pct)) * path.arcLength }));
-        });
-
-        playReplay({
-          app: appRef.current,
-          horseSprites: horseSpritesRef.current,
-          labelSprites: labelSpritesRef.current,
-          horsePaths: horsePathsRef.current,
-          replayData
-        });
       } catch (err) {
         console.error('[KD] ❌ Failed to run replay:', err);
       }
     };
 
-    runReplay();
-  }, [selectedReplayRaceId, session?.replayPaused]);
+    loadReplaySummary();
+  }, [selectedReplayRaceId]);
 
   const racePanelRanking = replayMode
     ? replayRanking

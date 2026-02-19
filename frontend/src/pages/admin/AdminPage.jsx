@@ -63,6 +63,8 @@ export default function AdminPage() {
   const [betCountdown, setBetCountdown] = useState(null);
   const [showBetModal, setShowBetModal] = useState(false);
   const [showDevTools, setShowDevTools] = useState(false);
+  const [replayProgress, setReplayProgress] = useState({ elapsedMs: 0, durationMs: 0 });
+  const [replaySeekMs, setReplaySeekMs] = useState(0);
 
   const usersQuery = useQuery({
     queryKey: ['admin-users'],
@@ -113,6 +115,12 @@ export default function AdminPage() {
       setBetCountdown(null);
     }
   }, [raceState?.countdownSeconds, session?.state]);
+
+  useEffect(() => {
+    if (session?.state === 'replaying') return;
+    setReplayProgress({ elapsedMs: 0, durationMs: 0 });
+    setReplaySeekMs(0);
+  }, [session?.state]);
 
   const handleAdminAction = async (endpoint) => {
     try {
@@ -224,20 +232,30 @@ export default function AdminPage() {
   const startReplay = async (race) => {
     try {
       await axios.post('/api/admin/replay/start', { raceId: race.id }, { headers });
-      setStatus(`✅ Replay started for race ${race.id}`);
+      setStatus(`✅ Replay loaded for race ${race.id}`);
       await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, 'Failed to start replay')}`);
     }
   };
 
-  const stopReplay = async () => {
+  const toggleReplay = async () => {
+    if (session?.state !== 'replaying' || !session?.selectedReplayRaceId) {
+      setStatus('⚠️ Load a replay race first.');
+      return;
+    }
+
     try {
-      await axios.post('/api/admin/replay/stop', {}, { headers });
-      setStatus('✅ Replay stopped');
+      if (session?.replayPaused) {
+        await axios.post('/api/admin/replay/play', {}, { headers });
+        setStatus('✅ Replay started');
+      } else {
+        await axios.post('/api/admin/replay/stop', {}, { headers });
+        setStatus('✅ Replay paused');
+      }
       await refreshQueries();
     } catch (err) {
-      setStatus(`❌ ${extractError(err, 'Failed to stop replay')}`);
+      setStatus(`❌ ${extractError(err, 'Replay control failed')}`);
     }
   };
 
@@ -248,6 +266,18 @@ export default function AdminPage() {
       await refreshQueries();
     } catch (err) {
       setStatus(`❌ ${extractError(err, 'Failed to clear replay')}`);
+    }
+  };
+
+  const seekReplay = async (timeMs) => {
+    if (session?.state !== 'replaying' || !session?.selectedReplayRaceId) return;
+
+    const next = Math.max(0, Number(timeMs) || 0);
+    try {
+      await axios.post('/api/admin/replay/seek', { timeMs: next }, { headers });
+      setReplaySeekMs(next);
+    } catch (err) {
+      setStatus(`❌ ${extractError(err, 'Failed to seek replay')}`);
     }
   };
 
@@ -272,10 +302,57 @@ export default function AdminPage() {
       refreshQueries();
     };
 
+    const onReplayLoaded = ({ elapsedMs = 0, durationMs = 0 } = {}) => {
+      const elapsed = Number(elapsedMs) || 0;
+      const duration = Number(durationMs) || 0;
+      setReplayProgress({ elapsedMs: elapsed, durationMs: duration });
+      setReplaySeekMs(elapsed);
+    };
+
+    const onReplayTick = ({ elapsedMs = 0, durationMs = 0 } = {}) => {
+      const elapsed = Number(elapsedMs) || 0;
+      const duration = Number(durationMs) || 0;
+      setReplayProgress({ elapsedMs: elapsed, durationMs: duration });
+      setReplaySeekMs(elapsed);
+    };
+
+    const onReplayPaused = ({ elapsedMs = 0, durationMs = 0 } = {}) => {
+      const elapsed = Number(elapsedMs) || 0;
+      const duration = Number(durationMs) || 0;
+      setReplayProgress({ elapsedMs: elapsed, durationMs: duration });
+      setReplaySeekMs(elapsed);
+      refreshQueries();
+    };
+
+    const onReplayFinished = ({ durationMs = 0 } = {}) => {
+      const duration = Number(durationMs) || 0;
+      setReplayProgress({ elapsedMs: duration, durationMs: duration });
+      setReplaySeekMs(duration);
+      refreshQueries();
+    };
+
+    const onReplayCleared = () => {
+      setReplayProgress({ elapsedMs: 0, durationMs: 0 });
+      setReplaySeekMs(0);
+      refreshQueries();
+    };
+
     raceSocket.on('leaderboard:updated', onLeaderboardUpdated);
+    raceSocket.on('replay:loaded', onReplayLoaded);
+    raceSocket.on('replay:tick', onReplayTick);
+    raceSocket.on('replay:paused', onReplayPaused);
+    raceSocket.on('replay:seeked', onReplayPaused);
+    raceSocket.on('replay:finished', onReplayFinished);
+    raceSocket.on('replay:cleared', onReplayCleared);
 
     return () => {
       raceSocket.off('leaderboard:updated', onLeaderboardUpdated);
+      raceSocket.off('replay:loaded', onReplayLoaded);
+      raceSocket.off('replay:tick', onReplayTick);
+      raceSocket.off('replay:paused', onReplayPaused);
+      raceSocket.off('replay:seeked', onReplayPaused);
+      raceSocket.off('replay:finished', onReplayFinished);
+      raceSocket.off('replay:cleared', onReplayCleared);
     };
   }, []);
 
@@ -339,8 +416,12 @@ export default function AdminPage() {
         pastRaces={pastRaces}
         session={session}
         onReplaySelect={startReplay}
-        onReplayStop={stopReplay}
+        onReplayToggle={toggleReplay}
         onReplayClear={clearReplay}
+        replayProgress={replayProgress}
+        replaySeekMs={replaySeekMs}
+        onReplaySeekChange={setReplaySeekMs}
+        onReplaySeekCommit={seekReplay}
       />
 
       {showBetModal && (

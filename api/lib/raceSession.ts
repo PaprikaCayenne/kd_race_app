@@ -142,11 +142,18 @@ export async function bootstrapRaceSession(): Promise<RaceSession> {
   return getRaceSession();
 }
 
-export async function startReplaySession(raceId: string): Promise<RaceSession> {
+export async function startReplaySession(raceId: string, replayPaused = true): Promise<RaceSession> {
   return updateRaceSession({
     liveStateBeforeReplay: raceSession.state === 'replaying' ? raceSession.liveStateBeforeReplay : raceSession.state,
     state: 'replaying',
     selectedReplayRaceId: raceId,
+    replayPaused
+  });
+}
+
+export async function resumeReplaySession(): Promise<RaceSession> {
+  return updateRaceSession({
+    state: 'replaying',
     replayPaused: false
   });
 }

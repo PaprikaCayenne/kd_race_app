@@ -10,7 +10,9 @@ import {
   beginReplayAndBroadcast,
   clearReplayAndBroadcast,
   patchSessionAndBroadcast,
+  playReplayAndBroadcast,
   raceNamespace,
+  seekReplayAndBroadcast,
   stopReplayAndBroadcast
 } from '../sockets/race.js';
 import { getRaceSession } from '../lib/raceSession.js';
@@ -26,6 +28,10 @@ const openBetsSchema = z.object({
 
 const replayStartSchema = z.object({
   raceId: z.coerce.number().int().positive()
+});
+
+const replaySeekSchema = z.object({
+  timeMs: z.coerce.number().int().min(0).max(60 * 60 * 1000)
 });
 
 const patchUserSchema = z.object({
@@ -531,14 +537,44 @@ router.post('/replay/start', async (req: Request, res: Response) => {
   }
 
   const raceId = String(parsed.data.raceId);
-  await beginReplayAndBroadcast(raceId, 'admin');
-  res.json({ success: true, message: `Replay started for race ${raceId}` });
+  const loaded = await beginReplayAndBroadcast(raceId, 'admin');
+  if (!loaded) {
+    return res.status(404).json({ error: `Replay data not found for race ${raceId}` });
+  }
+
+  res.json({ success: true, message: `Replay loaded for race ${raceId}` });
+});
+
+router.post('/replay/play', async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) return unauthorized(res);
+  const started = await playReplayAndBroadcast('admin');
+  if (!started) {
+    return res.status(400).json({ error: 'No replay selected. Load a replay first.' });
+  }
+
+  res.json({ success: true, message: 'Replay started' });
 });
 
 router.post('/replay/stop', async (req: Request, res: Response) => {
   if (!isAuthorized(req)) return unauthorized(res);
   await stopReplayAndBroadcast('admin');
   res.json({ success: true, message: 'Replay paused' });
+});
+
+router.post('/replay/seek', async (req: Request, res: Response) => {
+  if (!isAuthorized(req)) return unauthorized(res);
+
+  const parsed = replaySeekSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Valid replay timeMs is required' });
+  }
+
+  const ok = await seekReplayAndBroadcast(parsed.data.timeMs, 'admin');
+  if (!ok) {
+    return res.status(400).json({ error: 'No replay selected. Load a replay first.' });
+  }
+
+  res.json({ success: true, message: 'Replay cursor updated' });
 });
 
 router.post('/replay/clear', async (req: Request, res: Response) => {

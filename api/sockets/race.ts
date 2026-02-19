@@ -1,5 +1,5 @@
 // File: api/sockets/race.ts
-// Version: v3.1.0 — Canonical server-side live ordering from race progress ticks
+// Version: v3.2.0 — Canonical server-side ordering and replay load/play/pause/seek controls
 // Date: 2026-02-19
 
 import { Server, Socket } from 'socket.io';
@@ -10,6 +10,7 @@ import {
   bootstrapRaceSession,
   clearReplaySession,
   getRaceSession,
+  resumeReplaySession,
   startReplaySession,
   stopReplaySession,
   updateRaceSession
@@ -23,6 +24,7 @@ const DEFAULT_SADDLE_HEX = '#888888';
 
 interface ReplayTickHorse {
   horseId: number;
+  localId: number;
   name: string;
   bodyHex: string;
   saddleHex: string;
@@ -35,7 +37,8 @@ interface ReplayRuntimeState {
   paused: boolean;
   timer: NodeJS.Timeout | null;
   startedAtMs: number;
-  cursor: number;
+  elapsedMs: number;
+  durationMs: number;
   timeline: Array<{ timeMs: number; frames: ReplayTickHorse[] }>;
   latestByHorse: Map<number, ReplayTickHorse>;
 }
@@ -205,10 +208,19 @@ function normalizeAndSortRanking(ranking: RankingSeed[]): RankingEntry[] {
     }));
 }
 
-function stopReplayRuntime() {
-  if (replayRuntime?.timer) {
+function pauseReplayRuntime() {
+  if (!replayRuntime) return;
+  replayRuntime.paused = true;
+  replayRuntime.running = false;
+
+  if (replayRuntime.timer) {
     clearInterval(replayRuntime.timer);
+    replayRuntime.timer = null;
   }
+}
+
+function stopReplayRuntime() {
+  pauseReplayRuntime();
   replayRuntime = null;
 }
 
@@ -223,6 +235,7 @@ async function buildReplayTimeline(raceId: bigint): Promise<Array<{ timeMs: numb
       where: { raceId },
       orderBy: { index: 'asc' },
       select: {
+        index: true,
         horse: {
           select: {
             id: true,
@@ -235,7 +248,11 @@ async function buildReplayTimeline(raceId: bigint): Promise<Array<{ timeMs: numb
     })
   ]);
 
-  const horseById = new Map(horses.map((hp) => [hp.horse.id, hp.horse]));
+  const horseById = new Map(horses.map((hp) => [hp.horse.id, {
+    ...hp.horse,
+    localId: hp.index + 1
+  }]));
+
   const grouped = new Map<number, ReplayTickHorse[]>();
 
   frames.forEach((frame) => {
@@ -245,6 +262,7 @@ async function buildReplayTimeline(raceId: bigint): Promise<Array<{ timeMs: numb
     const bucket = grouped.get(frame.timeMs) || [];
     bucket.push({
       horseId: horse.id,
+      localId: horse.localId,
       name: horse.name,
       bodyHex: horse.bodyHex,
       saddleHex: horse.saddleHex,
@@ -256,6 +274,114 @@ async function buildReplayTimeline(raceId: bigint): Promise<Array<{ timeMs: numb
   return Array.from(grouped.entries())
     .sort((a, b) => a[0] - b[0])
     .map(([timeMs, framesAtTime]) => ({ timeMs, frames: framesAtTime }));
+}
+
+function applyReplaySnapshot(elapsedMs: number) {
+  if (!replayRuntime) return;
+
+  const clamped = Math.max(0, Math.min(replayRuntime.durationMs, Math.floor(elapsedMs)));
+  replayRuntime.elapsedMs = clamped;
+  replayRuntime.latestByHorse.clear();
+
+  for (const entry of replayRuntime.timeline) {
+    if (entry.timeMs > clamped) break;
+    entry.frames.forEach((frame) => replayRuntime?.latestByHorse.set(frame.horseId, frame));
+  }
+}
+
+function emitReplayTick() {
+  if (!replayRuntime) return;
+
+  const ranking = normalizeAndSortRanking(
+    Array.from(replayRuntime.latestByHorse.values()).map((horse) => ({
+      id: horse.horseId,
+      horseId: horse.horseId,
+      localId: horse.localId,
+      name: horse.name,
+      bodyHex: horse.bodyHex,
+      saddleHex: horse.saddleHex,
+      normalizedProgress: horse.pct,
+      pct: horse.pct
+    }))
+  );
+
+  raceNamespace?.emit('replay:tick', {
+    raceId: replayRuntime.raceId,
+    elapsedMs: replayRuntime.elapsedMs,
+    durationMs: replayRuntime.durationMs,
+    ranking
+  });
+}
+
+async function loadReplayRuntime(raceId: string): Promise<boolean> {
+  stopReplayRuntime();
+
+  const numericRaceId = BigInt(raceId);
+  const timeline = await buildReplayTimeline(numericRaceId);
+  if (timeline.length === 0) {
+    raceNamespace?.emit('replay:empty', { raceId });
+    return false;
+  }
+
+  const durationMs = Math.max(0, timeline[timeline.length - 1]?.timeMs || 0);
+  replayRuntime = {
+    raceId,
+    running: false,
+    paused: true,
+    timer: null,
+    startedAtMs: Date.now(),
+    elapsedMs: 0,
+    durationMs,
+    timeline,
+    latestByHorse: new Map()
+  };
+
+  applyReplaySnapshot(0);
+
+  raceNamespace?.emit('replay:loaded', {
+    raceId,
+    elapsedMs: 0,
+    durationMs
+  });
+  emitReplayTick();
+  return true;
+}
+
+function startReplayTicker(origin: string) {
+  if (!replayRuntime) return;
+
+  pauseReplayRuntime();
+  replayRuntime.running = true;
+  replayRuntime.paused = false;
+  replayRuntime.startedAtMs = Date.now() - replayRuntime.elapsedMs;
+
+  raceNamespace?.emit('replay:started', {
+    raceId: replayRuntime.raceId,
+    elapsedMs: replayRuntime.elapsedMs,
+    durationMs: replayRuntime.durationMs
+  });
+
+  emitReplayTick();
+
+  replayRuntime.timer = setInterval(() => {
+    if (!replayRuntime || replayRuntime.paused || !replayRuntime.running) return;
+
+    const elapsed = Date.now() - replayRuntime.startedAtMs;
+    applyReplaySnapshot(elapsed);
+    emitReplayTick();
+
+    if (replayRuntime.elapsedMs >= replayRuntime.durationMs) {
+      pauseReplayRuntime();
+      raceNamespace?.emit('replay:finished', {
+        raceId: replayRuntime.raceId,
+        durationMs: replayRuntime.durationMs
+      });
+
+      void stopReplaySession()
+        .then(() => emitSessionUpdate(origin))
+        .catch((err) => console.error('❌ [Replay] Failed to persist finished replay state:', err));
+    }
+  }, 100);
 }
 
 function emitSessionUpdate(origin = 'server') {
@@ -305,20 +431,79 @@ export async function patchSessionAndBroadcast(
 }
 
 export async function beginReplayAndBroadcast(raceId: string, origin = 'admin') {
-  await startReplaySession(raceId);
+  await startReplaySession(raceId, true);
   emitSessionUpdate(origin);
-  await startReplayRuntime(raceId);
+
+  const loaded = await loadReplayRuntime(raceId);
+  if (!loaded) {
+    await clearReplaySession();
+    emitSessionUpdate(origin);
+    return false;
+  }
+
+  return true;
+}
+
+export async function playReplayAndBroadcast(origin = 'admin') {
+  const session = getRaceSession();
+  const replayRaceId = replayRuntime?.raceId || session.selectedReplayRaceId;
+  if (!replayRaceId) return false;
+
+  if (!replayRuntime || replayRuntime.raceId !== replayRaceId) {
+    const loaded = await loadReplayRuntime(replayRaceId);
+    if (!loaded) return false;
+  }
+
+  const latestSession = getRaceSession();
+  if (latestSession.state !== 'replaying' || latestSession.selectedReplayRaceId !== replayRaceId) {
+    await startReplaySession(replayRaceId, false);
+  } else {
+    await resumeReplaySession();
+  }
+
+  emitSessionUpdate(origin);
+  startReplayTicker(origin);
+  return true;
 }
 
 export async function stopReplayAndBroadcast(origin = 'admin') {
-  if (replayRuntime) {
-    replayRuntime.paused = true;
-    replayRuntime.running = false;
-    if (replayRuntime.timer) clearInterval(replayRuntime.timer);
-    replayRuntime.timer = null;
-  }
+  pauseReplayRuntime();
   await stopReplaySession();
   emitSessionUpdate(origin);
+
+  raceNamespace?.emit('replay:paused', {
+    raceId: replayRuntime?.raceId || getRaceSession().selectedReplayRaceId,
+    elapsedMs: replayRuntime?.elapsedMs || 0,
+    durationMs: replayRuntime?.durationMs || 0
+  });
+
+  return true;
+}
+
+export async function seekReplayAndBroadcast(timeMs: number, origin = 'admin') {
+  const session = getRaceSession();
+  const replayRaceId = replayRuntime?.raceId || session.selectedReplayRaceId;
+  if (!replayRaceId) return false;
+
+  if (!replayRuntime || replayRuntime.raceId !== replayRaceId) {
+    const loaded = await loadReplayRuntime(replayRaceId);
+    if (!loaded) return false;
+  }
+
+  pauseReplayRuntime();
+  applyReplaySnapshot(timeMs);
+  emitReplayTick();
+
+  await stopReplaySession();
+  emitSessionUpdate(origin);
+
+  raceNamespace?.emit('replay:seeked', {
+    raceId: replayRuntime?.raceId,
+    elapsedMs: replayRuntime?.elapsedMs || 0,
+    durationMs: replayRuntime?.durationMs || 0
+  });
+
+  return true;
 }
 
 export async function clearReplayAndBroadcast(origin = 'admin') {
@@ -328,75 +513,20 @@ export async function clearReplayAndBroadcast(origin = 'admin') {
   raceNamespace?.emit('replay:cleared');
 }
 
-async function startReplayRuntime(raceId: string) {
-  stopReplayRuntime();
-
-  const numericRaceId = BigInt(raceId);
-  const timeline = await buildReplayTimeline(numericRaceId);
-  if (timeline.length === 0) {
-    raceNamespace?.emit('replay:empty', { raceId });
-    return;
-  }
-
-  replayRuntime = {
-    raceId,
-    running: true,
-    paused: false,
-    timer: null,
-    startedAtMs: Date.now(),
-    cursor: 0,
-    timeline,
-    latestByHorse: new Map()
-  };
-
-  raceNamespace?.emit('replay:started', { raceId });
-
-  replayRuntime.timer = setInterval(() => {
-    if (!replayRuntime || replayRuntime.paused || !replayRuntime.running) return;
-
-    const elapsed = Date.now() - replayRuntime.startedAtMs;
-
-    while (
-      replayRuntime.cursor < replayRuntime.timeline.length
-      && replayRuntime.timeline[replayRuntime.cursor].timeMs <= elapsed
-    ) {
-      const entry = replayRuntime.timeline[replayRuntime.cursor];
-      entry.frames.forEach((frame) => replayRuntime?.latestByHorse.set(frame.horseId, frame));
-      replayRuntime.cursor += 1;
-    }
-
-    const ranking = normalizeAndSortRanking(
-      Array.from(replayRuntime.latestByHorse.values()).map((horse) => ({
-        id: horse.horseId,
-        horseId: horse.horseId,
-        name: horse.name,
-        bodyHex: horse.bodyHex,
-        saddleHex: horse.saddleHex,
-        normalizedProgress: horse.pct,
-        pct: horse.pct
-      }))
-    );
-
-    raceNamespace?.emit('replay:tick', {
-      raceId,
-      elapsedMs: elapsed,
-      ranking
-    });
-
-    if (replayRuntime.cursor >= replayRuntime.timeline.length) {
-      replayRuntime.running = false;
-      if (replayRuntime.timer) clearInterval(replayRuntime.timer);
-      replayRuntime.timer = null;
-      raceNamespace?.emit('replay:finished', { raceId });
-    }
-  }, 100);
-}
-
 export function setupRaceNamespace(io: Server): void {
   raceNamespace = io.of('/race');
 
   bootstrapRaceSession()
-    .then(() => emitSessionUpdate('bootstrap'))
+    .then(async (session) => {
+      emitSessionUpdate('bootstrap');
+
+      if (session.state === 'replaying' && session.selectedReplayRaceId) {
+        const loaded = await loadReplayRuntime(session.selectedReplayRaceId);
+        if (loaded && !session.replayPaused) {
+          startReplayTicker('bootstrap');
+        }
+      }
+    })
     .catch((err) => console.error('❌ [Session] bootstrap failed:', err));
 
   raceNamespace.on('connection', (socket: Socket) => {
@@ -480,8 +610,16 @@ export function setupRaceNamespace(io: Server): void {
       await beginReplayAndBroadcast(String(raceId), 'admin');
     });
 
+    socket.on('admin:replay-play', async () => {
+      await playReplayAndBroadcast('admin');
+    });
+
     socket.on('admin:replay-stop', async () => {
       await stopReplayAndBroadcast('admin');
+    });
+
+    socket.on('admin:replay-seek', async ({ timeMs }) => {
+      await seekReplayAndBroadcast(Number(timeMs) || 0, 'admin');
     });
 
     socket.on('admin:replay-clear', async () => {
