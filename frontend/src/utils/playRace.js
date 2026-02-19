@@ -47,6 +47,23 @@ export function playRace({
   const ticker = setInterval(() => {
     const now = performance.now();
     const raceElapsed = Math.max(0, Math.round(now - raceStartTime));
+    const normalizedByLocalId = new Map();
+    let leaderProgress = 0;
+    let packProgressTotal = 0;
+    let packCount = 0;
+
+    horses.forEach((horse) => {
+      const path = horsePaths.get(horse.localId);
+      if (!path) return;
+      const distance = distanceMap.get(horse.localId) ?? 0;
+      const normalized = getNormalizedProgress(distance, Math.max(1, path.arcLength || 1));
+      normalizedByLocalId.set(horse.localId, normalized);
+      leaderProgress = Math.max(leaderProgress, normalized);
+      packProgressTotal += normalized;
+      packCount += 1;
+    });
+
+    const packAverage = packCount > 0 ? (packProgressTotal / packCount) : 0;
 
     horses.forEach((horse) => {
       const key = horse.localId;
@@ -75,10 +92,20 @@ export function playRace({
 
       targetSpeed *= speedMultiplier;
 
+      // Pack-cohesion tuning keeps races competitive while preserving deterministic pacing.
+      const currentNormalized = normalizedByLocalId.get(key) ?? 0;
+      const leadGap = Math.max(0, leaderProgress - currentNormalized);
+      const packGap = packAverage - currentNormalized;
+      const chaseBoost = clamp((leadGap * 0.26) + (packGap * 0.18), -0.04, 0.14);
+      const runawayDrag = currentNormalized >= (leaderProgress - 0.0001)
+        ? clamp((leadGap * 0.03) + 0.035, 0.02, 0.05)
+        : 0;
+      targetSpeed *= (1 + chaseBoost - runawayDrag);
+
       const previousSpeed = speedMap.get(key) ?? targetSpeed;
       const maxDelta = Math.max(0.24, targetSpeed * 0.1);
       const smoothedSpeed = previousSpeed + clamp(targetSpeed - previousSpeed, -maxDelta, maxDelta);
-      const boundedSpeed = clamp(smoothedSpeed, plan.baseSpeed * speedMultiplier * 0.62, plan.baseSpeed * speedMultiplier * 1.45);
+      const boundedSpeed = clamp(smoothedSpeed, plan.baseSpeed * speedMultiplier * 0.64, plan.baseSpeed * speedMultiplier * 1.38);
       speedMap.set(key, boundedSpeed);
 
       distance += boundedSpeed;
